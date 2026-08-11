@@ -161,6 +161,7 @@ fun HomeScreen(
     // Bottom sheet menu state
     var showMenuSheet by remember { mutableStateOf(false) }
     var showShareSheet by remember { mutableStateOf(false) }
+    var showSlipScanSheet by remember { mutableStateOf(false) }
     // Period the sheet should open on. The monthly banner points it at the finished
     // month; opening from the overflow menu uses whatever the user saved.
     var sharePromptPeriod by remember { mutableStateOf<SharePeriod?>(null) }
@@ -343,6 +344,31 @@ fun HomeScreen(
                                 onDismiss = { showProfileFilterMenu = false }
                             )
                         }
+
+                        // Scan Slip Button
+                        Box(
+                            modifier = Modifier
+                                .size(Dimensions.Component.iconButton)
+                                .clip(CircleShape)
+                                .background(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = CircleShape
+                                )
+                                .clickable(
+                                    onClick = { showSlipScanSheet = true },
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "สแกนสลิป",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(Dimensions.Icon.inline)
+                            )
+                        }
+
                         // More options button
                         Box(
                             modifier = Modifier
@@ -475,6 +501,65 @@ fun HomeScreen(
                                     )
                                 ) { launchSingleTop = true }
                             }
+                        )
+                    }
+                }
+            }
+
+            // 1.1. Quick Scan Slip Banner Card - Prominent Action
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Dimensions.Padding.content, vertical = 6.dp)
+                        .clickable { showSlipScanSheet = true },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = "สแกนสลิป / นำเข้ารูปสลิป",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "เลือกตามโฟลเดอร์ธนาคาร (กสิกร, SCB, กรุงไทย ฯลฯ)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                 }
@@ -1087,6 +1172,16 @@ fun HomeScreen(
         ShareCardSheet(
             initialPeriod = sharePromptPeriod,
             onDismiss = { showShareSheet = false; sharePromptPeriod = null },
+        )
+    }
+
+    // Slip Scan Bottom Sheet
+    if (showSlipScanSheet) {
+        com.pennywiseai.tracker.ui.components.SlipScanBottomSheet(
+            onDismissRequest = { showSlipScanSheet = false },
+            onSaveTransaction = { parsed ->
+                showSlipScanSheet = false
+            }
         )
     }
 

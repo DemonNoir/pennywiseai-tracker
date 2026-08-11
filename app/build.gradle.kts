@@ -313,6 +313,9 @@ dependencies {
     // Google ML Kit Text Recognition (On-Device & Offline)
     implementation("com.google.mlkit:text-recognition:16.0.1")
 
+    // Tesseract 4 Android OCR Engine (On-Device & Offline with Thai support)
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
+
     // Google Play Billing — STANDARD FLAVOR ONLY. F-Droid forbids the
     // proprietary library; its build keeps Pro features unlocked via the
     // FdroidBillingGateway stub and does not need the dep.

@@ -45,6 +45,8 @@ find_jdk21() {
   candidates+=("/Applications/Android Studio.app/Contents/jbr/Contents/Home")
   # 4. Common SDKMAN install.
   candidates+=("${SDKMAN_DIR:-$HOME/.sdkman}/candidates/java/current")
+  # 5. Linux JDK 21 locations
+  candidates+=("/usr/lib/jvm/java-21-openjdk-arm64" "/usr/lib/jvm/java-21-openjdk-amd64" "/usr/lib/jvm/java-21-openjdk" "/usr/lib/jvm/openjdk-21")
 
   for c in "${candidates[@]}"; do
     major="$(jdk_major "$c" || true)"

@@ -1121,6 +1121,42 @@ class HomeViewModel @Inject constructor(
     fun clearDeletedTransaction() {
         _deletedTransaction.value = null
     }
+
+    fun saveParsedSlipTransaction(parsedSlip: com.pennywiseai.tracker.slip.parser.ParsedSlip) {
+        viewModelScope.launch {
+            val amountVal = parsedSlip.amountBigDecimal
+                ?: parsedSlip.amount?.let { java.math.BigDecimal.valueOf(it) }
+                ?: return@launch
+
+            val dateTime = parsedSlip.timestampMillis?.let {
+                java.time.LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(it), java.time.ZoneId.systemDefault())
+            } ?: java.time.LocalDateTime.now()
+
+            val merchant = parsedSlip.receiverName ?: parsedSlip.bankName ?: "Bank Slip Payment"
+            val ref = parsedSlip.refNo ?: "SLIP_${System.currentTimeMillis()}"
+
+            val type = if (parsedSlip.direction == com.pennywiseai.tracker.slip.parser.SlipDirection.INCOMING) {
+                TransactionType.INCOME
+            } else {
+                TransactionType.EXPENSE
+            }
+
+            val entity = TransactionEntity(
+                amount = amountVal,
+                merchantName = merchant,
+                category = "Uncategorized",
+                transactionType = type,
+                dateTime = dateTime,
+                description = "Slip Ref: $ref",
+                bankName = parsedSlip.bankName ?: "Thai Bank",
+                currency = "THB",
+                transactionHash = ref
+            )
+
+            transactionRepository.insertTransaction(entity)
+            com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+        }
+    }
     
     /**
      * Checks if eligible for in-app review and shows if appropriate.

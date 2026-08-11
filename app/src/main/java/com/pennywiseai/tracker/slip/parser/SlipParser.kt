@@ -92,7 +92,7 @@ object SlipParser {
     )
 
     private val refNoRegex = Regex(
-        """(?:รหัสอ้างอิง|เลขที่รายการ|Ref\.?\s*No\.?|Transaction\s*ID|Trans\s*ID)\s*[:\s]*([A-Za-z0-9]+)""",
+        """(?:รหัสอ้างอิง|เลขที่รายการ|Ref\.?\s*(?:No\.?)?|Transaction\s*ID|Trans\s*ID)\s*[:\s]*([A-Za-z0-9]+)""",
         RegexOption.IGNORE_CASE
     )
 
@@ -260,23 +260,53 @@ object SlipParser {
         amountWithLabelRegex.findAll(fullText).forEach { matches.add(it) }
         amountStandaloneRegex.findAll(fullText).forEach { matches.add(it) }
 
-        if (matches.isEmpty()) return Pair(null, null)
+        // Fallback label regex matching common OCR variations (e.g., ยอดเงิน, ยอดโอน, ชำระ, Total)
+        val fallbackLabelRegex = Regex(
+            """(?:ยอดเงิน|ยอดโอน|ยอดรวม|ชำระ|จำนวน|จํานวน|ราคา|Total|Paid|Amount)\s*[\n\r:]*\s*(?:THB|บาท)?\s*([\d,]+\.\d{2})""",
+            RegexOption.IGNORE_CASE
+        )
+        fallbackLabelRegex.findAll(fullText).forEach { matches.add(it) }
 
-        val bestMatch = matches.sortedBy { match ->
-            val labelPos = fullText.indexOf("จำนวน", ignoreCase = true).takeIf { it != -1 }
-                ?: fullText.indexOf("บาท", ignoreCase = true).takeIf { it != -1 }
-                ?: 0
-            Math.abs(match.range.first - labelPos)
-        }.firstOrNull() ?: matches.first()
+        if (matches.isNotEmpty()) {
+            val bestMatch = matches.sortedBy { match ->
+                val labelPos = fullText.indexOf("จำนวน", ignoreCase = true).takeIf { it != -1 }
+                    ?: fullText.indexOf("ยอด", ignoreCase = true).takeIf { it != -1 }
+                    ?: fullText.indexOf("บาท", ignoreCase = true).takeIf { it != -1 }
+                    ?: 0
+                Math.abs(match.range.first - labelPos)
+            }.firstOrNull() ?: matches.first()
 
-        val rawAmountStr = bestMatch.groupValues[1].replace(",", "")
-        val bigDecimalValue = try {
-            BigDecimal(rawAmountStr)
-        } catch (e: Exception) {
-            null
+            val rawAmountStr = bestMatch.groupValues[1].replace(",", "")
+            val bigDecimalValue = try {
+                BigDecimal(rawAmountStr)
+            } catch (e: Exception) {
+                null
+            }
+
+            if (bigDecimalValue != null && bigDecimalValue > BigDecimal.ZERO) {
+                return Pair(bigDecimalValue.toDouble(), bigDecimalValue)
+            }
         }
 
-        return Pair(bigDecimalValue?.toDouble(), bigDecimalValue)
+        // Fallback: If no label match, find the largest decimal number formatted as XXX.XX (monetary amounts on slips are usually the largest)
+        val decimalPattern = Regex("""\b(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})\b""")
+        val candidates = decimalPattern.findAll(fullText).mapNotNull { match ->
+            val str = match.groupValues[1].replace(",", "") + "." + match.groupValues[2]
+            try {
+                BigDecimal(str)
+            } catch (e: Exception) {
+                null
+            }
+        }.filter { it > BigDecimal.ZERO && it < BigDecimal("10000000") }.toList()
+
+        if (candidates.isNotEmpty()) {
+            val maxAmount = candidates.maxOrNull()
+            if (maxAmount != null) {
+                return Pair(maxAmount.toDouble(), maxAmount)
+            }
+        }
+
+        return Pair(null, null)
     }
 
     fun parseToLocalDateTime(dateStr: String?, timeStr: String?): LocalDateTime? {
@@ -352,9 +382,9 @@ object SlipParser {
 
     private fun detectDirection(text: String): SlipDirection {
         return when {
-            text.contains("จ่ายบิล") || text.contains("ชำระเงิน") || text.contains("ชำระสินค้า") || text.contains("Biller") -> SlipDirection.BILL_PAYMENT
-            text.contains("รับเงิน") || text.contains("เงินเข้า") -> SlipDirection.INCOMING
-            text.contains("โอนเงิน") || text.contains("โอนสำเร็จ") -> SlipDirection.OUTGOING
+            text.contains("จ่ายบิล") || text.contains("ชำระเงิน") || text.contains("ชำระสินค้า") || text.contains("Biller") || text.contains("Bill Payment", ignoreCase = true) -> SlipDirection.BILL_PAYMENT
+            text.contains("รับเงินสำเร็จ") || text.contains("เงินเข้า") || text.contains("โอนเงินเข้า") || text.contains("รับโอน") || text.contains("Received", ignoreCase = true) -> SlipDirection.INCOMING
+            text.contains("โอนเงินสำเร็จ") || text.contains("โอนสำเร็จ") || text.contains("โอนเงิน") || text.contains("Transfer Success", ignoreCase = true) -> SlipDirection.OUTGOING
             else -> SlipDirection.UNKNOWN
         }
     }
@@ -521,9 +551,12 @@ object SlipParser {
         val namePrefixes = listOf(
             "นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", 
             "Mr.", "Mrs.", "Ms.", "Miss", "MR.", "MRS.", "MS.", 
-            "บจก.", "บริษัท", "ร้าน", "TrueMoney", "AIS", "บัตรเครดิต", "BOSSEN"
+            "บจก.", "บริษัท", "ร้าน", "TrueMoney", "AIS", "บัตรเครดิต", "Shop", "Store", "Co.,Ltd"
         )
         if (namePrefixes.any { line.startsWith(it, ignoreCase = true) }) return true
+
+        val uppercaseCompanyPattern = Regex("""^[A-Z0-9\s\.\&\-]{3,}$""")
+        if (uppercaseCompanyPattern.matches(line) && line.length >= 3) return true
 
         val namePattern = Regex("""^[\u0E00-\u0E7FA-Za-z0-9\s\(\)\.\/\&\–-]{3,}$""")
         return namePattern.matches(line)
