@@ -41,9 +41,12 @@ import com.pennywiseai.tracker.data.repository.TransactionRepository
 import com.pennywiseai.tracker.utils.Money
 import com.pennywiseai.tracker.utils.sumByCurrency
 import com.pennywiseai.tracker.worker.OptimizedSmsReaderWorker
+import com.pennywiseai.tracker.slip.worker.SlipAutoScanWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,6 +83,7 @@ class HomeViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val inAppUpdateManager: InAppUpdateManager,
     private val inAppReviewManager: InAppReviewManager,
+    private val processSlipUseCase: com.pennywiseai.tracker.domain.usecase.ProcessSlipUseCase,
     @ApplicationContext private val context: Context,
     entitlementGate: com.pennywiseai.tracker.billing.EntitlementGate,
 ) : ViewModel() {
@@ -966,6 +970,16 @@ class HomeViewModel @Inject constructor(
             workRequest
         )
 
+        val slipScanRequest = OneTimeWorkRequestBuilder<com.pennywiseai.tracker.slip.worker.SlipAutoScanWorker>()
+            .addTag(com.pennywiseai.tracker.slip.worker.SlipAutoScanWorker.WORK_NAME)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            com.pennywiseai.tracker.slip.worker.SlipAutoScanWorker.WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            slipScanRequest
+        )
+
         // Update UI to show scanning
         _uiState.value = _uiState.value.copy(isScanning = true)
 
@@ -1124,37 +1138,20 @@ class HomeViewModel @Inject constructor(
 
     fun saveParsedSlipTransaction(parsedSlip: com.pennywiseai.tracker.slip.parser.ParsedSlip) {
         viewModelScope.launch {
-            val amountVal = parsedSlip.amountBigDecimal
-                ?: parsedSlip.amount?.let { java.math.BigDecimal.valueOf(it) }
-                ?: return@launch
-
-            val dateTime = parsedSlip.timestampMillis?.let {
-                java.time.LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(it), java.time.ZoneId.systemDefault())
-            } ?: java.time.LocalDateTime.now()
-
-            val merchant = parsedSlip.receiverName ?: parsedSlip.bankName ?: "Bank Slip Payment"
-            val ref = parsedSlip.refNo ?: "SLIP_${System.currentTimeMillis()}"
-
-            val type = if (parsedSlip.direction == com.pennywiseai.tracker.slip.parser.SlipDirection.INCOMING) {
-                TransactionType.INCOME
-            } else {
-                TransactionType.EXPENSE
+            try {
+                processSlipUseCase.execute(parsedSlip)
+                com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+                
+                // Show a toast for feedback
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "บันทึกรายการสำเร็จ", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("HomeViewModel", "Failed to save slip: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "เกิดข้อผิดพลาดในการบันทึก: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
             }
-
-            val entity = TransactionEntity(
-                amount = amountVal,
-                merchantName = merchant,
-                category = "Uncategorized",
-                transactionType = type,
-                dateTime = dateTime,
-                description = "Slip Ref: $ref",
-                bankName = parsedSlip.bankName ?: "Thai Bank",
-                currency = "THB",
-                transactionHash = ref
-            )
-
-            transactionRepository.insertTransaction(entity)
-            com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
         }
     }
     

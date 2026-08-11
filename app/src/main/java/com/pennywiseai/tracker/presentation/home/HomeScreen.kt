@@ -1180,6 +1180,7 @@ fun HomeScreen(
         com.pennywiseai.tracker.ui.components.SlipScanBottomSheet(
             onDismissRequest = { showSlipScanSheet = false },
             onSaveTransaction = { parsed ->
+                viewModel.saveParsedSlipTransaction(parsed)
                 showSlipScanSheet = false
             }
         )

@@ -69,6 +69,12 @@ release.properties
 # parser-core created by pennywise-web/scripts/deploy.sh).
 /pennywise-web/.parser-core/
 
+# Local Test Data & User Slips
+test_data/
+*.png
+*.jpg
+*.jpeg
+
 # IDE folders
 .idea
 .vscode

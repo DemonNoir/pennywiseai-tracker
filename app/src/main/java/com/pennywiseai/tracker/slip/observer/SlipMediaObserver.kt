@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.data.repository.TransactionRepository
+import com.pennywiseai.tracker.domain.usecase.ProcessSlipUseCase
 import com.pennywiseai.tracker.slip.notification.SlipNotificationManager
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import com.pennywiseai.tracker.slip.parser.ParsedSlip
@@ -41,7 +42,7 @@ class SlipMediaObserver @Inject constructor(
     @ApplicationContext private val context: Context,
     private val ocrEngine: SlipOcrEngine,
     private val notificationManager: SlipNotificationManager,
-    private val transactionRepository: TransactionRepository
+    private val processSlipUseCase: ProcessSlipUseCase
 ) : ContentObserver(Handler(Looper.getMainLooper())) {
 
     private var isRegistered = false
@@ -134,10 +135,10 @@ class SlipMediaObserver @Inject constructor(
             return
         }
 
-        // P0 Rule 1 & 3: Save to Room DB async and show notification with real DB ID
+        // P0 Rule 1 & 3: Save to Room DB async using core logic and show notification
         observerScope.launch {
             try {
-                val savedTransactionId = saveToPennyWiseRoomDb(parsedSlip, amt)
+                val savedTransactionId = processSlipUseCase.execute(parsedSlip)
                 
                 val statusPrefix = if (parsedSlip.confidence == SlipConfidence.CONFIRMED) {
                     "บันทึกสำเร็จ"
@@ -151,31 +152,9 @@ class SlipMediaObserver @Inject constructor(
                     amountText = "$statusPrefix: ฿%.2f".format(amt.toDouble())
                 )
             } catch (e: Exception) {
-                Log.e("SlipMediaObserver", "Failed to save slip transaction to Room DB: ${e.message}", e)
+                Log.e("SlipMediaObserver", "Failed to save slip transaction: ${e.message}", e)
             }
         }
-    }
-
-    private suspend fun saveToPennyWiseRoomDb(parsedSlip: ParsedSlip, amt: BigDecimal): Long {
-        val dateTime = parsedSlip.timestampMillis?.let {
-            LocalDateTime.ofInstant(Instant.ofEpochMilli(it), ZoneId.systemDefault())
-        } ?: LocalDateTime.now()
-
-        val merchant = parsedSlip.receiverName ?: parsedSlip.bankName ?: "Bank Slip Payment"
-        val ref = parsedSlip.refNo ?: "SLIP_${System.currentTimeMillis()}"
-
-        val entity = TransactionEntity(
-            amount = amt,
-            merchantName = merchant,
-            category = "Uncategorized",
-            transactionType = TransactionType.EXPENSE,
-            dateTime = dateTime,
-            description = "Slip Ref: $ref",
-            bankName = parsedSlip.bankName ?: "Thai Bank",
-            transactionHash = ref
-        )
-
-        return transactionRepository.insertTransaction(entity)
     }
 
     private fun extractImageId(uri: Uri): Long? {

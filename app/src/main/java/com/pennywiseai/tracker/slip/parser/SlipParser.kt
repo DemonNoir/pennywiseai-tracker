@@ -177,7 +177,11 @@ object SlipParser {
 
     fun parse(text: String): ParsedSlip {
         val normalizedText = Normalizer.normalize(text, Normalizer.Form.NFC)
-        val lines = normalizedText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            .replace("\u200B", "")
+            .replace("\u200C", "")
+            .replace("\u200D", "")
+        
+        val lines = normalizedText.lines().map { it.trim().replace(Regex("""\s+"""), " ") }.filter { it.isNotEmpty() }
         val fullText = lines.joinToString("\n")
 
         val bankName = detectBankName(fullText)
@@ -488,10 +492,21 @@ object SlipParser {
                         receiverAccount = accPart
                     }
                 } else if (isValidNameCandidate(line)) {
+                    // Priority check: If it has a prefix like "นาย", it's a very strong candidate
+                    val hasNamePrefix = listOf("นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", "Mr", "Mrs", "Ms", "Miss", "บจก", "บริษัท").any { line.startsWith(it) }
+                    
                     if (senderName == null) {
                         senderName = line
                     } else if (receiverName == null && line != senderName) {
-                        receiverName = line
+                        // If current senderName doesn't have a prefix but THIS line does, 
+                        // maybe the previous one was junk. Swap them.
+                        val senderHasPrefix = listOf("นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", "Mr", "Mrs", "Ms", "Miss", "บจก", "บริษัท").any { senderName?.startsWith(it) == true }
+                        
+                        if (!senderHasPrefix && hasNamePrefix) {
+                            senderName = line
+                        } else {
+                            receiverName = line
+                        }
                     }
                 } else if (accountNoRegex.matches(line) || line.contains("xxx", ignoreCase = true)) {
                     if (senderAccount == null) senderAccount = line
@@ -517,8 +532,18 @@ object SlipParser {
     private fun cleanNameString(name: String?): String? {
         if (name == null) return null
         var cleaned = name
+        
+        // 1. ลบชื่อธนาคารออกจากชื่อ (ตรรกะเดิมของคุณ)
         val bankSuffixRegex = Regex("""\s*(?:ธนาคาร|ธ\.)\s*[\u0E00-\u0E7F]+\b""")
-        cleaned = cleaned.replace(bankSuffixRegex, "").trim()
+        cleaned = cleaned.replace(bankSuffixRegex, "")
+        
+        // 2. ลบตัวอักษรขยะท้ายชื่อที่ OCR มักจะอ่านผิด (เช่น 'a', 'อ', '.')
+        cleaned = cleaned.trim()
+            .replace(Regex("""\s+[a-zA-Z]$"""), "") // ลบตัวอังกฤษตัวเดียวท้ายชื่อ
+            .replace(Regex("""\s+[\u0E00-\u0E7F]$"""), "") // ลบตัวไทยตัวเดียวท้ายชื่อ
+            .replace(Regex("""\.$"""), "") // ลบจุดท้ายชื่อ
+            
+        cleaned = cleaned.trim()
         return if (cleaned.isEmpty()) null else cleaned
     }
 
@@ -532,18 +557,19 @@ object SlipParser {
         if (knownAppNames.any { line.equals(it, ignoreCase = true) }) return false
         if (isBankNameLine(line)) return false
 
-        if (line.contains("สำเร็จ") || 
-            line.contains("รหัสอ้างอิง") || 
+        val junkKeywords = listOf(
+            "พรบ", "ลง", "สลิป", "รายการ", "ตรวจสอบ", "สำเร็จ", "จํานวนเงิน", "จำนวนเงิน", "ค่าธรรมเนียม", "ผู้รับเงินสามารถ"
+        )
+        if (junkKeywords.any { line.contains(it) }) return false
+
+        if (line.contains("รหัสอ้างอิง") || 
             line.contains("เลขที่รายการ") || 
-            line.contains("จํานวนเงิน") || 
-            line.contains("จำนวนเงิน") || 
             line.contains("จำนวน:") || 
-            line.contains("ค่าธรรมเนียม") ||
             line.contains("ผู้รับเงินสามารถ")) return false
 
         val labelPrefixes = listOf(
             "Biller ID", "รหัสร้านค้า", "รหัสสาขา", "รหัสธุรกรรม", 
-            "เลขที่อ้างอิง", "เลขอ้างอิง", "ค่าธรรมเนียม", "Ref", "Trans"
+            "เลขที่อ้างอิง", "เลขอ้างอิง", "ค่าธรรมเนียม", "Ref", "Trans", "พรบ"
         )
         if (labelPrefixes.any { line.startsWith(it, ignoreCase = true) }) return false
         if (dateOnlyRegex.containsMatchIn(line) || timeOnlyRegex.containsMatchIn(line)) return false

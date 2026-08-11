@@ -594,7 +594,7 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
                         try {
                             java.time.LocalDate.parse(
                                 dateStr,
-                                java.time.format.DateTimeFormatter.ofPattern(info.dateFormat)
+                                java.time.format.DateTimeFormatter.ofPattern(info.dateFormat, java.util.Locale.US)
                             ).isAfter(java.time.LocalDate.now())
                         } catch (_: Exception) { false }
                     } ?: false

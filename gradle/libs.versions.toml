@@ -48,6 +48,7 @@ material3 = "1.5.0-alpha12"
 haze = "1.7.1"
 composeCharts = "0.2.5"
 billingKtx = "9.0.0"
+paddleocr = "1.0.1"
 
 [libraries]
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
@@ -104,6 +105,7 @@ review = { module = "com.google.android.play:review", version.ref = "review" }
 review-ktx = { module = "com.google.android.play:review-ktx", version.ref = "reviewKtx" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 vision-internal-vkp = { group = "com.google.mlkit", name = "vision-internal-vkp", version.ref = "visionInternalVkp" }
+paddleocr = { module = "io.github.rarnu:paddleocr-android", version.ref = "paddleocr" }
 
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 compose-charts = { module = "io.github.ehsannarmani:compose-charts", version.ref = "composeCharts" }

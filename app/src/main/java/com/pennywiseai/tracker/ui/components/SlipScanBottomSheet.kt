@@ -53,6 +53,37 @@ fun SlipScanBottomSheet(
     val context = LocalContext.current
     val ocrEngine = remember { SlipOcrEngine(context) }
     
+    val requiredPermissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        listOf(
+            android.Manifest.permission.READ_MEDIA_IMAGES,
+            android.Manifest.permission.POST_NOTIFICATIONS
+        )
+    } else {
+        listOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+    
+    var hasRequiredPermissions by remember {
+        mutableStateOf(
+            requiredPermissions.all {
+                androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasRequiredPermissions = requiredPermissions.all { 
+            permissions[it] == true || androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED 
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasRequiredPermissions) {
+            permissionLauncher.launch(requiredPermissions.toTypedArray())
+        }
+    }
+
     var selectedBankFolder by remember { mutableStateOf(bankFolders[0]) }
     var isScanning by remember { mutableStateOf(false) }
     var parseResult by remember { mutableStateOf<ParsedSlip?>(null) }
@@ -112,6 +143,34 @@ fun SlipScanBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            if (!hasRequiredPermissions) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "จำเป็นต้องเข้าถึงรูปภาพเพื่อแสกนสลิป",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { permissionLauncher.launch(requiredPermissions.toTypedArray()) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("อนุญาตสิทธิ์การเข้าถึง")
+                        }
+                    }
+                }
+            }
 
             // Bank Folder Selector Title
             Text(

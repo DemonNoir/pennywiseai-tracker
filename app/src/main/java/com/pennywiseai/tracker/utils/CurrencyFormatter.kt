@@ -329,7 +329,7 @@ object CurrencyFormatter {
      * Returns INR as default for unknown banks
      */
     fun getBankBaseCurrency(bankName: String?): String {
-        if (bankName == null) return "INR"
+        if (bankName == null) return "THB"
 
         // Try to find a parser that can handle this bank name
         val parser = BankParserFactory.getParserByName(bankName)

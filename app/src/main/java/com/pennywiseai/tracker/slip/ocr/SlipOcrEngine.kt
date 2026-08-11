@@ -76,7 +76,10 @@ class SlipOcrEngine @Inject constructor(
                 bitmap.recycle()
 
                 Log.d("SlipOcrEngine", "Tesseract extracted ${rawOcrText.length} characters from image $imageUri")
+                Log.d("SlipOcrEngine", "Raw OCR Text: \n$rawOcrText")
                 val parsedSlip = SlipParser.parse(rawOcrText)
+                Log.d("SlipOcrEngine", "Parsed Result: Bank=${parsedSlip.bankName}, Amount=${parsedSlip.amount}, Confidence=${parsedSlip.confidence}")
+                Log.d("SlipOcrEngine", "Parsed Names: Sender=${parsedSlip.senderName}, Receiver=${parsedSlip.receiverName}")
 
                 withContext(Dispatchers.Main) {
                     onSuccess(parsedSlip)
@@ -92,6 +95,31 @@ class SlipOcrEngine @Inject constructor(
 
     fun processRawText(rawText: String): ParsedSlip {
         return SlipParser.parse(rawText)
+    }
+
+    suspend fun getRawTextSync(imageUri: Uri): String = withContext(Dispatchers.IO) {
+        try {
+            val dataPath = prepareTessData()
+            val bitmap = loadBitmapFromUri(imageUri)
+                ?: throw IllegalArgumentException("Could not load bitmap from URI: $imageUri")
+
+            val tess = TessBaseAPI()
+            val initialized = tess.init(dataPath, "tha+eng")
+            if (!initialized) {
+                bitmap.recycle()
+                throw IllegalStateException("Failed to initialize Tesseract with data at $dataPath")
+            }
+
+            tess.setImage(bitmap)
+            val rawOcrText = tess.utF8Text ?: ""
+            tess.recycle()
+            bitmap.recycle()
+            
+            rawOcrText
+        } catch (e: Exception) {
+            Log.e("SlipOcrEngine", "Sync OCR failed: ${e.message}", e)
+            ""
+        }
     }
 
     private fun loadBitmapFromUri(uri: Uri): Bitmap? {

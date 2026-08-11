@@ -323,3 +323,5 @@ dependencies {
 
     testImplementation(kotlin("test"))
 }
+
+tasks.withType<com.android.build.gradle.tasks.MergeResources>().configureEach { doFirst { project.fileTree(projectDir) { include("**/._*") }.forEach { it.delete() } } }
