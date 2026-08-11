@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base dark theme -->
+    <style name="Theme.Pennywisecompose" parent="android:Theme.Material.NoActionBar" />
+    
+    <!-- Splash Screen theme for dark mode -->
+    <style name="Theme.PennyWise.SplashScreen" parent="Theme.SplashScreen">
+        <!-- Dark background color matching Material Design 3 dark theme -->
+        <item name="windowSplashScreenBackground">#000000</item>
+        
+        <!-- Use the app icon as splash icon -->
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        
+        <!-- Set splash screen duration (Android 12+) -->
+        <item name="windowSplashScreenAnimationDuration">1000</item>
+        
+        <!-- Set the theme to use after splash screen -->
+        <item name="postSplashScreenTheme">@style/Theme.Pennywisecompose</item>
+    </style>
+</resources>

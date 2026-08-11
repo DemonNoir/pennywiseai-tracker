@@ -1,0 +1,103 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+*/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Testing scripts and logs
+crash_log.txt
+test_results.txt
+
+# Kotlin/JVM specific
+*.class
+*.log
+*.ctxt
+.mtj.tmp/
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
+replay_pid*
+
+# Kotlin compiler output
+.kotlin/
+
+keys/
+*.local.*
+
+# Scripts
+scripts/.env
+
+reddit.md
+.claude
+
+# Release artifacts
+*.apk
+*.aab
+app/release/
+app/build/outputs/
+RELEASE_NOTES.md
+
+# Keystore files (never commit these!)
+*.jks
+*.keystore
+release.properties
+
+*.pem
+
+# Root-level deploy script may hold credentials; keep it local.
+# (Scoped to root so committed helper scripts like
+# pennywise-web/scripts/deploy.sh are still tracked.)
+/deploy.sh
+
+# Generated Docker build context for the web container (staged copy of
+# parser-core created by pennywise-web/scripts/deploy.sh).
+/pennywise-web/.parser-core/
+
+# IDE folders
+.idea
+.vscode
+
+# VSCode build files
+parser-core/bin/*
+
+.antigravitycli/*
+# Local Play service-account key (used by scripts/upload-play.sh)
+play-store-key.json
+*play-store*.json
+
+# Local secrets / keys folder — manually backed up, NEVER committed
+secrets/
+
+# Local tooling (screenshot editor, agent skills) — not part of the app
+aso-screenshots/
+.agents/
+skills-lock.json
+
+# Release-notes generator (Claude Agent SDK) deps — package-lock.json is
+# committed for reproducible installs; only the installed modules are ignored.
+scripts/release-notes/node_modules/
+
+# Codegraph index
+.codegraph/
+
+# iOS fastlane env (ASC key/issuer IDs)
+iosApp/fastlane/.env
+
+# fastlane run artifact (regenerated every run)
+iosApp/fastlane/report.xml

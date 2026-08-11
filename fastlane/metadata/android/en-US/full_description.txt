@@ -1,0 +1,30 @@
+Your bank already texts you every transaction. PennyWise reads those SMS on your phone and turns them into an automatic expense tracker — no manual entry, no sign-up, nothing uploaded.
+
+★ Why PennyWise asks for SMS permission
+Reading bank SMS is how the app works — it is the entire product. Everything happens on your device: no server ever receives a message, there is no account to create, and the complete source code is public (AGPL-3.0) so anyone can verify exactly what it does. Would rather not grant it? You can still add transactions by hand or import a PDF statement.
+
+★ Automatic expense tracking
+• Every UPI payment, card swipe, ATM withdrawal and bank transfer becomes a categorized transaction
+• 142 banks and payment services across 23 countries, with multi-currency support
+• Works with any UPI app — it reads your bank's SMS, not the app
+• A clean, searchable spending timeline that stays up to date on its own
+
+★ Budgets and insights
+• Set monthly budgets per category and watch progress as you spend
+• Spending trends, category breakdowns and month-on-month comparisons
+• Automatic subscription detection — finds the recurring payments you forgot about
+• Smart rules to auto-categorize transactions your way
+
+★ On-device AI assistant
+Ask "what did I spend on food last month?" and get a real answer. The AI model (Qwen 2.5) runs locally on your phone — no API calls, no cloud, works offline.
+
+★ Private by design
+• No account, no login, no email required
+• No ads, no trackers, no analytics on your financial data
+• Nothing leaves your device
+• Open source (AGPL-3.0) — read the code yourself
+
+★ Free, with an optional Pro upgrade
+PennyWise is free to use. Where in-app purchases are available, an optional Pro upgrade adds unlimited custom rules, PDF statement imports, CSV export and duplicate-account merge — and directly supports a solo developer building PennyWise independently. Builds distributed without in-app purchases have all of it unlocked from the start.
+
+A money manager, budget planner and spending tracker in one — for people who hate typing in expenses.

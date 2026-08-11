@@ -1,0 +1,490 @@
+package com.pennywiseai.tracker.data.repository
+
+import com.pennywiseai.tracker.data.database.dao.TransactionDao
+import com.pennywiseai.tracker.data.database.dao.TransactionSplitDao
+import com.pennywiseai.tracker.data.database.entity.TransactionEntity
+import com.pennywiseai.tracker.data.database.entity.TransactionSplitEntity
+import com.pennywiseai.tracker.data.database.entity.TransactionType
+import com.pennywiseai.tracker.data.database.entity.TransactionWithSplits
+import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
+import com.pennywiseai.tracker.data.statement.StatementTransactionEnricher
+import com.pennywiseai.tracker.data.manager.TransactionDeduplication
+import com.pennywiseai.tracker.domain.model.BudgetCycle
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.YearMonth
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlin.math.min
+
+@Singleton
+class TransactionRepository @Inject constructor(
+    private val transactionDao: TransactionDao,
+    private val transactionSplitDao: TransactionSplitDao,
+    private val userPreferencesRepository: UserPreferencesRepository
+) {
+    fun getAllTransactions(): Flow<List<TransactionEntity>> = 
+        transactionDao.getAllTransactions()
+    
+    suspend fun getTransactionById(id: Long): TransactionEntity? = 
+        transactionDao.getTransactionById(id)
+    
+    fun getTransactionsBetweenDates(
+        startDate: LocalDateTime,
+        endDate: LocalDateTime
+    ): Flow<List<TransactionEntity>> = 
+        transactionDao.getTransactionsBetweenDates(startDate, endDate)
+    
+    fun getTransactionsBetweenDates(
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): Flow<List<TransactionEntity>> =
+        transactionDao.getTransactionsBetweenDates(
+            startDate.atStartOfDay(),
+            endDate.atTime(23, 59, 59)
+        )
+
+    /**
+     * Gets transactions filtered at the database level for better performance.
+     * Combines date range, currency, and transaction type filters to reduce memory usage.
+     *
+     * @param startDate Start of the date range (inclusive)
+     * @param endDate End of the date range (inclusive)
+     * @param currency Currency code to filter by (e.g., "INR", "USD")
+     * @param transactionType Optional transaction type filter (null means all types)
+     * @return Flow of filtered transactions
+     */
+    fun getTransactionsFiltered(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        currency: String,
+        transactionType: TransactionType? = null
+    ): Flow<List<TransactionEntity>> =
+        transactionDao.getTransactionsFiltered(
+            startDate.atStartOfDay(),
+            endDate.atTime(23, 59, 59),
+            currency,
+            transactionType
+        )
+    
+    fun getTransactionsByType(type: TransactionType): Flow<List<TransactionEntity>> = 
+        transactionDao.getTransactionsByType(type)
+    
+    fun getTransactionsByCategory(category: String): Flow<List<TransactionEntity>> = 
+        transactionDao.getTransactionsByCategory(category)
+    
+    fun searchTransactions(query: String): Flow<List<TransactionEntity>> =
+        transactionDao.searchTransactions(query)
+
+    fun getAllCurrencies(): Flow<List<String>> =
+        transactionDao.getAllCurrencies()
+
+    fun getCurrenciesForPeriod(startDate: LocalDateTime, endDate: LocalDateTime): Flow<List<String>> =
+        transactionDao.getCurrenciesForPeriod(startDate, endDate)
+    
+    fun getAllCategories(): Flow<List<String>> =
+        transactionDao.getAllCategories()
+
+    /**
+     * Gets the top N categories by usage count (number of transactions).
+     * Useful for showing user's most frequently used categories in notifications.
+     *
+     * @param limit Maximum number of categories to return (default: 3)
+     * @return List of category names ordered by usage count (most used first)
+     */
+    suspend fun getTopCategoriesByUsage(limit: Int = 3): List<String> =
+        transactionDao.getTopCategoriesByUsage(limit)
+
+    fun getAllMerchants(): Flow<List<String>> =
+        transactionDao.getAllMerchants()
+    
+    suspend fun getTotalAmountByTypeAndPeriod(
+        type: TransactionType,
+        startDate: LocalDateTime,
+        endDate: LocalDateTime
+    ): Double? = transactionDao.getTotalAmountByTypeAndPeriod(type, startDate, endDate)
+    
+    suspend fun insertTransaction(transaction: TransactionEntity): Long = 
+        transactionDao.insertTransaction(transaction)
+    
+    suspend fun insertTransactions(transactions: List<TransactionEntity>) = 
+        transactionDao.insertTransactions(transactions)
+    
+    suspend fun updateTransaction(transaction: TransactionEntity) = 
+        transactionDao.updateTransaction(transaction)
+    
+    suspend fun deleteTransaction(transaction: TransactionEntity, hardDelete: Boolean = false) {
+        if (hardDelete) {
+            transactionDao.deleteTransaction(transaction)
+        } else {
+            transactionDao.softDeleteTransaction(transaction.id)
+        }
+    }
+
+    suspend fun deleteTransactionById(id: Long, hardDelete: Boolean = false) {
+        if (hardDelete) {
+            transactionDao.deleteTransactionById(id)
+        } else {
+            transactionDao.softDeleteTransaction(id)
+        }
+    }
+
+    suspend fun deleteAllTransactions() =
+        transactionDao.deleteAllTransactions()
+
+    /** See [TransactionDao.deleteUncuratedTransactions]. */
+    suspend fun deleteUncuratedTransactions() =
+        transactionDao.deleteUncuratedTransactions()
+
+    // Helper method to check if transaction exists by hash
+    suspend fun getTransactionByHash(transactionHash: String): TransactionEntity? =
+        transactionDao.getTransactionByHash(transactionHash)
+
+    /**
+     * The subset of [hashes] already present. Chunked under SQLite's 999
+     * bind-variable limit (Room does not auto-chunk `IN (:list)`), so a large
+     * CSV import can't crash with "too many SQL variables".
+     */
+    suspend fun getExistingHashes(hashes: List<String>): List<String> =
+        hashes.chunked(900).flatMap { transactionDao.getExistingHashes(it) }
+
+    /** See [TransactionDao.findRecentExpensesByMerchantAndAmount]. */
+    suspend fun findRecentExpensesByMerchantAndAmount(
+        merchant: String,
+        amount: java.math.BigDecimal,
+        since: java.time.LocalDateTime,
+        limit: Int = 5,
+    ): List<TransactionEntity> =
+        transactionDao.findRecentExpensesByMerchantAndAmount(merchant, amount, since, limit)
+
+    suspend fun getTransactionByReference(reference: String): TransactionEntity? =
+        transactionDao.getTransactionByReference(reference)
+
+    suspend fun findStatementMergeCandidate(transaction: TransactionEntity): TransactionEntity? {
+        val reference = transaction.reference?.takeIf { it.isNotBlank() } ?: return null
+        return transactionDao.getTransactionsByReference(reference)
+            .firstOrNull { candidate ->
+                StatementTransactionEnricher.isStatementMatch(candidate, transaction)
+            }
+    }
+
+    suspend fun findPotentialDuplicates(transaction: TransactionEntity): List<TransactionEntity> {
+        if (!TransactionDeduplication.hasUpiReference(transaction)) return emptyList()
+
+        return transactionDao.findPotentialDuplicatesByReference(
+            reference = transaction.reference.orEmpty(),
+            amount = transaction.amount,
+            transactionType = transaction.transactionType,
+            currency = transaction.currency,
+            accountNumber = transaction.accountNumber,
+            startDate = transaction.dateTime.minus(TransactionDeduplication.UPI_DUPLICATE_WINDOW),
+            endDate = transaction.dateTime.plus(TransactionDeduplication.UPI_DUPLICATE_WINDOW)
+        ).filter { candidate ->
+            candidate.id != transaction.id &&
+                    TransactionDeduplication.isSameUpiTransaction(candidate, transaction)
+        }
+    }
+
+    suspend fun getTransactionByAmountAndDate(
+        amount: BigDecimal,
+        dateStart: LocalDateTime,
+        dateEnd: LocalDateTime
+    ): List<TransactionEntity> =
+        transactionDao.getTransactionByAmountAndDate(amount, dateStart, dateEnd)
+
+    suspend fun findGPayDuplicateIdsForCleanup(): List<Long> {
+        val candidates = transactionDao.findPotentialDuplicatesByReference()
+        return TransactionDeduplication.duplicateIdsToDelete(candidates)
+    }
+    
+    suspend fun undoDeleteTransaction(transaction: TransactionEntity) {
+        transactionDao.updateTransaction(transaction.copy(isDeleted = false))
+    }
+    
+    suspend fun updateCategoryForMerchant(merchantName: String, newCategory: String) {
+        transactionDao.updateCategoryForMerchant(merchantName, newCategory)
+    }
+
+    suspend fun updateCategory(transactionId: Long, category: String) {
+        transactionDao.updateCategoryById(transactionId, category, LocalDateTime.now())
+    }
+    
+    suspend fun getOtherTransactionCountForMerchant(merchantName: String, excludeId: Long): Int {
+        return transactionDao.getTransactionCountForMerchant(merchantName, excludeId)
+    }
+
+    suspend fun countExplicitProfileMismatchForAccount(
+        bankName: String,
+        accountLast4: String,
+        profileId: Long
+    ): Int {
+        return transactionDao.countExplicitProfileMismatchForAccount(bankName, accountLast4, profileId)
+    }
+
+    suspend fun setProfileForAccountTransactions(
+        bankName: String,
+        accountLast4: String,
+        profileId: Long
+    ): Int {
+        return transactionDao.setProfileForAccountTransactions(
+            bankName,
+            accountLast4,
+            profileId,
+            LocalDateTime.now()
+        )
+    }
+    
+    // Additional methods for Home screen
+    data class MonthlyBreakdown(
+        val total: BigDecimal,
+        val income: BigDecimal,
+        val expenses: BigDecimal
+    )
+    
+    fun getCurrentMonthBreakdown(): Flow<MonthlyBreakdown> {
+        return getTransactionsForCurrentMonth()
+            .map { transactions ->
+                transactions.toMonthlyBreakdown()
+            }
+    }
+    
+    fun getCurrentMonthTotal(): Flow<BigDecimal> {
+        return getCurrentMonthBreakdown().map { it.total }
+    }
+    
+    fun getLastMonthBreakdown(): Flow<MonthlyBreakdown> {
+        return getTransactionsForComparableLastMonth()
+            .map { transactions ->
+                transactions.toMonthlyBreakdown()
+            }
+    }
+    
+    fun getLastMonthTotal(): Flow<BigDecimal> {
+        return getLastMonthBreakdown().map { it.total }
+    }
+
+    // Currency-grouped breakdown methods
+    fun getCurrentMonthBreakdownByCurrency(): Flow<Map<String, MonthlyBreakdown>> {
+        return getTransactionsForCurrentMonth()
+            .map { transactions ->
+                transactions.toMonthlyBreakdownByCurrency()
+            }
+    }
+
+    fun getLastMonthBreakdownByCurrency(): Flow<Map<String, MonthlyBreakdown>> {
+        return getTransactionsForComparableLastMonth()
+            .map { transactions ->
+                transactions.toMonthlyBreakdownByCurrency()
+            }
+    }
+
+    private fun getTransactionsForCurrentMonth(): Flow<List<TransactionEntity>> {
+        val now = LocalDate.now()
+        return userPreferencesRepository.budgetCycleStartDay.flatMapLatest { startDay ->
+            val (cycleStart, cycleEnd) = BudgetCycle.currentCycle(now, startDay)
+            val startDate = cycleStart.atStartOfDay()
+            val endDate = cycleEnd.atTime(LocalTime.MAX)
+            transactionDao.getTransactionsBetweenDates(startDate, endDate)
+                // Monthly spending summary ignores analytics-excluded transactions (#451).
+                .map { txns -> txns.filter { !it.excludedFromAnalytics } }
+        }
+    }
+
+    private fun getTransactionsForComparableLastMonth(): Flow<List<TransactionEntity>> {
+        val now = LocalDate.now()
+        return userPreferencesRepository.budgetCycleStartDay.flatMapLatest { startDay ->
+            val current = BudgetCycle.currentCycle(now, startDay)
+            val (prevStart, prevEnd) = BudgetCycle.previousCycle(current, startDay)
+            val startDate = prevStart.atStartOfDay()
+            val endDate = prevEnd.atTime(LocalTime.MAX)
+            transactionDao.getTransactionsBetweenDates(startDate, endDate)
+                // Monthly spending summary ignores analytics-excluded transactions (#451).
+                .map { txns -> txns.filter { !it.excludedFromAnalytics } }
+        }
+    }
+
+    private fun List<TransactionEntity>.toMonthlyBreakdown(): MonthlyBreakdown {
+        val income = sumTransactionType(TransactionType.INCOME)
+        val expenses = sumTransactionType(TransactionType.EXPENSE)
+        return MonthlyBreakdown(
+            total = income - expenses,
+            income = income,
+            expenses = expenses
+        )
+    }
+
+    private fun List<TransactionEntity>.toMonthlyBreakdownByCurrency(): Map<String, MonthlyBreakdown> {
+        return filter { it.loanId == null }
+            .groupBy { it.currency }
+            .mapValues { (_, transactions) -> transactions.toMonthlyBreakdown() }
+    }
+
+    private fun List<TransactionEntity>.sumTransactionType(type: TransactionType): BigDecimal {
+        return filter { it.loanId == null && it.transactionType == type }
+            .fold(BigDecimal.ZERO) { acc, transaction -> acc + transaction.amount }
+    }
+    
+    fun getRecentTransactions(limit: Int = 5): Flow<List<TransactionEntity>> {
+        return transactionDao.getAllTransactions()
+            .map { transactions ->
+                transactions.take(limit)
+            }
+    }
+
+    fun getTransactionsByAccount(bankName: String, accountLast4: String): Flow<List<TransactionEntity>> {
+        return transactionDao.getTransactionsByAccount(bankName, accountLast4)
+    }
+
+    suspend fun countByAccount(bankName: String, accountLast4: String): Int =
+        transactionDao.countByAccount(bankName, accountLast4)
+
+    /**
+     * Bulk re-target every transaction on the source account to the target
+     * account. Used by the account-merge feature (#368). Returns the row
+     * count actually updated. Caller cleans up the source account's balance
+     * rows afterwards via [AccountBalanceRepository.deleteAccount].
+     */
+    suspend fun mergeAccountTransactions(
+        sourceBankName: String,
+        sourceAccountLast4: String,
+        targetBankName: String,
+        targetAccountLast4: String
+    ): Int = transactionDao.mergeAccountTransactions(
+        sourceBankName = sourceBankName,
+        sourceAccountLast4 = sourceAccountLast4,
+        targetBankName = targetBankName,
+        targetAccountLast4 = targetAccountLast4,
+        updatedAt = LocalDateTime.now()
+    )
+
+    /** Re-target TRANSFER from/to-account refs after an account merge (#368). */
+    suspend fun retargetTransferLegRefs(
+        sourceAccountLast4: String,
+        targetAccountLast4: String
+    ): Int = transactionDao.retargetTransferLegRefs(
+        sourceAccountLast4 = sourceAccountLast4,
+        targetAccountLast4 = targetAccountLast4,
+        updatedAt = LocalDateTime.now()
+    )
+
+    fun getTransactionsByAccountAndDateRange(
+        bankName: String,
+        accountLast4: String,
+        startDate: LocalDateTime,
+        endDate: LocalDateTime
+    ): Flow<List<TransactionEntity>> {
+        return transactionDao.getTransactionsByAccountAndDateRange(bankName, accountLast4, startDate, endDate)
+    }
+
+    // Methods for batch rule application
+    suspend fun getAllTransactionsList(): List<TransactionEntity> {
+        // Get all non-deleted transactions as a list (not Flow) for batch processing
+        // Use a large date range to get all transactions
+        val startDate = LocalDateTime.of(2000, 1, 1, 0, 0)
+        val endDate = LocalDateTime.now().plusYears(10)
+        return transactionDao.getTransactionsBetweenDatesList(startDate, endDate)
+    }
+
+    suspend fun getUncategorizedTransactions(): List<TransactionEntity> {
+        // Get all transactions without a category or with "Others" category
+        return getAllTransactionsList().filter { transaction ->
+            transaction.category.isNullOrBlank() || transaction.category == "Others"
+        }
+    }
+
+    // ========== Transaction Split Methods ==========
+
+    /**
+     * Gets a transaction with its splits.
+     */
+    fun getTransactionWithSplits(transactionId: Long): Flow<TransactionWithSplits?> =
+        transactionSplitDao.getTransactionWithSplits(transactionId)
+
+    /**
+     * Gets transactions with their splits for a date range and currency.
+     * Useful for analytics that need to consider split amounts by category.
+     */
+    fun getTransactionsWithSplitsFiltered(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        currency: String
+    ): Flow<List<TransactionWithSplits>> =
+        transactionSplitDao.getTransactionsWithSplitsFiltered(
+            startDate.atStartOfDay(),
+            endDate.atTime(23, 59, 59),
+            currency
+        )
+
+    /**
+     * Gets transactions with their splits for a date range across all currencies.
+     * Used for unified currency mode where all currencies are loaded and converted.
+     */
+    fun getTransactionsWithSplitsFiltered(
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): Flow<List<TransactionWithSplits>> =
+        transactionSplitDao.getTransactionsWithSplitsAllCurrencies(
+            startDate.atStartOfDay(),
+            endDate.atTime(23, 59, 59)
+        )
+
+    /**
+     * Gets a transaction with its splits synchronously.
+     */
+    suspend fun getTransactionWithSplitsSync(transactionId: Long): TransactionWithSplits? =
+        transactionSplitDao.getTransactionWithSplitsSync(transactionId)
+
+    /**
+     * Gets splits for a specific transaction.
+     */
+    fun getSplitsForTransaction(transactionId: Long): Flow<List<TransactionSplitEntity>> =
+        transactionSplitDao.getSplitsForTransaction(transactionId)
+
+    /**
+     * Checks if a transaction has splits.
+     */
+    suspend fun hasSplits(transactionId: Long): Boolean =
+        transactionSplitDao.hasSplits(transactionId)
+
+    /**
+     * Saves splits for a transaction, replacing any existing splits.
+     */
+    suspend fun saveSplits(transactionId: Long, splits: List<TransactionSplitEntity>) {
+        // Delete existing splits
+        transactionSplitDao.deleteSplitsForTransaction(transactionId)
+        // Insert new splits
+        if (splits.isNotEmpty()) {
+            transactionSplitDao.insertSplits(splits.map { it.copy(transactionId = transactionId) })
+        }
+    }
+
+    /**
+     * Removes all splits from a transaction.
+     */
+    suspend fun removeSplits(transactionId: Long) {
+        transactionSplitDao.deleteSplitsForTransaction(transactionId)
+    }
+
+    /**
+     * Inserts a single split.
+     */
+    suspend fun insertSplit(split: TransactionSplitEntity): Long =
+        transactionSplitDao.insertSplit(split)
+
+    /**
+     * Updates a split.
+     */
+    suspend fun updateSplit(split: TransactionSplitEntity) =
+        transactionSplitDao.updateSplit(split)
+
+    /**
+     * Deletes a single split.
+     */
+    suspend fun deleteSplit(split: TransactionSplitEntity) =
+        transactionSplitDao.deleteSplit(split)
+}
