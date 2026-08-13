@@ -137,6 +137,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += setOf(
                 "META-INF/LICENSE.md",
@@ -310,13 +313,18 @@ dependencies {
     // PDFBox Android for PDF statement parsing
     implementation(libs.pdfbox.android)
 
-    // Google ML Kit Text Recognition (On-Device & Offline)
-    implementation("com.google.mlkit:text-recognition:16.0.1")
+    // PaddleOCR Lite & ONNX Runtime (On-Device & Offline Thai + English OCR)
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
+    implementation(libs.onnxruntime.android)
+    implementation(libs.opencv.android)
 
-    // Tesseract 4 Android OCR Engine (On-Device & Offline with Thai support)
-    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
+    // Tesseract 5 (Tesseract4Android) — primary OCR engine for Thai slips;
+    // far better Thai glyph accuracy than PaddleOCR, esp. for amounts.
+    implementation(libs.tesseract4android)
+
 
     // Google Play Billing — STANDARD FLAVOR ONLY. F-Droid forbids the
+
     // proprietary library; its build keeps Pro features unlocked via the
     // FdroidBillingGateway stub and does not need the dep.
     "standardImplementation"(libs.billing.ktx)

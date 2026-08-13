@@ -24,6 +24,18 @@
 -keep class com.google.ai.edge.litertlm.** { *; }
 -dontwarn com.google.ai.edge.litertlm.**
 
+# ONNX Runtime (slip OCR — SlipOcrEngine uses OrtEnvironment/OrtSession/OnnxTensor)
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
+
+# OpenCV (used by PaddleOCR-lite image preprocessing)
+-keep class org.opencv.** { *; }
+-dontwarn org.opencv.**
+
+# Tesseract4Android (TesseractOcrEngine uses TessBaseAPI)
+-keep class com.googlecode.tesseract.android.** { *; }
+-dontwarn com.googlecode.tesseract.android.**
+
 # Room
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *

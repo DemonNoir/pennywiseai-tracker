@@ -12,10 +12,8 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.pennywiseai.tracker.data.database.entity.TransactionEntity
-import com.pennywiseai.tracker.data.database.entity.TransactionType
-import com.pennywiseai.tracker.data.repository.TransactionRepository
 import com.pennywiseai.tracker.domain.usecase.ProcessSlipUseCase
+import com.pennywiseai.tracker.slip.SlipScanDataStore
 import com.pennywiseai.tracker.slip.notification.SlipNotificationManager
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import com.pennywiseai.tracker.slip.parser.ParsedSlip
@@ -45,8 +43,25 @@ class SlipMediaObserver @Inject constructor(
     private val processSlipUseCase: ProcessSlipUseCase
 ) : ContentObserver(Handler(Looper.getMainLooper())) {
 
+    companion object {
+        val THAI_BANK_FOLDERS = listOf(
+            "K PLUS",
+            "SCB EASY",
+            "Krungthai",
+            "KMA",
+            "ttb touch",
+            "GSB",
+            "BAAC",
+            "ธ.ก.ส."
+        )
+    }
+
     private var isRegistered = false
     private var lastProcessedUri: Uri? = null
+
+    // In-memory cache of processed image IDs, seeded from the persistent
+    // SlipScanDataStore at registration so a process restart doesn't re-scan
+    // slips that were already handled. Writes are mirrored to the store.
     private val processedImageIds = mutableSetOf<Long>()
     private val observerScope = CoroutineScope(Dispatchers.IO)
 
@@ -80,6 +95,20 @@ class SlipMediaObserver @Inject constructor(
             )
             isRegistered = true
             Log.i("SlipMediaObserver", "SlipMediaObserver registered successfully.")
+
+            // Seed the in-memory processed-set from the persistent store so slips
+            // already scanned before an app-process death are not re-scanned.
+            // Done synchronously (one-time, ~500-entry read at app start) so the
+            // set is fully populated before any onChange callback can touch it —
+            // both run on the main thread, avoiding a concurrent-modification race.
+            try {
+                runBlocking {
+                    processedImageIds.addAll(SlipScanDataStore.getProcessedImageIds(context))
+                }
+                Log.d("SlipMediaObserver", "Seeded ${processedImageIds.size} previously processed image IDs.")
+            } catch (e: Exception) {
+                Log.w("SlipMediaObserver", "Failed to seed processed image IDs: ${e.message}")
+            }
         } catch (e: Exception) {
             Log.e("SlipMediaObserver", "Failed to register SlipMediaObserver: ${e.message}", e)
         }
@@ -111,7 +140,16 @@ class SlipMediaObserver @Inject constructor(
         ocrEngine.processImageUri(
             imageUri = targetUri,
             onSuccess = { parsedSlip ->
-                if (imageId != null) processedImageIds.add(imageId)
+                if (imageId != null) {
+                    processedImageIds.add(imageId)
+                    observerScope.launch {
+                        try {
+                            SlipScanDataStore.addProcessedImageId(context, imageId)
+                        } catch (e: Exception) {
+                            Log.w("SlipMediaObserver", "Failed to persist processed image ID $imageId: ${e.message}")
+                        }
+                    }
+                }
                 processParsedSlip(parsedSlip)
             },
             onError = { ex ->
@@ -169,11 +207,23 @@ class SlipMediaObserver @Inject constructor(
         if (!hasStoragePermission()) return null
         val projection = arrayOf(MediaStore.Images.Media._ID)
         val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        
+        val selection = StringBuilder("(")
+        val selectionArgs = mutableListOf<String>()
+        THAI_BANK_FOLDERS.forEachIndexed { index, folder ->
+            if (index > 0) selection.append(" OR ")
+            selection.append("${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} LIKE ?")
+            selection.append(" OR ${MediaStore.Images.Media.DATA} LIKE ?")
+            selectionArgs.add("%$folder%")
+            selectionArgs.add("%$folder%")
+        }
+        selection.append(")")
+
         val cursor = context.contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             projection,
-            null,
-            null,
+            selection.toString(),
+            selectionArgs.toTypedArray(),
             sortOrder
         )
 

@@ -10,3 +10,6 @@ guide. It is intentionally a thin pointer and a *real file* (not a symlink), so
 it resolves the same on every checkout mode — Windows without symlink support,
 sparse checkouts, the GitHub web UI, and archive/zip exports. `CLAUDE.md` is the
 single source of truth; keep guidance there, not here.
+
+- **File Delivery:** When requested to send or deliver files, build artifacts, or APKs, serve them via a local HTTP server on `localhost` (e.g. `http://localhost:8080/`).
+

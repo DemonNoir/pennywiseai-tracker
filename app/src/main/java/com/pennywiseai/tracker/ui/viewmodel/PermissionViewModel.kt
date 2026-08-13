@@ -28,11 +28,17 @@ class PermissionViewModel @Inject constructor(
         observeUserPreferences()
     }
 
-    private fun refreshPermissions() {
+    fun refreshPermissions() {
         val hasSmsPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
+
+        val hasMediaPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
 
         val notificationAccess = NotificationManagerCompat
             .getEnabledListenerPackages(context)
@@ -41,6 +47,7 @@ class PermissionViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 hasPermission = hasSmsPermission,
+                hasMediaPermission = hasMediaPermission,
                 hasNotificationAccess = notificationAccess
             )
         }
@@ -82,6 +89,7 @@ class PermissionViewModel @Inject constructor(
 
 data class PermissionUiState(
     val hasPermission: Boolean = false,
+    val hasMediaPermission: Boolean = false,
     val hasNotificationAccess: Boolean = false,
     val hasSkippedPermission: Boolean = false,
     val showRationale: Boolean = false

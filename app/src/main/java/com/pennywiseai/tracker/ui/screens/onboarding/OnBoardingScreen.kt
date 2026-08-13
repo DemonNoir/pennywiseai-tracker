@@ -48,6 +48,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.*
+import com.pennywiseai.tracker.ui.components.PermissionDisclosureDialog
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -405,6 +407,26 @@ private fun PermissionsStep(
         onPermissionResult(readSmsGranted)
     }
 
+    var showSmsDisclosure by remember { mutableStateOf(false) }
+
+    if (showSmsDisclosure) {
+        PermissionDisclosureDialog(
+            onDismissRequest = { showSmsDisclosure = false },
+            onConfirm = {
+                val permissions = mutableListOf(
+                    Manifest.permission.READ_SMS,
+                    Manifest.permission.RECEIVE_SMS
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                permissionLauncher.launch(permissions.toTypedArray())
+            },
+            title = "SMS Transaction Detection",
+            description = "PennyWise reads SMS messages from your bank to automatically record transactions. We only process transaction-related messages; personal conversations are never read or stored."
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -496,16 +518,7 @@ private fun PermissionsStep(
             }
         } else {
             Button(
-                onClick = {
-                    val permissions = mutableListOf(
-                        Manifest.permission.READ_SMS,
-                        Manifest.permission.RECEIVE_SMS
-                    )
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    permissionLauncher.launch(permissions.toTypedArray())
-                },
+                onClick = { showSmsDisclosure = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Enable Permissions")

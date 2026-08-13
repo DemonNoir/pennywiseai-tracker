@@ -27,7 +27,8 @@ class ProcessSlipUseCase @Inject constructor(
     private val accountBalanceRepository: AccountBalanceRepository,
     private val merchantMappingRepository: MerchantMappingRepository,
     private val ruleRepository: RuleRepository,
-    private val ruleEngine: RuleEngine
+    private val ruleEngine: RuleEngine,
+    private val receiptManager: com.pennywiseai.tracker.data.receipt.ReceiptManager
 ) {
     suspend fun execute(parsedSlip: ParsedSlip): Long {
         // 1. แปลง ParsedSlip เป็น ParsedTransaction (เพื่อใช้ Logic ร่วมกับระบบหลัก)
@@ -54,7 +55,8 @@ class ProcessSlipUseCase @Inject constructor(
             sender = "SLIP_SCAN",
             timestamp = parsedSlip.timestampMillis ?: System.currentTimeMillis(),
             bankName = parsedSlip.bankName ?: "Thai Bank",
-            transactionHash = parsedSlip.refNo ?: "SLIP_${System.currentTimeMillis()}"
+            transactionHash = parsedSlip.refNo ?: "SLIP_${System.currentTimeMillis()}",
+            currency = "THB"
         )
 
         // 2. แปลงเป็น Entity และใช้ Logic มาตรฐาน (Merchant mapping, Rules)
@@ -85,14 +87,26 @@ class ProcessSlipUseCase @Inject constructor(
             return existing.id
         }
 
+        var finalEntity = entity
+        if (parsedSlip.imageUriString != null) {
+            try {
+                val receiptPath = receiptManager.saveReceipt(android.net.Uri.parse(parsedSlip.imageUriString))
+                if (receiptPath != null) {
+                    finalEntity = finalEntity.copy(receiptPath = receiptPath)
+                }
+            } catch (e: Exception) {
+                Log.e("ProcessSlipUseCase", "Failed to save receipt image: ${e.message}")
+            }
+        }
+
         // 4. บันทึกลงฐานข้อมูลและอัปเดตยอดเงินในบัญชี
         val rowId = accountBalanceRepository.insertTransactionWithBalance(
-            transaction = entity,
-            bankName = entity.bankName,
-            accountLast4 = entity.accountNumber
+            transaction = finalEntity,
+            bankName = finalEntity.bankName,
+            accountLast4 = finalEntity.accountNumber
         )
 
-        Log.i("ProcessSlipUseCase", "Saved slip transaction: ID=$rowId, Merchant=${entity.merchantName}, Amount=${entity.amount}")
+        Log.i("ProcessSlipUseCase", "Saved slip transaction: ID=$rowId, Merchant=${finalEntity.merchantName}, Amount=${finalEntity.amount}")
         return rowId
     }
 }

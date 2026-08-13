@@ -35,6 +35,8 @@ touches its area. Everything under **Hard Constraints** is non-negotiable.
 7. **New bank parsers** extend the correct base class (`BaseIndianBankParser` /
    `UAEBankParser` / `BankParser`) and are registered in `BankParserFactory` —
    see `docs/adding-bank-parsers.md`.
+8. **File Delivery Protocol:** When the user asks to send or share files, build artifacts, or APKs, always serve them via a local HTTP server on `localhost` (e.g. `http://localhost:8080/`).
+
 
 ## Verification — Definition of Done
 Run **`./init.sh`** before claiming a change is done — it runs exactly what CI

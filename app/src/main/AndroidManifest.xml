@@ -11,6 +11,8 @@
 
     <!-- Storage & Media Image permissions for auto bank slip scanning -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- Telephony hardware feature (optional for ChromeOS compatibility) -->
@@ -53,6 +55,21 @@
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep links: pennywise://transaction/edit/{id} — used by the slip-scan
+                 notification ("เลือกหมวดหมู่ / แก้ไข") to open the transaction detail
+                 screen for a just-saved slip transaction. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="transaction"
+                    android:pathPrefix="/edit/"
+                    android:scheme="pennywise" />
             </intent-filter>
         </activity>
 

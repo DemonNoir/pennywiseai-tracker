@@ -42,6 +42,8 @@ import com.pennywiseai.tracker.utils.Money
 import com.pennywiseai.tracker.utils.sumByCurrency
 import com.pennywiseai.tracker.worker.OptimizedSmsReaderWorker
 import com.pennywiseai.tracker.slip.worker.SlipAutoScanWorker
+import com.pennywiseai.tracker.slip.scanner.SlipForegroundScanner
+import com.pennywiseai.tracker.slip.scanner.SlipScanProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -84,6 +86,7 @@ class HomeViewModel @Inject constructor(
     private val inAppUpdateManager: InAppUpdateManager,
     private val inAppReviewManager: InAppReviewManager,
     private val processSlipUseCase: com.pennywiseai.tracker.domain.usecase.ProcessSlipUseCase,
+    private val slipForegroundScanner: SlipForegroundScanner,
     @ApplicationContext private val context: Context,
     entitlementGate: com.pennywiseai.tracker.billing.EntitlementGate,
 ) : ViewModel() {
@@ -178,6 +181,12 @@ class HomeViewModel @Inject constructor(
         observeSelectedProfile()
         observeProfiles()
         observeBudgetCycle()
+        
+        slipForegroundScanner.progress
+            .onEach { progress ->
+                _uiState.value = _uiState.value.copy(slipScanProgress = progress)
+            }
+            .launchIn(viewModelScope)
     }
 
     /**
@@ -1654,7 +1663,8 @@ data class HomeUiState(
     val lastMonthSpendingHistory: List<BigDecimal> = emptyList(),
     val loanSummary: LoanSummary? = null,
     val selectedProfileId: Long? = null,
-    val profiles: List<ProfileEntity> = emptyList()
+    val profiles: List<ProfileEntity> = emptyList(),
+    val slipScanProgress: SlipScanProgress? = null
 )
 
 data class LoanSummary(

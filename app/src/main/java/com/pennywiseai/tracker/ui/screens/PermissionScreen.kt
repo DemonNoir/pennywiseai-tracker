@@ -26,6 +26,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pennywiseai.tracker.ui.components.PermissionDisclosureDialog
 import com.pennywiseai.tracker.ui.components.PennyWiseScaffold
 import com.pennywiseai.tracker.ui.theme.Spacing
 import com.pennywiseai.tracker.ui.viewmodel.PermissionViewModel
@@ -51,27 +53,65 @@ fun PermissionScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    var readSmsGranted by remember { mutableStateOf(false) }
-    var receiveSmsGranted by remember { mutableStateOf(false) }
-
-    val multiplePermissionLauncher = rememberLauncherForActivityResult(
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        readSmsGranted = permissions[Manifest.permission.READ_SMS] == true
-        receiveSmsGranted = permissions[Manifest.permission.RECEIVE_SMS] == true
+    ) { _ ->
+        viewModel.refreshPermissions()
+    }
 
-        if (readSmsGranted) {
-            viewModel.onPermissionResult(true)
-            onPermissionGranted()
-        } else {
-            viewModel.onPermissionDenied()
-        }
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        viewModel.refreshPermissions()
     }
 
     val notificationAccessLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         viewModel.refreshNotificationAccess()
+    }
+
+    var showSmsDisclosure by remember { mutableStateOf(false) }
+    var showMediaDisclosure by remember { mutableStateOf(false) }
+
+    if (showSmsDisclosure) {
+        PermissionDisclosureDialog(
+            onDismissRequest = { showSmsDisclosure = false },
+            onConfirm = {
+                val smsPermissions = mutableListOf(
+                    Manifest.permission.READ_SMS,
+                    Manifest.permission.RECEIVE_SMS
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    smsPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                smsPermissionLauncher.launch(smsPermissions.toTypedArray())
+            },
+            title = "SMS Transaction Detection",
+            description = "PennyWise reads SMS messages from your bank to automatically record transactions. We only process transaction-related messages; personal conversations are never read or stored."
+        )
+    }
+
+    if (showMediaDisclosure) {
+        PermissionDisclosureDialog(
+            onDismissRequest = { showMediaDisclosure = false },
+            onConfirm = {
+                val mediaPermissions = mutableListOf<String>()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    mediaPermissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+                    mediaPermissions.add(Manifest.permission.READ_MEDIA_VIDEO)
+                    mediaPermissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    mediaPermissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+                    mediaPermissions.add(Manifest.permission.READ_MEDIA_VIDEO)
+                } else {
+                    mediaPermissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+                mediaPermissionLauncher.launch(mediaPermissions.toTypedArray())
+            },
+            title = "Bank Slip Scanner",
+            description = "To scan and extract data from your bank slips, PennyWise needs access to your images. We only analyze slips you select or those in bank folders; no other photos are accessed."
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -109,7 +149,7 @@ fun PermissionScreen(
             Spacer(modifier = Modifier.height(Spacing.md))
 
             Text(
-                text = "PennyWise can automatically detect and categorize your bank transactions from SMS messages, saving you time and effort.",
+                text = "PennyWise can automatically detect and categorize your bank transactions from SMS messages and Bank Slip Images, saving you time and effort.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -133,9 +173,9 @@ fun PermissionScreen(
                     )
                     Spacer(modifier = Modifier.height(Spacing.sm))
                     Text(
-                        text = "• Only transaction messages are processed\n" +
+                        text = "• Only transaction messages and slip images are processed\n" +
                             "• All data stays on your device\n" +
-                            "• No personal messages are read\n" +
+                            "• No personal messages or other photos are read\n" +
                             "• You can revoke access anytime in Settings",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -203,22 +243,57 @@ fun PermissionScreen(
                 Spacer(modifier = Modifier.height(Spacing.md))
             }
 
-            Button(
-                onClick = {
-                    val permissions = mutableListOf(
-                        Manifest.permission.READ_SMS,
-                        Manifest.permission.RECEIVE_SMS
-                    )
+            if (!uiState.hasPermission) {
+                Button(
+                    onClick = { showSmsDisclosure = true },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.sm)
+                ) {
+                    Text("1. Grant SMS Access")
+                }
+            } else {
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text("SMS Access Granted") },
+                    modifier = Modifier.padding(bottom = Spacing.sm)
+                )
+            }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            if (!uiState.hasMediaPermission) {
+                Button(
+                    onClick = { showMediaDisclosure = true },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.sm)
+                ) {
+                    Text("2. Grant Bank Slip Scanner Access")
+                }
+            } else {
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text("Scanner Access Granted") },
+                    modifier = Modifier.padding(bottom = Spacing.sm)
+                )
+            }
+
+            if (uiState.hasPermission && uiState.hasMediaPermission) {
+                Button(
+                    onClick = {
+                        viewModel.onPermissionResult(true)
+                        onPermissionGranted()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Finish Setup")
+                }
+            } else {
+                TextButton(
+                    onClick = {
+                        viewModel.onSkipPermission()
+                        onPermissionGranted()
                     }
-
-                    multiplePermissionLauncher.launch(permissions.toTypedArray())
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Enable Automatic Detection")
+                ) {
+                    Text("Skip for now")
+                }
             }
         }
     }

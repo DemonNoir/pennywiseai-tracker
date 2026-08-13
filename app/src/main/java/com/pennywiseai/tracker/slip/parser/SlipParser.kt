@@ -43,7 +43,8 @@ data class ParsedSlip(
     val branchCode: String? = null,
     val amount: Double? = null,
     val amountBigDecimal: BigDecimal? = null,
-    val rawText: String = ""
+    val rawText: String = "",
+    val imageUriString: String? = null
 )
 
 data class SimpleParsedSlip(
@@ -53,7 +54,8 @@ data class SimpleParsedSlip(
     val date: String? = null,
     val dateTimeIso: String? = null,
     val timestampMillis: Long? = null,
-    val confidence: SlipConfidence = SlipConfidence.NEEDS_REVIEW
+    val confidence: SlipConfidence = SlipConfidence.NEEDS_REVIEW,
+    val imageUriString: String? = null
 )
 
 object SlipParser {
@@ -87,12 +89,12 @@ object SlipParser {
     )
 
     private val timeOnlyRegex = Regex(
-        """(?<=เวลา|Time|\b)(\d{1,2}:\d{2}(?::\d{2})?(?:\s*น\.)?)""",
+        """(?<=เวลา|Time|\b)(\d{1,2}:\d{2}(?::\d{2})?(?:\s*น\.)?)(?!\d)""",
         RegexOption.IGNORE_CASE
     )
 
     private val refNoRegex = Regex(
-        """(?:รหัสอ้างอิง|เลขที่รายการ|Ref\.?\s*(?:No\.?)?|Transaction\s*ID|Trans\s*ID)\s*[:\s]*([A-Za-z0-9]+)""",
+        """(?:รหัสอ้างอิง|รหสอางอง|รหัสอางอง|รหสอ้างอิง|รหลอางอง|เลขที่รายการ|เลขทรายการ|Ref\.?\s*(?:No\.?)?|Transaction\s*ID|Trans\s*ID)\s*[:\s]*([A-Za-z0-9.]+)""",
         RegexOption.IGNORE_CASE
     )
 
@@ -210,7 +212,10 @@ object SlipParser {
         val dateTimeIso = localDateTime?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
         val timestampMillis = localDateTime?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
 
-        val refNo = refNoRegex.find(fullText)?.groupValues?.get(1)
+        // ref จริงยาว 10+ ตัวเสมอ — ตัวสั้นกว่า 5 (เช่น "oe" จาก "เลขที่รายการ: oe")
+        // คือ OCR junk ต้องตัดทิ้ง ไม่งั้น confidence จะ "CONFIRMED" ทั้งที่ ref เพี้ยน
+        val refNo = refNoRegex.find(fullText)?.groupValues?.get(1)?.trimEnd('.')
+            ?.takeIf { it.length >= 5 }
         val ref1 = ref1Regex.find(fullText)?.groupValues?.get(1)
         val ref2 = ref2Regex.find(fullText)?.groupValues?.get(1)
         val ref3 = ref3Regex.find(fullText)?.groupValues?.get(1)
@@ -260,22 +265,36 @@ object SlipParser {
     }
 
     private fun extractAmount(fullText: String): Pair<Double?, BigDecimal?> {
+        // 1) ตัดบรรทัดค่าธรรมเนียมออกก่อน — ถ้ายอดจริง OCR พลาด แล้วเหลือแค่
+        //    "ค่าธรรมเนียม 0.00 บาท" regex จะจับ 0.00 เป็นคำตอบ (บันทึกยอดผิดเงียบๆ)
+        //    ครอบคลุม variants: ค่าธรรมเนียม, คาธรรมเนียม, คารรรมเนียม, ธรรมเนียม, fee
+        val amountSource = Regex("(?i)(?:รรมเน|fee)[^\n]*").replace(fullText, "")
+
+        // 2) PaddleOCR fire space class แทนจุดทศนิยม: "299. 00" → "299.00",
+        //    และจุดทศนิยมหายทั้งดวง: "13 00 บาท" ต้องเป็น 13.00 (ไม่ใช่ 1300!)
+        //    และคอมม่าแทนจุดทศนิยม: "13,00" -> "13.00"
+        //    — แปลง "X YY" (ตามด้วย บาท/THB และไม่มี digit ต่อท้าย) → "X.YY"
+        val amountText = amountSource
+            .replace(Regex("""(\d+),(\d{2})(?!\d)"""), "$1.$2")           // "13,00" -> "13.00"
+            .replace(Regex("""(\d+[\.])\s+(\d{2})"""), "$1$2")            // "299. 00" -> "299.00"
+            .replace(Regex("""(\d{1,3})\s+(\d{2})(?!\d)(?=\s*(?:บาท|THB))""", RegexOption.IGNORE_CASE), "$1.$2") // "13 00 บาท" -> "13.00 บาท"
+            .replace(Regex("""(?<=\d)\s+(?=\d)"""), "")                    // เหลือ space ระหว่างเลข ("1 300" -> "1300")
         val matches = mutableListOf<MatchResult>()
-        amountWithLabelRegex.findAll(fullText).forEach { matches.add(it) }
-        amountStandaloneRegex.findAll(fullText).forEach { matches.add(it) }
+        amountWithLabelRegex.findAll(amountText).forEach { matches.add(it) }
+        amountStandaloneRegex.findAll(amountText).forEach { matches.add(it) }
 
         // Fallback label regex matching common OCR variations (e.g., ยอดเงิน, ยอดโอน, ชำระ, Total)
         val fallbackLabelRegex = Regex(
             """(?:ยอดเงิน|ยอดโอน|ยอดรวม|ชำระ|จำนวน|จํานวน|ราคา|Total|Paid|Amount)\s*[\n\r:]*\s*(?:THB|บาท)?\s*([\d,]+\.\d{2})""",
             RegexOption.IGNORE_CASE
         )
-        fallbackLabelRegex.findAll(fullText).forEach { matches.add(it) }
+        fallbackLabelRegex.findAll(amountText).forEach { matches.add(it) }
 
         if (matches.isNotEmpty()) {
             val bestMatch = matches.sortedBy { match ->
-                val labelPos = fullText.indexOf("จำนวน", ignoreCase = true).takeIf { it != -1 }
-                    ?: fullText.indexOf("ยอด", ignoreCase = true).takeIf { it != -1 }
-                    ?: fullText.indexOf("บาท", ignoreCase = true).takeIf { it != -1 }
+                val labelPos = amountText.indexOf("จำนวน", ignoreCase = true).takeIf { it != -1 }
+                    ?: amountText.indexOf("ยอด", ignoreCase = true).takeIf { it != -1 }
+                    ?: amountText.indexOf("บาท", ignoreCase = true).takeIf { it != -1 }
                     ?: 0
                 Math.abs(match.range.first - labelPos)
             }.firstOrNull() ?: matches.first()
@@ -293,8 +312,9 @@ object SlipParser {
         }
 
         // Fallback: If no label match, find the largest decimal number formatted as XXX.XX (monetary amounts on slips are usually the largest)
-        val decimalPattern = Regex("""\b(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})\b""")
-        val candidates = decimalPattern.findAll(fullText).mapNotNull { match ->
+        // Trailing (?!\d) instead of \b so OCR noise glued after the amount (e.g. "3166.00um") still matches.
+        val decimalPattern = Regex("""\b(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})(?!\d)""")
+        val candidates = decimalPattern.findAll(amountText).mapNotNull { match ->
             val str = match.groupValues[1].replace(",", "") + "." + match.groupValues[2]
             try {
                 BigDecimal(str)
@@ -360,16 +380,30 @@ object SlipParser {
         }
     }
 
-    private fun detectBankName(text: String): String? {
+    /**
+     * ตรวจจับธนาคารจากสลิป ชื่อย่อสั้น (SCB, K+, ttb, BAY, GSB, KKP) ตรวจเฉพาะ
+     * 8 บรรทัดแรก (ชื่อธนาคารอยู่มุมบนของสลิปเสมอ) เพราะชื่อย่ออาจไปชนกับข้อความอื่น
+     * ได้ เช่น "K Plus W" ในชื่อผู้ให้บริการ หรือ "…TTB" ในรหัสธุรกรรม — ตรวจทั้ง
+     * ข้อความจะทำให้ bank ผิด (ลงบัญชีผิดธนาคาร) ส่วนชื่อเต็มภาษาไทยเฉพาะเจาะจงพอ
+     * จึงตรวจได้ทั้งข้อความ
+     */
+    internal fun detectBankName(text: String): String? {
+        val header = text.lineSequence().take(8).joinToString("\n")
+        // ชื่อย่อต้องเป็น token แบบเต็มคำ (มีตัวอักษร/ตัวเลขคั่นหน้า-หลัง) — กัน OCR
+        // noise แบบ "MSCB" หรือ "5ttb7" มาชน substring แล้วทำให้ bank ผิด
+        fun headerHas(token: String): Boolean =
+            Regex("(^|[^A-Za-z0-9])" + Regex.escape(token) + "([^A-Za-z0-9]|$)",
+                RegexOption.IGNORE_CASE).containsMatchIn(header)
         return when {
-            text.contains("SCB", ignoreCase = true) || text.contains("ไทยพาณิชย์") -> "SCB"
-            text.contains("K+", ignoreCase = true) || text.contains("K PLUS", ignoreCase = true) || text.contains("กสิกรไทย") || text.contains("KBank", ignoreCase = true) -> "KBank"
-            text.contains("Krungthai", ignoreCase = true) || text.contains("กรุงไทย") -> "Krungthai"
-            text.contains("ttb", ignoreCase = true) || text.contains("ทหารไทยธนชาต") -> "ttb"
-            text.contains("Bangkok Bank", ignoreCase = true) || text.contains("กรุงเทพ") -> "Bangkok Bank"
-            text.contains("BAY", ignoreCase = true) || text.contains("กรุงศรี") -> "Krungsri"
-            text.contains("KKP", ignoreCase = true) || text.contains("เกียรตินาคิน") -> "KKP"
-            text.contains("GSB", ignoreCase = true) || text.contains("ออมสิน") -> "GSB"
+            headerHas("SCB") || text.contains("ไทยพาณิชย์") -> "SCB"
+            headerHas("K+") || headerHas("K PLUS") || headerHas("KBank") ||
+                text.contains("กสิกรไทย") -> "KBank"
+            headerHas("Krungthai") || text.contains("กรุงไทย") -> "Krungthai"
+            headerHas("ttb") || text.contains("ทหารไทยธนชาต") -> "ttb"
+            headerHas("Bangkok Bank") || text.contains("กรุงเทพ") -> "Bangkok Bank"
+            headerHas("BAY") || text.contains("กรุงศรี") -> "Krungsri"
+            headerHas("KKP") || text.contains("เกียรตินาคิน") -> "KKP"
+            headerHas("GSB") || text.contains("ออมสิน") -> "GSB"
             else -> null
         }
     }
@@ -386,9 +420,14 @@ object SlipParser {
 
     private fun detectDirection(text: String): SlipDirection {
         return when {
-            text.contains("จ่ายบิล") || text.contains("ชำระเงิน") || text.contains("ชำระสินค้า") || text.contains("Biller") || text.contains("Bill Payment", ignoreCase = true) -> SlipDirection.BILL_PAYMENT
-            text.contains("รับเงินสำเร็จ") || text.contains("เงินเข้า") || text.contains("โอนเงินเข้า") || text.contains("รับโอน") || text.contains("Received", ignoreCase = true) -> SlipDirection.INCOMING
-            text.contains("โอนเงินสำเร็จ") || text.contains("โอนสำเร็จ") || text.contains("โอนเงิน") || text.contains("Transfer Success", ignoreCase = true) -> SlipDirection.OUTGOING
+            // BILL_PAYMENT — ครอบคลุม OCR variations ที่พบบ่อย (สระ/ตัวสะกดหาย, จ↔ง)
+            text.contains("จ่ายบิล") || text.contains("จายบล") || text.contains("ง่ายบิล") ||
+                text.contains("ชำระเงิน") || text.contains("ชาระเงน") || text.contains("ชำระสินค้า") ||
+                text.contains("Biller") || text.contains("Bill Payment", ignoreCase = true) -> SlipDirection.BILL_PAYMENT
+            text.contains("รับเงินสำเร็จ") || text.contains("รับเงน") || text.contains("เงินเข้า") || text.contains("เงนเขา") ||
+                text.contains("โอนเงินเข้า") || text.contains("รับโอน") || text.contains("Received", ignoreCase = true) -> SlipDirection.INCOMING
+            text.contains("โอนเงินสำเร็จ") || text.contains("โอนสาเร็จ") || text.contains("โอนสำเร็จ") ||
+                text.contains("โอนเงิน") || text.contains("โอนเงน") || text.contains("Transfer Success", ignoreCase = true) -> SlipDirection.OUTGOING
             else -> SlipDirection.UNKNOWN
         }
     }
@@ -435,7 +474,23 @@ object SlipParser {
             line.contains("จาก") || line.equals("From", ignoreCase = true)
         }
 
+        // OCR มักรวมคำว่า "ไปยัง"/"จาก" กับชื่อไว้ในบรรทัดเดียวกัน
+        // (เช่น "ไปยัง ร้านถุงเงิน (ต่อพลาสติก)") — แยกชื่อที่อยู่หลัง keyword ออกมา
+        val inlineReceiverName = toIndex.takeIf { it != -1 }
+            ?.let { extractInlineName(lines[it], listOf("ไปยัง", "โอนให้")) }
+        val inlineSenderName = fromIndex.takeIf { it != -1 }
+            ?.let { extractInlineName(lines[it], listOf("จาก")) }
+
         if (toIndex != -1) {
+            // ชื่อที่รวมกับ "ไปยัง" ในบรรทัดเดียว (OCR merge) มีน้ำหนักมากกว่าชื่อ
+            // junk ที่ loop ด้านล่างอาจเจอ (เช่น "จาบวนเงิน299.00")
+            if (inlineReceiverName != null) {
+                receiverName = inlineReceiverName
+            }
+            if (inlineSenderName != null) {
+                senderName = inlineSenderName
+            }
+
             val senderStart = if (fromIndex != -1) fromIndex + 1 else 0
             val senderEnd = toIndex
 
@@ -478,7 +533,13 @@ object SlipParser {
                     }
                 }
             }
+
         } else {
+            // กรณีไม่มีคำว่า "ไปยัง" — ใช้ชื่อที่รวมกับ "จาก" ในบรรทัดเดียวเป็นตัวตั้งต้น
+            if (inlineSenderName != null) {
+                senderName = inlineSenderName
+            }
+
             for (line in lines) {
                 if (isSkipLine(line) || isBankNameLine(line)) continue
 
@@ -492,19 +553,28 @@ object SlipParser {
                         receiverAccount = accPart
                     }
                 } else if (isValidNameCandidate(line)) {
+                    val cleanLine = line.replace(Regex("""^[\<\>\-\=\:\s]+"""), "")
                     // Priority check: If it has a prefix like "นาย", it's a very strong candidate
-                    val hasNamePrefix = listOf("นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", "Mr", "Mrs", "Ms", "Miss", "บจก", "บริษัท").any { line.startsWith(it) }
+                    val hasNamePrefix = listOf("นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", "Mr", "Mrs", "Ms", "Miss", "บจก", "บริษัท").any { cleanLine.startsWith(it, ignoreCase = true) }
                     
+                    val cleanSender = senderName?.replace(Regex("""^[\<\>\-\=\:\s]+"""), "") ?: ""
+                    val senderHasPrefix = listOf("นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", "Mr", "Mrs", "Ms", "Miss", "บจก", "บริษัท").any { cleanSender.startsWith(it, ignoreCase = true) }
+                    
+                    val cleanReceiver = receiverName?.replace(Regex("""^[\<\>\-\=\:\s]+"""), "") ?: ""
+                    val receiverHasPrefix = listOf("นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", "Mr", "Mrs", "Ms", "Miss", "บจก", "บริษัท").any { cleanReceiver.startsWith(it, ignoreCase = true) }
+
                     if (senderName == null) {
                         senderName = line
                     } else if (receiverName == null && line != senderName) {
-                        // If current senderName doesn't have a prefix but THIS line does, 
-                        // maybe the previous one was junk. Swap them.
-                        val senderHasPrefix = listOf("นาย", "นาง", "นางสาว", "ด.ช.", "ด.ญ.", "Mr", "Mrs", "Ms", "Miss", "บจก", "บริษัท").any { senderName?.startsWith(it) == true }
-                        
                         if (!senderHasPrefix && hasNamePrefix) {
                             senderName = line
                         } else {
+                            receiverName = line
+                        }
+                    } else if (receiverName != null && line != senderName && line != receiverName) {
+                        if (!senderHasPrefix && hasNamePrefix) {
+                            senderName = line
+                        } else if (!receiverHasPrefix && hasNamePrefix) {
                             receiverName = line
                         }
                     }
@@ -516,6 +586,25 @@ object SlipParser {
         }
 
         return PartyInfo(senderName, senderAccount, receiverName, receiverAccount)
+    }
+
+    /**
+     * แยกชื่อที่อยู่หลัง keyword ในบรรทัดเดียวกัน (เช่น "ไปยัง ร้านถุงเงิน (ต่อพลาสติก)"
+     * หรือ "จาก นายสมชาย") — เกิดบ่อยกับ OCR ที่รวมหลายบรรทัดเป็นบรรทัดเดียว
+     */
+    private fun extractInlineName(line: String, keywords: List<String>): String? {
+        val keyword = keywords.firstOrNull { line.contains(it, ignoreCase = true) } ?: return null
+        val name = line.substringAfter(keyword, "").trim()
+        if (name.isEmpty() || name.length < 3) return null
+        // ตัด junk ที่ OCR มักแปะติดหน้า/ท้ายชื่อ (เครื่องหมาย, ตัวอักษรเดี่ยว, ฯลฯ)
+        val cleaned = cleanNameString(name.trimStart('@', '-', '.', ':', ' '))
+        if (cleaned == null || cleaned.length < 3) return null
+        // กันกรณี "ไปยัง XXX-1234" — ค่าที่เป็นเลขบัญชีไม่ใช่ชื่อ ต้องปล่อยให้ loop
+        // ไปเจอชื่อจริงในบรรทัดถัดไป
+        if (accountNoRegex.matches(cleaned) || cleaned.contains("xxx", ignoreCase = true)) {
+            return null
+        }
+        return if (isValidNameCandidate(cleaned)) cleaned else null
     }
 
     private fun splitNameAndAccount(line: String): Pair<String?, String?> {
@@ -532,6 +621,9 @@ object SlipParser {
     private fun cleanNameString(name: String?): String? {
         if (name == null) return null
         var cleaned = name
+        
+        // ลบอักขระขยะหน้าชื่อ (เช่น <, >, -, =, :)
+        cleaned = cleaned.replace(Regex("""^[\<\>\-\=\:\s]+"""), "")
         
         // 1. ลบชื่อธนาคารออกจากชื่อ (ตรรกะเดิมของคุณ)
         val bankSuffixRegex = Regex("""\s*(?:ธนาคาร|ธ\.)\s*[\u0E00-\u0E7F]+\b""")
@@ -557,6 +649,11 @@ object SlipParser {
         if (knownAppNames.any { line.equals(it, ignoreCase = true) }) return false
         if (isBankNameLine(line)) return false
 
+        // ชื่อต้องมีตัวอักษรจริง (ไทย/อังกฤษ) อย่างน้อย 2 ตัว — ตัด junk เช่น "4--",
+        // "1ศห--" ที่ OCR อ่านเละแล้วเหลือแต่ตัวเลข/เครื่องหมาย
+        val letterCount = line.count { it.isLetter() }
+        if (letterCount < 2) return false
+
         val junkKeywords = listOf(
             "พรบ", "ลง", "สลิป", "รายการ", "ตรวจสอบ", "สำเร็จ", "จํานวนเงิน", "จำนวนเงิน", "ค่าธรรมเนียม", "ผู้รับเงินสามารถ"
         )
@@ -579,13 +676,14 @@ object SlipParser {
             "Mr.", "Mrs.", "Ms.", "Miss", "MR.", "MRS.", "MS.", 
             "บจก.", "บริษัท", "ร้าน", "TrueMoney", "AIS", "บัตรเครดิต", "Shop", "Store", "Co.,Ltd"
         )
-        if (namePrefixes.any { line.startsWith(it, ignoreCase = true) }) return true
+        val cleanLine = line.replace(Regex("""^[\<\>\-\=\:\s]+"""), "")
+        if (namePrefixes.any { cleanLine.startsWith(it, ignoreCase = true) }) return true
 
         val uppercaseCompanyPattern = Regex("""^[A-Z0-9\s\.\&\-]{3,}$""")
-        if (uppercaseCompanyPattern.matches(line) && line.length >= 3) return true
+        if (uppercaseCompanyPattern.matches(cleanLine) && cleanLine.length >= 3) return true
 
         val namePattern = Regex("""^[\u0E00-\u0E7FA-Za-z0-9\s\(\)\.\/\&\–-]{3,}$""")
-        return namePattern.matches(line)
+        return namePattern.matches(cleanLine)
     }
 
     private fun isSkipLine(line: String): Boolean {

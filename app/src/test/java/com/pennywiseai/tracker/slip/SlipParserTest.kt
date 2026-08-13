@@ -110,5 +110,132 @@ class SlipParserTest {
         assertEquals(SlipDirection.INCOMING, parsed.direction)
         assertEquals(BigDecimal("500.00"), parsed.amountBigDecimal)
     }
+
+    // --- regression: silent 100x amount bugs from OCR noise (12 ส.ค. 2026) ----
+
+    /**
+     * PaddleOCR fires the space class in place of the decimal point: "13 00 บาท"
+     * must parse as 13.00, NOT 1300.00. (Real slip slip_test_img; the old space-
+     * removal made it 1300 = a silent 100x error.)
+     */
+    @Test
+    fun testAmountWithLostDecimalPoint_IsNotMultipliedBy100() {
+        val rawOcrText = """
+            จ่ายบิลสำเร็จ
+            12 ส.ค. 69 08:22 น.
+            นาย ทดสอบ
+            ธ.กสิกรไทย
+            XXX-X-X1111-x
+            บริษัท ทดสอบ จำกัด
+            JPT2026081232131
+            เลขที่รายการ:
+            016224082246TEST0002
+            จำนวน:
+            13 00 บาท
+            ค่าธรรมเนียม:
+            0.00 บาท
+            สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        assertEquals(BigDecimal("13.00"), parsed.amountBigDecimal)
+    }
+
+    /**
+     * The fee line (ค่าธรรมเนียม … 0.00 บาท) must never win as the slip amount,
+     * even when the real amount OCRs badly. 0.00 here would otherwise be the
+     * only well-formed decimal and get chosen as the answer.
+     */
+    @Test
+    fun testFeeLineIsNotPickedAsAmount() {
+        val rawOcrText = """
+            โอนเงินสำเร็จ
+            11 ส.ค. 69 20:51 น.
+            นาย สมมติ
+            ธ.กสิกรไทย
+            เลขที่รายการ:
+            016223205135TEST0003
+            จำนวน:
+            ##########
+            ค่าธรรมเนียม:
+            0.00 บาท
+            สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        // ไม่มียอดจริงที่อ่านได้ → ต้องเป็น null ไม่ใช่ 0.00 (ห้ามบันทึก 0.00 เงียบๆ)
+        assertEquals(null, parsed.amountBigDecimal)
+    }
+
+    /**
+     * Regression guard for the space-after-dot form "299. 00" (real slip slip_test_img):
+     * the space inside the number must be normalised away, keeping 299.00.
+     */
+    @Test
+    fun testAmountWithSpaceAfterDecimalPoint() {
+        val rawOcrText = """
+            SCB.
+            จ่ายบิลสำเร็จ
+            08 ส.ค. 2569 - 17:49
+            รหัสอ้างอิง: 20260808TEST0000000000001
+            จาก นาย ทดสอบ
+            XXX-XXX994-3
+            ไปยัง ร้านถุงเงิน (ต่อพลาสติก)
+            Biller ID : 010753700000000
+            จำนวนเงิน
+            299. 00
+            สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        assertEquals(BigDecimal("299.00"), parsed.amountBigDecimal)
+    }
+
+    /**
+     * หลักพันแบบไม่มี comma/จุด ("1 300 บาท") ต้องไม่กลายเป็น 1.30 — การเติมจุด
+     * ต้องใช้เฉพาะกับคู่ที่ตามด้วย บาท/THB และไม่มี digit ต่อท้ายเท่านั้น
+     */
+    @Test
+    fun testThousandsAmountWithSpace_IsNotBrokenByDecimalInjection() {
+        val rawOcrText = """
+            โอนเงินสำเร็จ
+            01 ม.ค. 69 09:00 น.
+            จาก นาย ก
+            ไปยัง นาย ข
+            จำนวนเงิน
+            1 300 บาท
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        // 1300 (scale 0) == 1300.00 ทางตัวเลข — ใช้ compareTo เหมือน SlipBatchOcrReportTest
+        // เพราะ parser คืน scale ตามที่ OCR อ่าน ไม่ได้ pad ทศนิยม
+        assertEquals(0, parsed.amountBigDecimal?.compareTo(BigDecimal("1300.00")))
+    }
+
+    @Test
+    fun testRealSCBUploadedSlipParsing() {
+        val rawOcrText = """
+            ๕๐19:
+            @ ง่ายบิลสําเร็จ
+            08 ส.ค. 2569 - 17:49
+            รหัสอ้างอิง: 20260808TEST0000000000001
+            จาก                            @ บงายปชูวีกรณ์ a.
+            XXX-XXX994-3
+            ไปยัง ร้านถุงเงิน (ต่อพลาสติก)
+            Biller ID : 010753700000000
+            รหัสร้านค้า : 1433013000000000000
+            รหัสธุรกรรมถุงเงิน : BUNRUAM
+            เลขที่อ้างอิง 3 : 0000
+            จํานวนเงิน                                 299.00
+            ผู้รับเงินสามารถสแกนคิวอาร์โค้ดนี้เพื่อ yaaa
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        
+        assertEquals(SlipDirection.BILL_PAYMENT, parsed.direction)
+        assertEquals("20260808TEST0000000000001", parsed.refNo)
+        assertEquals(BigDecimal("299.00"), parsed.amountBigDecimal)
+        assertEquals("010753700000000", parsed.billerId)
+    }
 }
 

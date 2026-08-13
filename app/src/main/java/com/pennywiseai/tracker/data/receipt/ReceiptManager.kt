@@ -24,20 +24,19 @@ class ReceiptManager @Inject constructor(
 
     suspend fun saveReceipt(sourceUri: Uri): String? = withContext(Dispatchers.IO) {
         try {
-            val inputStream = context.contentResolver.openInputStream(sourceUri)
+            val inputStream1 = context.contentResolver.openInputStream(sourceUri)
                 ?: return@withContext null
 
-            // Decode bounds first to calculate sample size
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            val tempBytes = inputStream.use { it.readBytes() }
-            BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, options)
+            inputStream1.use { BitmapFactory.decodeStream(it, null, options) }
 
             val maxDimension = 1920
             val sampleSize = calculateSampleSize(options.outWidth, options.outHeight, maxDimension)
 
-            // Decode with sample size
+            val inputStream2 = context.contentResolver.openInputStream(sourceUri)
+                ?: return@withContext null
             val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            val bitmap = BitmapFactory.decodeByteArray(tempBytes, 0, tempBytes.size, decodeOptions)
+            val bitmap = inputStream2.use { BitmapFactory.decodeStream(it, null, decodeOptions) }
                 ?: return@withContext null
 
             val fileName = "receipt_${System.currentTimeMillis()}.jpg"
@@ -49,7 +48,8 @@ class ReceiptManager @Inject constructor(
             bitmap.recycle()
 
             "receipts/$fileName"
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.e("ReceiptManager", "Failed to save receipt for $sourceUri", e)
             null
         }
     }

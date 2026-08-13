@@ -25,6 +25,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import com.pennywiseai.tracker.slip.parser.ParsedSlip
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+
+/**
+ * Hilt EntryPoint to obtain the singleton [SlipOcrEngine] without re-creating it
+ * per composition. [SlipOcrEngine] loads the ONNX models lazily in its init block,
+ * so building it fresh in `remember {}` would re-initialise sessions every time the
+ * bottom sheet opens.
+ */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface SlipScanEntryPoint {
+    fun slipOcrEngine(): SlipOcrEngine
+}
 
 data class BankFolderOption(
     val id: String,
@@ -51,7 +67,13 @@ fun SlipScanBottomSheet(
     onSaveTransaction: (ParsedSlip) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val ocrEngine = remember { SlipOcrEngine(context) }
+    // Reuse the singleton SlipOcrEngine from the Hilt graph instead of building a
+    // fresh one per sheet opening (each construction would re-init ONNX sessions).
+    val ocrEngine = remember {
+        EntryPointAccessors
+            .fromApplication(context.applicationContext, SlipScanEntryPoint::class.java)
+            .slipOcrEngine()
+    }
     
     val requiredPermissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         listOf(
@@ -78,10 +100,17 @@ fun SlipScanBottomSheet(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (!hasRequiredPermissions) {
-            permissionLauncher.launch(requiredPermissions.toTypedArray())
-        }
+    var showDisclosureDialog by remember { mutableStateOf(false) }
+
+    if (showDisclosureDialog) {
+        PermissionDisclosureDialog(
+            onDismissRequest = { showDisclosureDialog = false },
+            onConfirm = {
+                permissionLauncher.launch(requiredPermissions.toTypedArray())
+            },
+            title = "เข้าถึงรูปภาพเพื่อแสกนสลิป",
+            description = "PennyWise จำเป็นต้องขอสิทธิ์เข้าถึงรูปภาพเพื่อตรวจหาและอ่านข้อมูลจากสลิปธนาคารโดยใช้ AI OCR ข้อมูลทั้งหมดจะถูกประมวลผลภายในเครื่องของคุณเท่านั้น และเราจะไม่อ่านรูปภาพอื่นที่ไม่ใช่สลิปธนาคาร"
+        )
     }
 
     var selectedBankFolder by remember { mutableStateOf(bankFolders[0]) }
@@ -162,7 +191,7 @@ fun SlipScanBottomSheet(
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = { permissionLauncher.launch(requiredPermissions.toTypedArray()) },
+                            onClick = { showDisclosureDialog = true },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                             modifier = Modifier.fillMaxWidth()
                         ) {

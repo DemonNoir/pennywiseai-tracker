@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.layout.ContentScale
@@ -967,7 +968,7 @@ private fun TransactionReceipt(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "Receipt",
+                            text = "สลิปอ้างอิง / ใบเสร็จ",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1142,15 +1143,17 @@ private fun ExpandableSmsSection(smsBody: String) {
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
-                Text(
-                    text = smsBody,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.md)
-                )
+                SelectionContainer {
+                    Text(
+                        text = smsBody,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.md)
+                    )
+                }
             }
         }
     }
@@ -1486,6 +1489,36 @@ private fun EditableExtractedInfoCard(
             onReceiptRemoved = { viewModel.removeReceipt() },
             onCreateCameraUri = { viewModel.createCameraUri() }
         )
+
+        if (displayReceiptUri != null) {
+            val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            OutlinedButton(
+                onClick = { viewModel.rescanReceipt() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isScanning,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Scanning...")
+                } else {
+                    Icon(
+                        Icons.Default.DocumentScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(Dimensions.Icon.small)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Re-scan Receipt")
+                }
+            }
+        }
+
+        if (!transaction.smsBody.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            ExpandableSmsSection(smsBody = transaction.smsBody)
+        }
 
         // Bank (read-only)
         transaction.bankName?.let {

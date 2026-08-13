@@ -83,6 +83,7 @@ import dev.chrisbanes.haze.hazeSource
 import com.pennywiseai.tracker.ui.viewmodel.ThemeViewModel
 import com.pennywiseai.tracker.data.preferences.NumberFormatStyle
 import com.pennywiseai.tracker.utils.CurrencyFormatter
+import com.pennywiseai.tracker.ui.components.PermissionDisclosureDialog
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,6 +157,62 @@ fun SettingsScreen(
     var showMainAccountDropdown by remember { mutableStateOf(false) }
     val permissionUiState by permissionViewModel.uiState.collectAsStateWithLifecycle()
     val hasNotificationAccess = permissionUiState.hasNotificationAccess
+
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        permissionViewModel.refreshPermissions()
+    }
+
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        permissionViewModel.refreshPermissions()
+    }
+
+    var showSmsDisclosure by remember { mutableStateOf(false) }
+    var showMediaDisclosure by remember { mutableStateOf(false) }
+
+    if (showSmsDisclosure) {
+        PermissionDisclosureDialog(
+            onDismissRequest = { showSmsDisclosure = false },
+            onConfirm = {
+                val smsPermissions = mutableListOf(
+                    android.Manifest.permission.READ_SMS,
+                    android.Manifest.permission.RECEIVE_SMS
+                )
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    smsPermissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+                smsPermissionLauncher.launch(smsPermissions.toTypedArray())
+            },
+            title = "SMS Transaction Detection",
+            description = "PennyWise reads SMS messages from your bank to automatically record transactions. We only process transaction-related messages; personal conversations are never read or stored."
+        )
+    }
+
+    if (showMediaDisclosure) {
+        PermissionDisclosureDialog(
+            onDismissRequest = { showMediaDisclosure = false },
+            onConfirm = {
+                val mediaPermissions = mutableListOf<String>()
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    mediaPermissions.add(android.Manifest.permission.READ_MEDIA_IMAGES)
+                    mediaPermissions.add(android.Manifest.permission.READ_MEDIA_VIDEO)
+                    mediaPermissions.add(android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    mediaPermissions.add(android.Manifest.permission.READ_MEDIA_IMAGES)
+                    mediaPermissions.add(android.Manifest.permission.READ_MEDIA_VIDEO)
+                } else {
+                    mediaPermissions.add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+                mediaPermissionLauncher.launch(mediaPermissions.toTypedArray())
+            },
+            title = "Bank Slip Scanner",
+            description = "To scan and extract data from your bank slips, PennyWise needs access to your images. We only analyze slips you select or those in bank folders; no other photos are accessed."
+        )
+    }
+
     val context = LocalContext.current
     val notificationAccessLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -275,6 +332,56 @@ fun SettingsScreen(
                         onClick = { showUpgradeSheet = true },
                         position = ListItemPosition.Single,
                     )
+                }
+            }
+
+            // ── Required Permissions (Prominent Disclosure) ──
+            val missingSms = !permissionUiState.hasPermission
+            val missingMedia = !permissionUiState.hasMediaPermission
+            val missingNotif = !hasNotificationAccess
+
+            if (missingSms || missingMedia || missingNotif) {
+                SectionHeaderV2(title = "Action Required")
+                SettingsGroup {
+                    if (missingSms) {
+                        SettingsNavItem(
+                            icon = Icons.Default.Sms,
+                            iconBgColor = red_light,
+                            iconTint = red_dark,
+                            title = "Enable SMS Detection",
+                            subtitle = "Required to auto-detect bank transactions",
+                            onClick = { showSmsDisclosure = true },
+                            position = if (!missingMedia && !missingNotif) ListItemPosition.Single else ListItemPosition.Top
+                        )
+                    }
+                    if (missingMedia) {
+                        SettingsNavItem(
+                            icon = Icons.Default.Image,
+                            iconBgColor = red_light,
+                            iconTint = red_dark,
+                            title = "Enable Slip Scanner",
+                            subtitle = "Required to scan bank slips with AI OCR",
+                            onClick = { showMediaDisclosure = true },
+                            position = if (missingSms && !missingNotif) ListItemPosition.Middle 
+                                      else if (!missingSms && !missingNotif) ListItemPosition.Single 
+                                      else if (missingSms) ListItemPosition.Middle 
+                                      else ListItemPosition.Top
+                        )
+                    }
+                    if (missingNotif) {
+                        SettingsNavItem(
+                            icon = Icons.Default.NotificationsActive,
+                            iconBgColor = red_light,
+                            iconTint = red_dark,
+                            title = "Enable Notification Access",
+                            subtitle = "Capture transactions from bank app alerts",
+                            onClick = {
+                                val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                notificationAccessLauncher.launch(intent)
+                            },
+                            position = if (missingSms || missingMedia) ListItemPosition.Bottom else ListItemPosition.Single
+                        )
+                    }
                 }
             }
 

@@ -28,6 +28,7 @@ import com.pennywiseai.tracker.data.repository.TransactionRepository
 import com.pennywiseai.tracker.data.database.entity.TransactionGroupEntity
 import com.pennywiseai.tracker.core.Constants
 import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
+import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -51,6 +52,7 @@ class TransactionDetailViewModel @Inject constructor(
     private val currencyConversionService: CurrencyConversionService,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val receiptManager: ReceiptManager,
+    private val ocrEngine: SlipOcrEngine,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
     
@@ -411,6 +413,42 @@ class TransactionDetailViewModel @Inject constructor(
         // Reset split state to original values
         _splits.value = _originalSplits.value
         _showSplitEditor.value = _hasSplits.value
+    }
+
+    fun rescanReceipt() {
+        val uri = _pendingReceiptUri.value ?: _receiptUri.value ?: return
+        
+        viewModelScope.launch {
+            _isScanning.value = true
+            try {
+                val rawText = ocrEngine.getRawTextSync(uri)
+                val parsed = com.pennywiseai.tracker.slip.parser.SlipParser.parse(rawText)
+                
+                _editableTransaction.update { current ->
+                    if (current == null) return@update null
+                    var updated = current.copy(
+                        amount = parsed.amountBigDecimal ?: current.amount,
+                        merchantName = parsed.receiverName ?: current.merchantName,
+                        reference = parsed.refNo ?: current.reference,
+                        bankName = parsed.bankName ?: current.bankName,
+                        smsBody = rawText
+                    )
+                    
+                    if (parsed.dateTimeIso != null) {
+                        try {
+                            val parsedDate = LocalDateTime.parse(parsed.dateTimeIso)
+                            updated = updated.copy(dateTime = parsedDate)
+                        } catch (e: Exception) {}
+                    }
+                    
+                    updated
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to scan receipt: ${e.message}"
+            } finally {
+                _isScanning.value = false
+            }
+        }
     }
 
     fun toggleApplyToAllFromMerchant() {
@@ -1007,6 +1045,9 @@ class TransactionDetailViewModel @Inject constructor(
 
     private val _receiptRemoved = MutableStateFlow(false)
     val receiptRemoved: StateFlow<Boolean> = _receiptRemoved.asStateFlow()
+    
+    private val _isScanning = MutableStateFlow(false)
+    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
     private val _showFullScreenReceipt = MutableStateFlow(false)
     val showFullScreenReceipt: StateFlow<Boolean> = _showFullScreenReceipt.asStateFlow()
