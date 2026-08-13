@@ -2,6 +2,7 @@ package com.pennywiseai.tracker.slip
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -53,5 +54,18 @@ object SlipScanDataStore {
                 ?: (current.take(MAX_RECORDED_IDS - 1).toSet() + imageId.toString())
             prefs[PROCESSED_IMAGE_IDS] = updated
         }
+    }
+
+    private val SCAN_COUNT = intPreferencesKey("scan_count")
+
+    /** Track how many times a catch-up scan has been started. */
+    suspend fun incrementAndGetScanCount(context: Context): Int {
+        var newCount = 0
+        context.slipScanDataStore.edit { prefs ->
+            val current = prefs[SCAN_COUNT] ?: 0
+            newCount = current + 1
+            prefs[SCAN_COUNT] = newCount
+        }
+        return newCount
     }
 }

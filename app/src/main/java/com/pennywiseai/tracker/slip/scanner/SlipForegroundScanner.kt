@@ -41,8 +41,9 @@ class SlipForegroundScanner @Inject constructor(
         isScanning = true
 
         try {
+            val scanCount = SlipScanDataStore.incrementAndGetScanCount(context)
             val processedIds = SlipScanDataStore.getProcessedImageIds(context)
-            val urisToScan = queryUnscannedBankImages(processedIds)
+            val urisToScan = queryUnscannedBankImages(processedIds, scanCount)
 
             if (urisToScan.isNotEmpty()) {
                 Log.i("SlipForegroundScanner", "Starting foreground scan for ${urisToScan.size} slips.")
@@ -81,10 +82,9 @@ class SlipForegroundScanner @Inject constructor(
         }
     }
 
-    private fun queryUnscannedBankImages(processedIds: Set<Long>): List<Pair<Uri, Long>> {
+    private fun queryUnscannedBankImages(processedIds: Set<Long>, scanCount: Int): List<Pair<Uri, Long>> {
         val results = mutableListOf<Pair<Uri, Long>>()
         val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_ADDED)
-        val sevenDaysAgo = TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()) - TimeUnit.DAYS.toSeconds(7)
         
         val selection = StringBuilder("(")
         val selectionArgs = mutableListOf<String>()
@@ -96,8 +96,14 @@ class SlipForegroundScanner @Inject constructor(
             selectionArgs.add("%$folder%")
             selectionArgs.add("%$folder%")
         }
-        selection.append(") AND ${MediaStore.Images.Media.DATE_ADDED} >= ?")
-        selectionArgs.add(sevenDaysAgo.toString())
+        
+        if (scanCount > 5) {
+            val sevenDaysAgo = TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()) - TimeUnit.DAYS.toSeconds(7)
+            selection.append(") AND ${MediaStore.Images.Media.DATE_ADDED} >= ?")
+            selectionArgs.add(sevenDaysAgo.toString())
+        } else {
+            selection.append(")")
+        }
 
         val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
 
