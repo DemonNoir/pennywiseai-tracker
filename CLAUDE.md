@@ -36,6 +36,7 @@ touches its area. Everything under **Hard Constraints** is non-negotiable.
    `UAEBankParser` / `BankParser`) and are registered in `BankParserFactory` —
    see `docs/adding-bank-parsers.md`.
 8. **File Delivery Protocol:** When the user asks to send or share files, build artifacts, or APKs, always serve them via a local HTTP server on `localhost` (e.g. `http://localhost:8080/`).
+9. **Document Every Fix:** Every environment or build issue resolved must be documented in `docs/troubleshooting.md`. Ensure the fix is correct and verified (e.g., via `./init.sh`) to prevent regressions in other parts of the system.
 
 
 ## Verification — Definition of Done
@@ -80,6 +81,7 @@ verify.
 | DB migrations | `docs/database-migrations.md` | Room schema changes |
 | Supported banks | `docs/BANK_SUPPORT.md`, `docs/supported-banks.json` | Which banks/patterns are covered (139 banks, 23 countries) |
 | Roadmap / requirements | `docs/planned-features.md`, `docs/prd-unified-currency.md` | Feature scope / intent |
+| Troubleshooting | `docs/troubleshooting.md` | Resolving build or environment issues |
 
 **Subagents:** `backup-maintainer` (backup-serialized changes) ·
 `parser-author` (write/fix a parser end-to-end) · `parser-triage` (assess a

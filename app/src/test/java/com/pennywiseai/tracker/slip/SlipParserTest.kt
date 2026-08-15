@@ -16,13 +16,13 @@ class SlipParserTest {
             จ่ายบิลสําเร็จ                   K
             11 ส.ค. 69 15:37 น.                       +
 
-            นาย ทดสอบ a          ae
+            นาย ทดสอบ สมมติ
             ธ.กสิกรไทย              ‘          >
 
             XXX-X-X1111-x
 
             บริษัท ทดสอบ จํากัด
-            JPT2026081168713
+            JPT20260811TEST001
             TESTBTOO2
 
             จำนวนเงิน: 1,250.00 บาท
@@ -127,7 +127,7 @@ class SlipParserTest {
             ธ.กสิกรไทย
             XXX-X-X1111-x
             บริษัท ทดสอบ จำกัด
-            JPT2026081232131
+            JPT20260812TEST002
             เลขที่รายการ:
             016224082246TEST0002
             จำนวน:
@@ -179,7 +179,7 @@ class SlipParserTest {
             08 ส.ค. 2569 - 17:49
             รหัสอ้างอิง: 20260808TEST0000000000001
             จาก นาย ทดสอบ
-            XXX-XXX994-3
+            XXX-XXX111-3
             ไปยัง ร้านถุงเงิน (ต่อพลาสติก)
             Biller ID : 010753700000000
             จำนวนเงิน
@@ -219,8 +219,8 @@ class SlipParserTest {
             @ ง่ายบิลสําเร็จ
             08 ส.ค. 2569 - 17:49
             รหัสอ้างอิง: 20260808TEST0000000000001
-            จาก                            @ บงายปชูวีกรณ์ a.
-            XXX-XXX994-3
+            จาก                            @ บงายทดสอบ a.
+            XXX-XXX111-3
             ไปยัง ร้านถุงเงิน (ต่อพลาสติก)
             Biller ID : 010753700000000
             รหัสร้านค้า : 1433013000000000000
@@ -236,6 +236,73 @@ class SlipParserTest {
         assertEquals("20260808TEST0000000000001", parsed.refNo)
         assertEquals(BigDecimal("299.00"), parsed.amountBigDecimal)
         assertEquals("010753700000000", parsed.billerId)
+    }
+
+    @Test
+    fun testNoisyThaiOcr_DateAmountRefAndDirection() {
+        val rawOcrText = """
+            SCB.
+            ะศตู-ทMจายบลสาเรืจยรหะ
+            E08 ส.ค2569 -1749Eพ
+            รหสอางอง: 20260808TEST0000000000002
+            จากดนายทดสอบอ.
+            4--XXX-XXx111-3
+            ไปยัง ร้านกงเงิน(ต่อพลาสติก)
+            ---B1er1D : 010753700000000
+            จาบวนเงิน 299. 00
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+
+        assertEquals(SlipDirection.BILL_PAYMENT, parsed.direction)
+        assertEquals("SCB", parsed.bankName)
+        assertEquals(BigDecimal("299.00"), parsed.amountBigDecimal)
+        assertEquals("20260808TEST0000000000002", parsed.refNo)
+        assertEquals("010753700000000", parsed.billerId)
+        assertNotNull(parsed.dateTimeIso)
+        assertEquals("ร้านกงเงิน(ต่อพลาสติก)", parsed.receiverName)
+    }
+
+    @Test
+    fun testAmountLabelWithoutVowels() {
+        val rawOcrText = """
+            โอนเงนสาเร็จ
+            09 ส. ค 2569 -12:44
+            จาก นาย ก
+            ไปยัง นาย ข
+            จานวนเงิน------- 640.93
+            รหสอางอง: 20260809329TESTXXX
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        assertEquals(SlipDirection.OUTGOING, parsed.direction)
+        assertEquals(BigDecimal("640.93"), parsed.amountBigDecimal)
+        assertEquals("20260809329TESTXXX", parsed.refNo)
+        assertNotNull(parsed.dateTimeIso)
+    }
+
+    @Test
+    fun testBuddhistLeapDayIsAcceptedByJavaTime() {
+        val parsed = SlipParser.parseToLocalDateTime("29 ก.พ. 2567", "10:00 น.")
+        assertEquals("2024-02-29T10:00:00", parsed?.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+    }
+
+    @Test
+    fun testNonLeapFeb29IsRejectedByJavaTime() {
+        val parsed = SlipParser.parseToLocalDateTime("29 ก.พ. 2566", "10:00")
+        assertEquals(null, parsed)
+    }
+
+    @Test
+    fun testTwoDigitBeYearUsesThaiBuddhistChronology() {
+        val parsed = SlipParser.parseToLocalDateTime("11 ส.ค. 69", "15:37 น.")
+        assertEquals("2026-08-11T15:37:00", parsed?.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+    }
+
+    @Test
+    fun testInvalidClockTimeIsRejectedByJavaTime() {
+        assertEquals(null, SlipParser.parseToLocalDateTime("11 ส.ค. 69", "24:01"))
+        assertEquals(null, SlipParser.parseToLocalDateTime("11 ส.ค. 69", "12:60"))
     }
 }
 

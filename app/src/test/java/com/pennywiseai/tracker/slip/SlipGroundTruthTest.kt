@@ -17,9 +17,9 @@ class SlipGroundTruthTest {
             นาย ทดสอบ อ
             ธ.กสิกรไทย
             XXX-X-X1111-X
-            นาย สมมติ สมมติ
+            นาย สมมติ ใจดี
             ธ.กสิกรไทย
-            XXX-X-X3720-X
+            XXX-X-X2222-X
             เลขที่รายการ:
             016215212503TEST0004
             จำนวน:
@@ -35,7 +35,7 @@ class SlipGroundTruthTest {
         assertEquals(SlipDirection.OUTGOING, parsed.direction)
         assertEquals(BigDecimal("3166.00"), parsed.amountBigDecimal)
         assertEquals("016215212503TEST0004", parsed.refNo)
-        assertEquals("นาย สมมติ สมมติ", parsed.receiverName)
+        assertEquals("นาย สมมติ ใจดี", parsed.receiverName)
         assertEquals(LocalDateTime.of(2026, 8, 3, 21, 25), SlipParser.parseToLocalDateTime(parsed.date, parsed.time))
     }
 
@@ -52,8 +52,8 @@ class SlipGroundTruthTest {
             ไปยัง
             TrueMoney Shop (ไอเดียผักสด)
             Biller ID : 010554614000000
-            รหัสร้านค้า : M0000000001368798066
-            รหัสสาขา : S000000000000257021
+            รหัสร้านค้า : M0000000000000000000
+            รหัสสาขา : S000000000000000000
             จำนวนเงิน
             120.00
             ผู้รับเงินสามารถสแกนคิวอาร์โค้ดนี้เพื่อ

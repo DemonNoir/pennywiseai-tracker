@@ -55,7 +55,7 @@ class SlipOcrModelVerificationTest {
             ธ.กสิกรไทย
             XXX-X-X1111-X
             เลขที่รายการ:
-            014223155829103
+            014223155829TEST
             จำนวน:
             500.00 บาท
         """.trimIndent()
@@ -66,6 +66,6 @@ class SlipOcrModelVerificationTest {
         assertEquals("KBank", parsed.bankName)
         assertEquals(SlipDirection.OUTGOING, parsed.direction)
         assertEquals(BigDecimal("500.00"), parsed.amountBigDecimal)
-        assertEquals("014223155829103", parsed.refNo)
+        assertEquals("014223155829TEST", parsed.refNo)
     }
 }
