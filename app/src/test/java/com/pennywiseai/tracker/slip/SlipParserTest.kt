@@ -21,8 +21,7 @@ class SlipParserTest {
 
             XXX-X-X1111-x
 
-            บริษัท ทดสอบ จํากัด
-            JPT20260811TEST001
+            บริษัท ทดสอบ จำกัด
             TESTBTOO2
 
             จำนวนเงิน: 1,250.00 บาท
