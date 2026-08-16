@@ -128,6 +128,7 @@ fun SettingsScreen(
     val availableCurrencies by settingsViewModel.availableCurrencies.collectAsStateWithLifecycle()
     val accounts by settingsViewModel.accounts.collectAsStateWithLifecycle()
     val mainAccountKey by settingsViewModel.mainAccountKey.collectAsStateWithLifecycle()
+    val appLanguage by settingsViewModel.appLanguage.collectAsStateWithLifecycle(initialValue = null)
     val useContactsForVpa by settingsViewModel.useContactsForVpa.collectAsStateWithLifecycle(initialValue = false)
     val isProEntitled by settingsViewModel.isProEntitled.collectAsStateWithLifecycle()
     val scheduledFolderBackupEnabled by settingsViewModel.scheduledFolderBackupEnabled.collectAsStateWithLifecycle(initialValue = false)
@@ -155,6 +156,8 @@ fun SettingsScreen(
     var showBudgetCycleDialog by remember { mutableStateOf(false) }
     var showCurrencyDropdown by remember { mutableStateOf(false) }
     var showMainAccountDropdown by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var showCleanUpDuplicatesDialog by remember { mutableStateOf(false) }
     val permissionUiState by permissionViewModel.uiState.collectAsStateWithLifecycle()
     val hasNotificationAccess = permissionUiState.hasNotificationAccess
 
@@ -210,6 +213,29 @@ fun SettingsScreen(
             },
             title = "Bank Slip Scanner",
             description = "To scan and extract data from your bank slips, PennyWise needs access to your images. We only analyze slips you select or those in bank folders; no other photos are accessed."
+        )
+    }
+
+    if (showCleanUpDuplicatesDialog) {
+        AlertDialog(
+            onDismissRequest = { showCleanUpDuplicatesDialog = false },
+            title = { Text("Clean Duplicate Slips") },
+            text = { Text("This will scan your transactions for duplicate slip scans (created before the update) and permanently delete them. Do you want to proceed?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCleanUpDuplicatesDialog = false
+                        settingsViewModel.cleanUpLegacyDuplicates()
+                    }
+                ) {
+                    Text("Proceed")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCleanUpDuplicatesDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -276,7 +302,7 @@ fun SettingsScreen(
             CustomTitleTopAppBar(
                 scrollBehaviorSmall = scrollBehaviorSmall,
                 scrollBehaviorLarge = scrollBehaviorLarge,
-                title = "Settings",
+                title = stringResource(R.string.settings_title),
                 hasBackButton = true,
                 hasActionButton = true,
                 navigationContent = { SettingsNavigationContent(onNavigateBack) },
@@ -386,21 +412,35 @@ fun SettingsScreen(
             }
 
             // ── Personalization ──
-            SectionHeaderV2(title = "Personalization")
+            SectionHeaderV2(title = stringResource(R.string.settings_personalization))
             SettingsGroup {
+                SettingsNavItem(
+                    icon = Icons.Default.Translate,
+                    iconBgColor = blue_light,
+                    iconTint = blue_dark,
+                    title = stringResource(R.string.settings_language),
+                    subtitle = when (appLanguage) {
+                        null -> stringResource(R.string.lang_system_default)
+                        "en" -> stringResource(R.string.lang_english)
+                        "th" -> stringResource(R.string.lang_thai)
+                        else -> appLanguage ?: ""
+                    },
+                    onClick = { showLanguageDialog = true },
+                    position = ListItemPosition.Top
+                )
                 SettingsNavItem(
                     icon = Icons.Default.Palette,
                     iconBgColor = orange_light,
                     iconTint = orange_dark,
-                    title = "Appearance",
+                    title = stringResource(R.string.settings_appearance),
                     subtitle = "Theme, colors, fonts & navigation",
                     onClick = onNavigateToAppearance,
-                    position = ListItemPosition.Single
+                    position = ListItemPosition.Bottom
                 )
             }
 
             // ── Currency ──
-            SectionHeaderV2(title = "Currency")
+            SectionHeaderV2(title = stringResource(R.string.settings_currency))
             SettingsGroup {
                 SettingsSwitchRow(
                     icon = Icons.Default.CurrencyExchange,
@@ -526,7 +566,7 @@ fun SettingsScreen(
             // Home / Analytics bucket transactions, so it lives up here next
             // to the other "display" knobs rather than buried in Data
             // Management with the budgets list.
-            SectionHeaderV2(title = "Budget")
+            SectionHeaderV2(title = stringResource(R.string.settings_budget))
             SettingsGroup {
                 SettingsNavItem(
                     icon = Icons.Default.DateRange,
@@ -571,7 +611,7 @@ fun SettingsScreen(
             }
 
             // ── Security ──
-            SectionHeaderV2(title = "Security")
+            SectionHeaderV2(title = stringResource(R.string.settings_security))
             SettingsGroup {
                 SettingsSwitchRow(
                     icon = Icons.Default.Lock,
@@ -606,7 +646,7 @@ fun SettingsScreen(
             }
 
             // ── Data Management ──
-            SectionHeaderV2(title = "Data Management")
+            SectionHeaderV2(title = stringResource(R.string.settings_data_management))
             SettingsGroup {
                 SettingsNavItem(
                     icon = Icons.Default.AccountBalance,
@@ -740,6 +780,15 @@ fun SettingsScreen(
                     position = ListItemPosition.Middle
                 )
                 SettingsNavItem(
+                    icon = Icons.Default.CleaningServices,
+                    iconBgColor = pink_light,
+                    iconTint = pink_dark,
+                    title = "Clean Duplicate Slips",
+                    subtitle = "Scan and remove legacy duplicate slip entries",
+                    onClick = { showCleanUpDuplicatesDialog = true },
+                    position = ListItemPosition.Middle
+                )
+                SettingsNavItem(
                     icon = Icons.Default.Description,
                     iconBgColor = indigo_light,
                     iconTint = indigo_dark,
@@ -785,7 +834,7 @@ fun SettingsScreen(
             }
 
             // ── Notifications ──
-            SectionHeaderV2(title = "Notifications")
+            SectionHeaderV2(title = stringResource(R.string.settings_notifications))
             SettingsGroup {
                 SettingsNavItem(
                     icon = Icons.Default.Notifications,
@@ -803,7 +852,7 @@ fun SettingsScreen(
             }
 
             // ── AI Features ──
-            SectionHeaderV2(title = "AI Features")
+            SectionHeaderV2(title = stringResource(R.string.settings_ai_features))
             SettingsGroup {
                 AiChatSettingsItem(
                     downloadState = downloadState,
@@ -817,7 +866,7 @@ fun SettingsScreen(
             }
 
             // ── Developer ──
-            SectionHeaderV2(title = "Developer")
+            SectionHeaderV2(title = stringResource(R.string.settings_developer))
             SettingsGroup {
                 SettingsSwitchRow(
                     icon = Icons.Default.Code,
@@ -832,7 +881,7 @@ fun SettingsScreen(
             }
 
             // ── Support & Community ──
-            SectionHeaderV2(title = "Support & Community")
+            SectionHeaderV2(title = stringResource(R.string.settings_support_community))
             SettingsGroup {
                 SettingsNavItem(
                     icon = Icons.AutoMirrored.Filled.Help,
@@ -1318,6 +1367,56 @@ fun SettingsScreen(
 
     if (showSupportDialog) {
         SupportDevelopmentDialog(onDismiss = { showSupportDialog = false })
+    }
+
+    // Language Selection Dialog
+    if (showLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = { Text(stringResource(R.string.settings_language)) },
+            text = {
+                Column {
+                    val languages = listOf(
+                        null to stringResource(R.string.lang_system_default),
+                        "en" to stringResource(R.string.lang_english),
+                        "th" to stringResource(R.string.lang_thai)
+                    )
+                    languages.forEach { (code, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = appLanguage == code,
+                                    onClick = {
+                                        settingsViewModel.updateLanguage(code)
+                                        showLanguageDialog = false
+                                    }
+                                )
+                                .padding(vertical = Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = appLanguage == code,
+                                onClick = {
+                                    settingsViewModel.updateLanguage(code)
+                                    showLanguageDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.sm))
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguageDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
     }
 }
 

@@ -272,6 +272,9 @@ dependencies {
     // Glance Widget
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
+    
+    // ML Kit Barcode Scanning for QR Masking
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // LiteRT-LM for on-device LLM inference
     implementation(libs.litertlm.android)

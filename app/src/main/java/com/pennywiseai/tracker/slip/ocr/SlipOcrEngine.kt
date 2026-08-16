@@ -3,7 +3,9 @@ package com.pennywiseai.tracker.slip.ocr
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.Rect
+import android.media.ExifInterface
 import android.net.Uri
 import android.util.Log
 import ai.onnxruntime.OnnxTensor
@@ -12,6 +14,7 @@ import ai.onnxruntime.OrtSession
 import com.pennywiseai.tracker.slip.parser.ParsedSlip
 import com.pennywiseai.tracker.slip.parser.SlipParser
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,12 +56,23 @@ class SlipOcrEngine @Inject constructor(
     private var detSession: OrtSession? = null
     private var recSession: OrtSession? = null
     private var dictionaryList: List<String> = emptyList()
+    private val engineReadyDeferred = CompletableDeferred<Unit>()
     private var isModelLoaded = false
 
     init {
         ioScope.launch {
             initOnnxModels()
+            engineReadyDeferred.complete(Unit)
         }
+    }
+
+    /**
+     * Waits until the OCR models and Tesseract engine are fully initialized.
+     * Use this in background workers to avoid scanning before the engine is ready.
+     */
+    suspend fun waitForReady() {
+        engineReadyDeferred.await()
+        tesseractEngine.waitForReady()
     }
 
     private fun initOnnxModels() {
@@ -134,7 +148,15 @@ class SlipOcrEngine @Inject constructor(
 
         try {
             val startTime = System.currentTimeMillis()
-            val extractedText = runHybridOcr(bitmap)
+            
+            // Mask QR Codes to prevent OCR from hallucinating text on them
+            val cleanedBitmap = QrMasker.maskQrCodes(bitmap)
+            
+            val extractedText = runHybridOcr(cleanedBitmap)
+            
+            if (cleanedBitmap != bitmap) {
+                cleanedBitmap.recycle()
+            }
             val elapsedTime = System.currentTimeMillis() - startTime
 
             Log.d("SlipOcrEngine", "OCR execution time for $imageUri: ${elapsedTime}ms")
@@ -148,7 +170,7 @@ class SlipOcrEngine @Inject constructor(
      * Hybrid OCR: Tesseract primary, Paddle for bank-logo fallback.
      * Runs on the calling (IO) thread.
      */
-    private fun runHybridOcr(bitmap: Bitmap): String {
+    private suspend fun runHybridOcr(bitmap: Bitmap): String {
         val tessText = tesseractEngine.recognize(bitmap)
 
         if (tesseractEngine.isAvailable && tessText.isNotBlank()) {
@@ -450,14 +472,53 @@ class SlipOcrEngine @Inject constructor(
 
     private fun loadBitmapFromUri(uri: Uri): Bitmap? {
         return try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
+            // 1. Read EXIF orientation first using a separate stream
+            val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
+                val exifInterface = ExifInterface(stream)
+                exifInterface.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_UNDEFINED
+                )
+            } ?: ExifInterface.ORIENTATION_UNDEFINED
+
+            // 2. Decode the bitmap
+            val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
                 val options = BitmapFactory.Options().apply {
                     inPreferredConfig = Bitmap.Config.ARGB_8888
                 }
                 BitmapFactory.decodeStream(stream, null, options)
+            } ?: return null
+
+            // 3. Rotate the bitmap if needed
+            if (orientation != ExifInterface.ORIENTATION_NORMAL && orientation != ExifInterface.ORIENTATION_UNDEFINED) {
+                val matrix = Matrix()
+                when (orientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                    ExifInterface.ORIENTATION_TRANSPOSE -> {
+                        matrix.postRotate(90f)
+                        matrix.postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_TRANSVERSE -> {
+                        matrix.postRotate(270f)
+                        matrix.postScale(-1f, 1f)
+                    }
+                }
+                val rotatedBitmap = Bitmap.createBitmap(
+                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                )
+                if (rotatedBitmap != bitmap) {
+                    bitmap.recycle()
+                }
+                rotatedBitmap
+            } else {
+                bitmap
             }
         } catch (e: Exception) {
-            Log.e("SlipOcrEngine", "Failed to decode bitmap from URI: ${e.message}", e)
+            Log.e("SlipOcrEngine", "Failed to decode or rotate bitmap from URI: ${e.message}", e)
             null
         }
     }

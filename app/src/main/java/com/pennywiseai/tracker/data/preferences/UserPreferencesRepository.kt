@@ -158,6 +158,9 @@ class UserPreferencesRepository @Inject constructor(
         val SCHEDULED_FOLDER_BACKUP_ENABLED = booleanPreferencesKey("scheduled_folder_backup_enabled")
         val SCHEDULED_FOLDER_BACKUP_TREE_URI = stringPreferencesKey("scheduled_folder_backup_tree_uri")
         val SCHEDULED_FOLDER_BACKUP_LAST_TIMESTAMP = longPreferencesKey("scheduled_folder_backup_last_timestamp")
+
+        // App Language (null/empty = system default)
+        val APP_LANGUAGE = stringPreferencesKey("app_language")
     }
 
     private companion object {
@@ -201,8 +204,14 @@ class UserPreferencesRepository @Inject constructor(
                     ?: if (preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] == true) "avatar://0" else null,
                 profileBackgroundColor = preferences[PreferencesKeys.PROFILE_BACKGROUND_COLOR] ?: 0,
                 hasCompletedOnboarding = preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] ?: false,
-                mainAccountKey = preferences[PreferencesKeys.MAIN_ACCOUNT_KEY]
+                mainAccountKey = preferences[PreferencesKeys.MAIN_ACCOUNT_KEY],
+                language = preferences[PreferencesKeys.APP_LANGUAGE]
             )
+        }
+
+    val appLanguage: Flow<String?> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.APP_LANGUAGE]
         }
 
     val baseCurrency: Flow<String> = context.dataStore.data
@@ -918,6 +927,16 @@ class UserPreferencesRepository @Inject constructor(
             preferences[PreferencesKeys.SCHEDULED_FOLDER_BACKUP_LAST_TIMESTAMP] = timestamp
         }
     }
+
+    suspend fun updateLanguage(languageCode: String?) {
+        context.dataStore.edit { preferences ->
+            if (languageCode == null) {
+                preferences.remove(PreferencesKeys.APP_LANGUAGE)
+            } else {
+                preferences[PreferencesKeys.APP_LANGUAGE] = languageCode
+            }
+        }
+    }
 }
 
 data class UserPreferences(
@@ -945,5 +964,6 @@ data class UserPreferences(
     val mainAccountKey: String? = null,
     val selectedProfileId: Long? = null,
     /** Day of the month (1..31) the budget cycle starts on. 1 = calendar month. */
-    val budgetCycleStartDay: Int = 1
+    val budgetCycleStartDay: Int = 1,
+    val language: String? = null
 )

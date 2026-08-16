@@ -34,6 +34,7 @@ enum class OnBoardingStep {
     PROFILE,
     PERMISSIONS,
     SMS_SCAN,
+    MEDIA_PERMISSION,
     ACCOUNT_SETUP
 }
 
@@ -45,6 +46,7 @@ data class OnBoardingUiState(
     val selectedBackgroundColor: Int = 0,
     val smsPermissionGranted: Boolean = false,
     val smsPermissionSkipped: Boolean = false,
+    val mediaPermissionGranted: Boolean = false,
     val isScanning: Boolean = false,
     val scanTotal: Int = 0,
     val scanProcessed: Int = 0,
@@ -129,6 +131,10 @@ class OnBoardingViewModel @Inject constructor(
         }
     }
 
+    fun onMediaPermissionResult(granted: Boolean) {
+        _uiState.update { it.copy(mediaPermissionGranted = granted) }
+    }
+
     fun skipSmsPermission() {
         _uiState.update { it.copy(smsPermissionSkipped = true) }
     }
@@ -146,11 +152,12 @@ class OnBoardingViewModel @Inject constructor(
                 if (_uiState.value.smsPermissionGranted) {
                     OnBoardingStep.SMS_SCAN
                 } else {
-                    // Skip scan step if permissions not granted
-                    OnBoardingStep.ACCOUNT_SETUP
+                    // Skip scan step if permissions not granted, go to media
+                    OnBoardingStep.MEDIA_PERMISSION
                 }
             }
-            OnBoardingStep.SMS_SCAN -> OnBoardingStep.ACCOUNT_SETUP
+            OnBoardingStep.SMS_SCAN -> OnBoardingStep.MEDIA_PERMISSION
+            OnBoardingStep.MEDIA_PERMISSION -> OnBoardingStep.ACCOUNT_SETUP
             OnBoardingStep.ACCOUNT_SETUP -> OnBoardingStep.ACCOUNT_SETUP // Already last
         }
         _uiState.update { it.copy(currentStep = nextStep) }
@@ -163,13 +170,14 @@ class OnBoardingViewModel @Inject constructor(
             OnBoardingStep.PROFILE -> OnBoardingStep.WELCOME
             OnBoardingStep.PERMISSIONS -> OnBoardingStep.PROFILE
             OnBoardingStep.SMS_SCAN -> OnBoardingStep.PERMISSIONS
-            OnBoardingStep.ACCOUNT_SETUP -> {
+            OnBoardingStep.MEDIA_PERMISSION -> {
                 if (_uiState.value.smsPermissionGranted) {
                     OnBoardingStep.SMS_SCAN
                 } else {
                     OnBoardingStep.PERMISSIONS
                 }
             }
+            OnBoardingStep.ACCOUNT_SETUP -> OnBoardingStep.MEDIA_PERMISSION
         }
         _uiState.update { it.copy(currentStep = previousStep) }
     }

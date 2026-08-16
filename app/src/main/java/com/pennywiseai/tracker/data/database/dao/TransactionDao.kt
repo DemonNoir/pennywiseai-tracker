@@ -133,7 +133,7 @@ interface TransactionDao {
      * Re-parse uses `transaction_hash` UNIQUE + `OnConflictStrategy.IGNORE`,
      * so the surviving rows are not duplicated when SMS is re-read.
      */
-    @Query("DELETE FROM transactions WHERE loan_id IS NULL AND group_id IS NULL")
+    @Query("DELETE FROM transactions WHERE loan_id IS NULL AND group_id IS NULL AND sms_sender IS NOT NULL AND sms_sender != 'SLIP_SCAN'")
     suspend fun deleteUncuratedTransactions()
     
     @Query("UPDATE transactions SET category = :newCategory WHERE merchant_name = :merchantName")
@@ -390,4 +390,12 @@ interface TransactionDao {
         dateStart: LocalDateTime,
         dateEnd: LocalDateTime
     ): List<TransactionEntity>
+
+    @Query("""
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+        AND transaction_hash LIKE 'SLIP_%'
+        ORDER BY date_time DESC
+    """)
+    suspend fun getLegacySlipTransactions(): List<TransactionEntity>
 }

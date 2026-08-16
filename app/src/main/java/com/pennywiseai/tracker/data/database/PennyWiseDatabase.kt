@@ -11,6 +11,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.pennywiseai.tracker.data.database.converter.Converters
 import com.pennywiseai.tracker.data.database.dao.AccountBalanceDao
+import com.pennywiseai.tracker.data.database.dao.SlipScanHistoryDao
 import com.pennywiseai.tracker.data.database.dao.ProfileDao
 import com.pennywiseai.tracker.data.database.dao.TagDao
 import com.pennywiseai.tracker.data.database.dao.BankNotificationDao
@@ -28,10 +29,12 @@ import com.pennywiseai.tracker.data.database.dao.TransactionGroupDao
 import com.pennywiseai.tracker.data.database.dao.RuleApplicationDao
 import com.pennywiseai.tracker.data.database.dao.RuleDao
 import com.pennywiseai.tracker.data.database.dao.SubscriptionDao
+import com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao
 import com.pennywiseai.tracker.data.database.dao.TransactionDao
 import com.pennywiseai.tracker.data.database.dao.TransactionSplitDao
 import com.pennywiseai.tracker.data.database.dao.UnrecognizedSmsDao
 import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
+import com.pennywiseai.tracker.data.database.entity.SlipScanHistoryEntity
 import com.pennywiseai.tracker.data.database.entity.ProfileEntity
 import com.pennywiseai.tracker.data.database.entity.TagEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionTagCrossRef
@@ -52,6 +55,7 @@ import com.pennywiseai.tracker.data.database.entity.RuleApplicationEntity
 import com.pennywiseai.tracker.data.database.entity.RuleEntity
 import com.pennywiseai.tracker.data.database.entity.SubscriptionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
+import com.pennywiseai.tracker.data.database.entity.ScanCorrectionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionSplitEntity
 import com.pennywiseai.tracker.data.database.entity.UnrecognizedSmsEntity
 
@@ -62,7 +66,7 @@ import com.pennywiseai.tracker.data.database.entity.UnrecognizedSmsEntity
  * that needs to record the version it was exported against. Bump this in lock-
  * step with any schema change.
  */
-const val SCHEMA_VERSION = 58
+const val SCHEMA_VERSION = 60
 
 /**
  * The PennyWise Room database.
@@ -75,7 +79,7 @@ const val SCHEMA_VERSION = 58
  * @property autoMigrations List of automatic migrations between versions.
  */
 @Database(
-    entities = [TransactionEntity::class, SubscriptionEntity::class, ChatMessage::class, MerchantMappingEntity::class, MerchantAliasEntity::class, CategoryEntity::class, AccountBalanceEntity::class, UnrecognizedSmsEntity::class, CardEntity::class, RuleEntity::class, RuleApplicationEntity::class, ExchangeRateEntity::class, BudgetEntity::class, BudgetCategoryEntity::class, BudgetMonthSnapshotEntity::class, BudgetCategoryMonthSnapshotEntity::class, TransactionSplitEntity::class, BankNotificationEntity::class, LoanEntity::class, TransactionGroupEntity::class, ProfileEntity::class, TagEntity::class, TransactionTagCrossRef::class],
+    entities = [TransactionEntity::class, SubscriptionEntity::class, ChatMessage::class, MerchantMappingEntity::class, MerchantAliasEntity::class, CategoryEntity::class, AccountBalanceEntity::class, UnrecognizedSmsEntity::class, CardEntity::class, RuleEntity::class, RuleApplicationEntity::class, ExchangeRateEntity::class, BudgetEntity::class, BudgetCategoryEntity::class, BudgetMonthSnapshotEntity::class, BudgetCategoryMonthSnapshotEntity::class, TransactionSplitEntity::class, BankNotificationEntity::class, LoanEntity::class, TransactionGroupEntity::class, ProfileEntity::class, TagEntity::class, TransactionTagCrossRef::class, SlipScanHistoryEntity::class, ScanCorrectionEntity::class],
     version = SCHEMA_VERSION,
     exportSchema = true,
     autoMigrations = [
@@ -127,7 +131,11 @@ const val SCHEMA_VERSION = 58
         AutoMigration(from = 55, to = 56),
         // 56→57 adds a nullable account_last4 column to subscriptions — a pure
         // additive change, so Room generates the ALTER TABLE automatically (#570).
-        AutoMigration(from = 56, to = 57)
+        AutoMigration(from = 56, to = 57),
+        AutoMigration(from = 57, to = 58, spec = Migration57To58::class),
+        AutoMigration(from = 58, to = 59),
+        // 59→60 adds the scan_corrections table for correction logging
+        AutoMigration(from = 59, to = 60)
     ]
 )
 @TypeConverters(Converters::class)
@@ -152,6 +160,8 @@ abstract class PennyWiseDatabase : RoomDatabase() {
     abstract fun budgetSnapshotDao(): BudgetSnapshotDao
     abstract fun profileDao(): ProfileDao
     abstract fun tagDao(): TagDao
+    abstract fun slipScanHistoryDao(): SlipScanHistoryDao
+    abstract fun scanCorrectionDao(): ScanCorrectionDao
 
     companion object {
         const val DATABASE_NAME = "pennywise_database"
@@ -583,7 +593,9 @@ abstract class PennyWiseDatabase : RoomDatabase() {
                 db.execSQL("DELETE FROM `budget_month_snapshots`")
             }
         }
-
+        
+        // MIGRATION_57_58 was handled by AutoMigration(spec = Migration57To58::class) in the array above,
+        // but here is the manual fallback just in case.
         val MIGRATION_57_58 = object : Migration(57, 58) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Free-text tags with a many-to-many link to transactions.
@@ -774,3 +786,6 @@ class Migration43To44 : AutoMigrationSpec {
         db.execSQL("INSERT OR IGNORE INTO profiles (id, name, color_hex, sort_order) VALUES (2, 'Business', '#2196F3', 1)")
     }
 }
+
+class Migration57To58 : AutoMigrationSpec
+

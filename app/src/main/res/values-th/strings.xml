@@ -1,0 +1,39 @@
+<resources>
+    <string name="app_name">PennyWise AI - บันทึกรายรับรายจ่าย</string>
+    <string name="support_title">สนับสนุนโปรเจกต์</string>
+    <string name="support_subtitle">พัฒนาโดยนักพัฒนาคนเดียว — การสนับสนุนเล็กน้อยช่วยให้โปรเจกต์ไปต่อได้ครับ 🦉</string>
+    <string name="support_dialog_body">PennyWise เป็นแอปฟรีและโอเพนซอร์ส พัฒนาโดยนักพัฒนาเพียงคนเดียว หากแอปนี้มีประโยชน์กับคุณ การสนับสนุนเล็กน้อยผ่าน UPI จะช่วยให้ผมพัฒนาต่อไปได้ครับ 🦉</string>
+    <string name="support_pay_via_upi">จ่ายผ่าน UPI</string>
+    <string name="support_close">ปิด</string>
+    <string name="support_copy_upi_id">คัดลอก UPI ID</string>
+    <string name="support_copied_toast">คัดลอก UPI ID เรียบร้อย</string>
+    <string name="support_nudge_body">ชอบแอป PennyWise ไหมครับ? สนับสนุนการพัฒนาได้นะ 💛</string>
+
+    <string name="nav_home">หน้าแรก</string>
+    <string name="nav_analytics">วิเคราะห์</string>
+    <string name="nav_chat">แชท</string>
+    <string name="nav_settings">ตั้งค่า</string>
+
+    <string name="settings_title">ตั้งค่า</string>
+    <string name="settings_personalization">ปรับแต่งแอป</string>
+    <string name="settings_language">ภาษา (Language)</string>
+    <string name="settings_appearance">หน้าตาแอป</string>
+    <string name="settings_currency">สกุลเงิน</string>
+    <string name="settings_budget">Budget</string>
+    <string name="settings_security">ความปลอดภัย</string>
+    <string name="settings_data_management">จัดการข้อมูล</string>
+    <string name="settings_notifications">การแจ้งเตือน</string>
+    <string name="settings_ai_features">ฟีเจอร์ AI</string>
+    <string name="settings_developer">นักพัฒนา</string>
+    <string name="settings_support_community">สนับสนุน &amp; ชุมชน</string>
+
+    <string name="lang_system_default">ตามที่ตั้งค่าเครื่อง</string>
+    <string name="lang_english">English</string>
+    <string name="lang_thai">ไทย (Thai)</string>
+
+    <string name="common_cancel">ยกเลิก</string>
+    <string name="common_ok">ตกลง</string>
+    <string name="common_save">บันทึก</string>
+    <string name="common_delete">ลบ</string>
+    <string name="common_done">เสร็จสิ้น</string>
+</resources>

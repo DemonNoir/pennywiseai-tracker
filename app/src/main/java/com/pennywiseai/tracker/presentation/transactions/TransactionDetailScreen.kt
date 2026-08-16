@@ -1169,6 +1169,9 @@ private fun EditableTransactionHeader(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.md)
     ) {
+        val suggestedMerchantName by viewModel.suggestedMerchantName.collectAsStateWithLifecycle()
+        val fieldConfidences by viewModel.fieldConfidences.collectAsStateWithLifecycle()
+
         // Amount and Currency
         val primaryCurrency by viewModel.primaryCurrency.collectAsStateWithLifecycle()
         Row(
@@ -1218,6 +1221,45 @@ private fun EditableTransactionHeader(
                 isError = transaction.merchantName.isBlank(),
                 colors = editFilledColors()
             )
+
+            // Suggestion Chip (Phase 3)
+            AnimatedVisibility(
+                visible = suggestedMerchantName != null && fieldConfidences["merchantName"] == com.pennywiseai.tracker.slip.parser.Confidence.MEDIUM,
+                enter = fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = fadeOut() + androidx.compose.animation.shrinkVertically()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = "Suggestion",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Suggested:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    SuggestionChip(
+                        onClick = {
+                            suggestedMerchantName?.let { viewModel.updateMerchantName(it) }
+                        },
+                        label = { Text(suggestedMerchantName ?: "") },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        border = null,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            }
 
             // Display alias (#583): shown in place of the merchant everywhere,
             // for all transactions from it. The raw merchant above is unchanged.
@@ -1483,16 +1525,10 @@ private fun EditableExtractedInfoCard(
         val pendingReceiptUri by viewModel.pendingReceiptUri.collectAsStateWithLifecycle()
         val receiptRemoved by viewModel.receiptRemoved.collectAsStateWithLifecycle()
         val displayReceiptUri = pendingReceiptUri ?: if (receiptRemoved) null else existingReceiptUri
-        ReceiptPickerSection(
-            receiptUri = displayReceiptUri,
-            onReceiptSelected = { uri -> viewModel.updatePendingReceiptUri(uri) },
-            onReceiptRemoved = { viewModel.removeReceipt() },
-            onCreateCameraUri = { viewModel.createCameraUri() }
-        )
 
+        // Re-scan button shown above the receipt image for quick access
         if (displayReceiptUri != null) {
             val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
-            Spacer(modifier = Modifier.height(Spacing.sm))
             OutlinedButton(
                 onClick = { viewModel.rescanReceipt() },
                 modifier = Modifier.fillMaxWidth(),
@@ -1513,7 +1549,15 @@ private fun EditableExtractedInfoCard(
                     Text("Re-scan Receipt")
                 }
             }
+            Spacer(modifier = Modifier.height(Spacing.sm))
         }
+
+        ReceiptPickerSection(
+            receiptUri = displayReceiptUri,
+            onReceiptSelected = { uri -> viewModel.updatePendingReceiptUri(uri) },
+            onReceiptRemoved = { viewModel.removeReceipt() },
+            onCreateCameraUri = { viewModel.createCameraUri() }
+        )
 
         if (!transaction.smsBody.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(Spacing.sm))

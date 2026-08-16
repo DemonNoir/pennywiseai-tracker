@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -99,6 +100,7 @@ fun OnBoardingScreen(
                         OnBoardingStep.PROFILE -> viewModel.goToNextStep()
                         OnBoardingStep.PERMISSIONS -> viewModel.goToNextStep()
                         OnBoardingStep.SMS_SCAN -> viewModel.goToNextStep()
+                        OnBoardingStep.MEDIA_PERMISSION -> viewModel.goToNextStep()
                         OnBoardingStep.ACCOUNT_SETUP -> {
                             viewModel.completeOnboarding(onOnboardingComplete)
                         }
@@ -111,6 +113,7 @@ fun OnBoardingScreen(
                             viewModel.goToNextStep()
                         }
                         OnBoardingStep.SMS_SCAN -> viewModel.goToNextStep()
+                        OnBoardingStep.MEDIA_PERMISSION -> viewModel.goToNextStep()
                         OnBoardingStep.ACCOUNT_SETUP -> {
                             viewModel.completeOnboarding(onOnboardingComplete)
                         }
@@ -148,6 +151,10 @@ fun OnBoardingScreen(
                     onPermissionResult = { viewModel.onSmsPermissionResult(it) }
                 )
                 OnBoardingStep.SMS_SCAN -> SmsScanStep(uiState = uiState)
+                OnBoardingStep.MEDIA_PERMISSION -> MediaPermissionStep(
+                    uiState = uiState,
+                    onPermissionResult = { viewModel.onMediaPermissionResult(it) }
+                )
                 OnBoardingStep.ACCOUNT_SETUP -> AccountSetupStep(
                     uiState = uiState,
                     onSelectAccount = { viewModel.selectAccount(it) }
@@ -522,6 +529,152 @@ private fun PermissionsStep(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Enable Permissions")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaPermissionStep(
+    uiState: OnBoardingUiState,
+    onPermissionResult: (Boolean) -> Unit
+) {
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+                permissions[Manifest.permission.READ_MEDIA_IMAGES] == true ||
+                permissions["android.permission.READ_MEDIA_VISUAL_USER_SELECTED"] == true
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                permissions[Manifest.permission.READ_MEDIA_IMAGES] == true
+            else ->
+                permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
+        }
+        onPermissionResult(granted)
+    }
+
+    var showDisclosure by remember { mutableStateOf(false) }
+
+    if (showDisclosure) {
+        PermissionDisclosureDialog(
+            onDismissRequest = { showDisclosure = false },
+            onConfirm = {
+                showDisclosure = false
+                val permissions = when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
+                        Manifest.permission.READ_MEDIA_IMAGES,
+                        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+                    )
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
+                        Manifest.permission.READ_MEDIA_IMAGES
+                    )
+                    else -> arrayOf(
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    )
+                }
+                permissionLauncher.launch(permissions)
+            },
+            title = "Scan Bank Slips Automatically",
+            description = "PennyWise can scan payment slips saved in your photo gallery to record transactions. Only images are analysed — no personal photos are ever read or uploaded."
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .overScrollVertical()
+            .verticalScroll(rememberScrollState())
+            .padding(Spacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Filled.PhotoLibrary,
+            contentDescription = null,
+            modifier = Modifier.size(HERO_ICON_SIZE_SMALL),
+            tint = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(Spacing.lg))
+
+        Text(
+            text = "Scan Bank Slips",
+            style = MaterialTheme.typography.headlineMedium,
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(Spacing.md))
+
+        Text(
+            text = "Allow PennyWise to read photos so it can automatically detect and import payment slips from your gallery.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(Spacing.lg))
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(Spacing.md)) {
+                Text(
+                    text = "Your Privacy Matters",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                Text(
+                    text = "• Only payment slips are scanned\n" +
+                            "• Personal photos are never read\n" +
+                            "• All data stays on your device\n" +
+                            "• You can revoke access anytime in Settings",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.xl))
+
+        if (uiState.mediaPermissionGranted) {
+            val incomeColor = MaterialTheme.colorScheme.income
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = incomeColor.copy(alpha = if (isSystemInDarkTheme()) 0.15f else 0.12f)
+                ),
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(Spacing.md),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = incomeColor
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    Text(
+                        text = "Photo access granted! Tap Continue to proceed.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = incomeColor
+                    )
+                }
+            }
+        } else {
+            Button(
+                onClick = { showDisclosure = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Allow Photo Access")
             }
         }
     }
@@ -907,6 +1060,19 @@ private fun OnBoardingBottomBar(
                             Text("Skip")
                         }
                     } else if (uiState.scanCompleted) {
+                        Button(onClick = onNext) {
+                            Text("Continue")
+                        }
+                    }
+                }
+
+                OnBoardingStep.MEDIA_PERMISSION -> {
+                    if (!uiState.mediaPermissionGranted) {
+                        TextButton(onClick = onSkip) {
+                            Text("Skip")
+                        }
+                    }
+                    if (uiState.mediaPermissionGranted) {
                         Button(onClick = onNext) {
                             Text("Continue")
                         }

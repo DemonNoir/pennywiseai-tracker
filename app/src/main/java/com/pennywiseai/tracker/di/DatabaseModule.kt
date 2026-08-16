@@ -280,6 +280,18 @@ object DatabaseModule {
     fun provideTagDao(database: PennyWiseDatabase): TagDao {
         return database.tagDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideSlipScanHistoryDao(database: PennyWiseDatabase): com.pennywiseai.tracker.data.database.dao.SlipScanHistoryDao {
+        return database.slipScanHistoryDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideScanCorrectionDao(database: PennyWiseDatabase): com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao {
+        return database.scanCorrectionDao()
+    }
 }
 
 /**

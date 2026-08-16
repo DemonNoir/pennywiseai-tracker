@@ -147,6 +147,7 @@ import com.pennywiseai.tracker.ui.theme.RosePine_Surface_tertiary
 import com.pennywiseai.tracker.ui.theme.RosePine_Text
 import com.pennywiseai.tracker.ui.theme.RosePine_Text_secondary
 import com.pennywiseai.tracker.ui.theme.RosePine_Text_tertiary
+import com.pennywiseai.tracker.ui.theme.KanitFontFamily
 import com.pennywiseai.tracker.ui.theme.SNProFontFamily
 import com.pennywiseai.tracker.ui.theme.Spacing
 import com.pennywiseai.tracker.ui.viewmodel.ThemeViewModel
@@ -796,6 +797,41 @@ private fun FontSelector(
                         fontFamily = FontFamily.Default,
                         color = if (currentFont == AppFont.SYSTEM)
                             MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Kanit Option (Thai-friendly)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(80.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        color = if (currentFont == AppFont.KANIT)
+                            MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.surfaceContainerLow
+                    )
+                    .clickable { onFontSelected(AppFont.KANIT) },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Kanit",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = KanitFontFamily,
+                        color = if (currentFont == AppFont.KANIT)
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "ภาษาไทย",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = KanitFontFamily,
+                        color = if (currentFont == AppFont.KANIT)
+                            MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

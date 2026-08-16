@@ -6,8 +6,18 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+
 import androidx.compose.ui.unit.sp
 import com.pennywiseai.tracker.R
+
+val KanitFontFamily = FontFamily(
+    Font(R.font.kanit_regular, FontWeight.Normal),
+    Font(R.font.kanit_medium, FontWeight.Medium),
+    Font(R.font.kanit_semibold, FontWeight.SemiBold),
+    Font(R.font.kanit_bold, FontWeight.Bold),
+    Font(R.font.kanit_light, FontWeight.Light),
+    Font(R.font.kanit_extralight, FontWeight.ExtraLight),
+)
 
 val SNProFontFamily = FontFamily(
     Font(R.font.sn_pro_regular, FontWeight.Normal),

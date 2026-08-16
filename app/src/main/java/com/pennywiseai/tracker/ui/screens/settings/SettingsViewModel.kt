@@ -38,7 +38,9 @@ import com.pennywiseai.tracker.utils.CurrencyFormatter
 import com.pennywiseai.tracker.utils.CurrencyUtils
 import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
 import android.content.Intent
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.FileProvider
+import androidx.core.os.LocaleListCompat
 import com.pennywiseai.tracker.core.Constants
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -138,6 +140,9 @@ class SettingsViewModel @Inject constructor(
     
     // Base currency state
     val baseCurrency = userPreferencesRepository.baseCurrency
+
+    // App Language
+    val appLanguage = userPreferencesRepository.appLanguage
 
     // Number format style (digit grouping: Auto / Indian / International)
     val numberFormatStyle = userPreferencesRepository.numberFormatStyle
@@ -814,6 +819,18 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun updateLanguage(languageCode: String?) {
+        viewModelScope.launch {
+            userPreferencesRepository.updateLanguage(languageCode)
+            val appLocales = if (languageCode == null) {
+                LocaleListCompat.getEmptyLocaleList()
+            } else {
+                LocaleListCompat.forLanguageTags(languageCode)
+            }
+            AppCompatDelegate.setApplicationLocales(appLocales)
+        }
+    }
+
     fun updateNumberFormatStyle(style: NumberFormatStyle) {
         viewModelScope.launch {
             userPreferencesRepository.updateNumberFormatStyle(style)
@@ -841,6 +858,39 @@ class SettingsViewModel @Inject constructor(
                 bankName = account.bankName
             )
             userPreferencesRepository.applyMainAccountCurrency(currency)
+        }
+    }
+
+    fun cleanUpLegacyDuplicates() {
+        viewModelScope.launch {
+            try {
+                _importExportMessage.value = "Scanning for duplicate slips..."
+                val legacySlips = transactionRepository.getLegacySlipTransactions()
+                var deletedCount = 0
+
+                val grouped = legacySlips.groupBy { txn ->
+                    // Group by amount, bank name, and day
+                    "${txn.amount}_${txn.bankName}_${txn.dateTime.toLocalDate()}"
+                }
+
+                for ((_, group) in grouped) {
+                    if (group.size > 1) {
+                        // Sort by receiptPath (keep ones with images) and then by ID (older first)
+                        val sorted = group.sortedWith(compareBy({ it.receiptPath == null }, { it.id }))
+                        // Keep the first one, delete the rest
+                        val toDelete = sorted.drop(1)
+                        for (txn in toDelete) {
+                            transactionRepository.deleteTransactionById(txn.id, hardDelete = true)
+                            deletedCount++
+                        }
+                    }
+                }
+
+                _importExportMessage.value = "Cleanup complete. Deleted $deletedCount duplicate slips."
+            } catch (e: Exception) {
+                Log.e("SettingsViewModel", "Failed to clean up duplicate slips", e)
+                _importExportMessage.value = "Cleanup failed: ${e.message}"
+            }
         }
     }
 }

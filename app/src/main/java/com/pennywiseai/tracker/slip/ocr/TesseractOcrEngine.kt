@@ -2,6 +2,10 @@ package com.pennywiseai.tracker.slip.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.util.Log
 import com.googlecode.tesseract.android.TessBaseAPI
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -13,6 +17,9 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CompletableDeferred
 
 /**
  * On-device Tesseract 5 (Tesseract4Android) OCR engine for Thai + English slips.
@@ -37,6 +44,8 @@ class TesseractOcrEngine @Inject constructor(
     }
 
     private val ioScope = CoroutineScope(Dispatchers.IO)
+    private val mutex = Mutex()
+    private val readyDeferred = CompletableDeferred<Unit>()
 
     @Volatile
     private var tessApi: TessBaseAPI? = null
@@ -85,11 +94,20 @@ class TesseractOcrEngine @Inject constructor(
             api.pageSegMode = TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK
             tessApi = api
             isReady = true
+            readyDeferred.complete(Unit)
             Log.i(TAG, "Tesseract 5 initialized (tha+eng, PSM 6).")
         } catch (e: Exception) {
             Log.e(TAG, "Tesseract init failed: ${e.message}", e)
             isReady = false
+            readyDeferred.complete(Unit) // Complete anyway to unblock callers
         }
+    }
+
+    /**
+     * Waits until the Tesseract engine is fully initialized.
+     */
+    suspend fun waitForReady() {
+        readyDeferred.await()
     }
 
     /**
@@ -97,16 +115,56 @@ class TesseractOcrEngine @Inject constructor(
      * Returns "" when Tesseract is unavailable or recognition fails — callers
      * fall back to PaddleOCR in that case.
      */
-    fun recognize(bitmap: Bitmap): String {
+    suspend fun recognize(bitmap: Bitmap): String = mutex.withLock {
         val api = tessApi
         if (!isReady || api == null) return ""
+        
+        val processedBitmap = preprocessForOcr(bitmap)
+        
         return try {
-            api.setImage(bitmap)
+            api.setImage(processedBitmap)
             api.utF8Text ?: ""
         } catch (e: Exception) {
             Log.w(TAG, "Tesseract recognition failed: ${e.message}")
             ""
+        } finally {
+            if (processedBitmap != bitmap) {
+                processedBitmap.recycle()
+            }
         }
+    }
+
+    /**
+     * Preprocesses the bitmap to improve Tesseract OCR accuracy on textured backgrounds.
+     * Converts to grayscale and drastically increases contrast to wash out light background
+     * patterns (like on KBank slips) and darken text.
+     */
+    private fun preprocessForOcr(original: Bitmap): Bitmap {
+        val bmp = Bitmap.createBitmap(original.width, original.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        
+        // Increase contrast by 2.0x and drop brightness slightly to keep text dark
+        val contrast = 2.0f
+        val brightness = -30f
+        
+        val colorMatrix = ColorMatrix().apply {
+            setSaturation(0f) // Grayscale
+            
+            val contrastMatrix = ColorMatrix(floatArrayOf(
+                contrast, 0f, 0f, 0f, brightness,
+                0f, contrast, 0f, 0f, brightness,
+                0f, 0f, contrast, 0f, brightness,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            postConcat(contrastMatrix)
+        }
+        
+        val paint = Paint().apply {
+            colorFilter = ColorMatrixColorFilter(colorMatrix)
+        }
+        
+        canvas.drawBitmap(original, 0f, 0f, paint)
+        return bmp
     }
 
     private fun copyAssetToFile(assetName: String, target: File) {

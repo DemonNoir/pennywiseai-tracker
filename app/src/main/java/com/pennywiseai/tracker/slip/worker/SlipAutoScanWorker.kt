@@ -8,6 +8,8 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.pennywiseai.tracker.domain.usecase.ProcessSlipUseCase
+import com.pennywiseai.tracker.data.database.dao.SlipScanHistoryDao
+import com.pennywiseai.tracker.data.database.entity.SlipScanHistoryEntity
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -20,7 +22,8 @@ class SlipAutoScanWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val ocrEngine: SlipOcrEngine,
-    private val processSlipUseCase: ProcessSlipUseCase
+    private val processSlipUseCase: ProcessSlipUseCase,
+    private val slipScanHistoryDao: SlipScanHistoryDao
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -44,6 +47,11 @@ class SlipAutoScanWorker @AssistedInject constructor(
         Log.i(TAG, "Starting Auto-Slip Scan...")
         
         try {
+            // Wait for OCR engine to be ready before starting
+            Log.d(TAG, "Waiting for OCR engine to initialize...")
+            ocrEngine.waitForReady()
+            Log.d(TAG, "OCR engine is ready.")
+
             val imageUris = queryRecentBankImages()
             Log.d(TAG, "Found ${imageUris.size} recent bank images to scan")
 
@@ -51,18 +59,54 @@ class SlipAutoScanWorker @AssistedInject constructor(
             var failCount = 0
             
             for (uri in imageUris) {
+                val uriString = uri.toString()
+                val history = slipScanHistoryDao.getHistoryByUri(uriString)
+                
+                if (history != null) {
+                    if (history.status == "SUCCESS" || history.attemptCount >= 3) {
+                        Log.d(TAG, "Skipping previously scanned URI (status=${history.status}, attempts=${history.attemptCount}): $uri")
+                        continue
+                    }
+                }
+
+                val currentAttempts = history?.attemptCount ?: 0
+
                 try {
-                    // ใช้ OCR แบบ Synchronous (suspending wrapper)
-                    val parsedSlip = ocrEngine.processRawText(ocrEngine.getRawTextSync(uri))
+                    val rawText = ocrEngine.getRawTextSync(uri)
+                    val parsedSlip = ocrEngine.processRawText(rawText)
                     
                     if (parsedSlip.amount != null && (parsedSlip.amount ?: 0.0) > 0.0) {
                         processSlipUseCase.execute(parsedSlip)
+                        
+                        slipScanHistoryDao.insertOrUpdate(SlipScanHistoryEntity(
+                            imageUri = uriString,
+                            status = "SUCCESS",
+                            attemptCount = currentAttempts + 1,
+                            lastScanTime = System.currentTimeMillis()
+                        ))
+                        
                         successCount++
                     } else {
-                        Log.d(TAG, "Image at $uri is not a valid slip or amount not found")
+                        Log.d(TAG, "Rejected image at $uri: Not a valid slip or amount not found.")
+                        Log.v(TAG, "Raw text from rejected image: \n$rawText")
+                        
+                        slipScanHistoryDao.insertOrUpdate(SlipScanHistoryEntity(
+                            imageUri = uriString,
+                            status = "FAILED_NO_AMOUNT",
+                            attemptCount = currentAttempts + 1,
+                            lastScanTime = System.currentTimeMillis()
+                        ))
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to process image $uri: ${e.message}")
+                    
+                    slipScanHistoryDao.insertOrUpdate(SlipScanHistoryEntity(
+                        imageUri = uriString,
+                        status = "FAILED_ERROR",
+                        attemptCount = currentAttempts + 1,
+                        lastScanTime = System.currentTimeMillis()
+                    ))
+                    
                     failCount++
                 }
             }

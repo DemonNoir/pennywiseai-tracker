@@ -24,4 +24,32 @@
     <string name="support_copied_toast">UPI ID copied</string>
     <string name="support_no_upi_app">No UPI app found. Copy the UPI ID instead.</string>
     <string name="support_nudge_body">Enjoying PennyWise? Support development 💛</string>
+
+    <string name="nav_home">Home</string>
+    <string name="nav_analytics">Analytics</string>
+    <string name="nav_chat">Chat</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_personalization">Personalization</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_currency">Currency</string>
+    <string name="settings_budget">Budget</string>
+    <string name="settings_security">Security</string>
+    <string name="settings_data_management">Data Management</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_ai_features">AI Features</string>
+    <string name="settings_developer">Developer</string>
+    <string name="settings_support_community">Support &amp; Community</string>
+
+    <string name="lang_system_default">System Default</string>
+    <string name="lang_english">English</string>
+    <string name="lang_thai">ไทย (Thai)</string>
+
+    <string name="common_cancel">Cancel</string>
+    <string name="common_ok">OK</string>
+    <string name="common_save">Save</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_done">Done</string>
 </resources>

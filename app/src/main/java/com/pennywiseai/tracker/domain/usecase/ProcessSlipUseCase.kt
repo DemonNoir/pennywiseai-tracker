@@ -13,6 +13,7 @@ import com.pennywiseai.tracker.slip.parser.ParsedSlip
 import com.pennywiseai.tracker.slip.parser.SlipConfidence
 import com.pennywiseai.tracker.slip.parser.SlipDirection
 import java.math.BigDecimal
+import java.text.Normalizer
 import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,11 +35,23 @@ class ProcessSlipUseCase @Inject constructor(
         // 1. แปลง ParsedSlip เป็น ParsedTransaction (เพื่อใช้ Logic ร่วมกับระบบหลัก)
         val amount = parsedSlip.amountBigDecimal ?: parsedSlip.amount?.let { BigDecimal.valueOf(it) } ?: BigDecimal.ZERO
         
-        val type = when (parsedSlip.direction) {
-            SlipDirection.BILL_PAYMENT -> com.pennywiseai.parser.core.TransactionType.EXPENSE
-            SlipDirection.OUTGOING -> com.pennywiseai.parser.core.TransactionType.EXPENSE
-            SlipDirection.INCOMING -> com.pennywiseai.parser.core.TransactionType.INCOME
-            else -> com.pennywiseai.parser.core.TransactionType.EXPENSE
+        // ──────────────────────────────────────────────────────────────────────
+        // Determine transaction type from slip content:
+        //   • BILL_PAYMENT direction → always Expense
+        //   • sender name ≈ receiver name (fuzzy, OCR-tolerant) → Transfer
+        //     (user is moving money between their own accounts)
+        //   • everything else, including INCOMING (OCR misread) → Expense
+        //   • INCOME is intentionally never produced by slip scanning
+        // ──────────────────────────────────────────────────────────────────────
+        val type = when {
+            parsedSlip.direction == SlipDirection.BILL_PAYMENT ->
+                com.pennywiseai.parser.core.TransactionType.EXPENSE
+
+            senderMatchesReceiver(parsedSlip.senderName, parsedSlip.receiverName) ->
+                com.pennywiseai.parser.core.TransactionType.TRANSFER
+
+            else ->
+                com.pennywiseai.parser.core.TransactionType.EXPENSE
         }
 
         val parsedTransaction = ParsedTransaction(
@@ -55,7 +68,7 @@ class ProcessSlipUseCase @Inject constructor(
             sender = "SLIP_SCAN",
             timestamp = parsedSlip.timestampMillis ?: System.currentTimeMillis(),
             bankName = parsedSlip.bankName ?: "Thai Bank",
-            transactionHash = parsedSlip.refNo ?: "SLIP_${System.currentTimeMillis()}",
+            transactionHash = com.pennywiseai.tracker.slip.parser.TransactionHashGenerator.generate(parsedSlip),
             currency = "THB"
         )
 
@@ -109,4 +122,63 @@ class ProcessSlipUseCase @Inject constructor(
         Log.i("ProcessSlipUseCase", "Saved slip transaction: ID=$rowId, Merchant=${finalEntity.merchantName}, Amount=${finalEntity.amount}")
         return rowId
     }
+
+    /**
+     * Returns true when [sender] and [receiver] are likely the same person,
+     * indicating an inter-account transfer rather than an outgoing payment.
+     *
+     * Designed to be tolerant of common OCR errors:
+     *   - Missing Thai tone marks / diacritics
+     *   - One character added or dropped
+     *   - Mixed case (for English names)
+     *
+     * Algorithm:
+     *   1. Normalize both names (strip tone marks, lowercase, collapse spaces)
+     *   2. Exact match on short names (< 4 chars) — avoids false positives
+     *   3. Containment check — one name is a substring of the other
+     *   4. Token-overlap check — share ≥ 70 % of word-tokens
+     */
+    private fun senderMatchesReceiver(sender: String?, receiver: String?): Boolean {
+        if (sender.isNullOrBlank() || receiver.isNullOrBlank()) return false
+
+        val s = normalizeForCompare(sender)
+        val r = normalizeForCompare(receiver)
+
+        if (s.isEmpty() || r.isEmpty()) return false
+
+        // Short names must match exactly to avoid false positives (e.g. "สมชาย" vs "สมศรี")
+        if (s.length < 4 || r.length < 4) return s == r
+
+        // One name is a sub-string of the other (handles prefix/suffix OCR additions)
+        if (s.contains(r) || r.contains(s)) return true
+
+        // Token-level overlap: split on whitespace, keep tokens ≥ 2 chars
+        val sTokens = s.split(" ").filter { it.length >= 2 }.toSet()
+        val rTokens = r.split(" ").filter { it.length >= 2 }.toSet()
+        if (sTokens.isEmpty() || rTokens.isEmpty()) return s == r
+        val overlap = sTokens.intersect(rTokens).size
+        val minSize = minOf(sTokens.size, rTokens.size)
+        return overlap.toFloat() / minSize >= 0.7f
+    }
+
+    /**
+     * Strips characters that OCR commonly mangles so that two representations
+     * of the same name compare equal:
+     *   - Thai tone marks and vowel shorteners (\u0E48-\u0E4E range)
+     *   - Latin combining diacritics (NFD decomposition)
+     *   - Non-alphabetic noise except spaces
+     * Result is lowercased and has runs of spaces collapsed to one.
+     */
+    private fun normalizeForCompare(name: String): String =
+        Normalizer.normalize(name, Normalizer.Form.NFD)
+            // Remove Latin combining diacritics (e.g. accents on romanised Thai)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            // Remove Thai tone marks: mai ek/tho/tri/jattawa, mai tai khu,
+            // thanthahat, nikhahit, yamakkan (\u0E48–\u0E4E)
+            .replace(Regex("[\u0E48-\u0E4E]"), "")
+            // Keep only Thai script, ASCII letters, digits and spaces
+            .replace(Regex("[^\u0E00-\u0E7FA-Za-z0-9 ]"), "")
+            .trim()
+            .lowercase()
+            .replace(Regex("\\s+"), " ")
 }

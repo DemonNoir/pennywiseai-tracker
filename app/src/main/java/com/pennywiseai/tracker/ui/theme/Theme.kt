@@ -179,6 +179,7 @@ fun PennyWiseTheme(
     val fontFamily = when (appFont) {
         AppFont.SYSTEM -> FontFamily.Default
         AppFont.SN_PRO -> SNProFontFamily
+        AppFont.KANIT -> KanitFontFamily
     }
 
     CompositionLocalProvider(LocalBlurEffects provides blurEffects) {

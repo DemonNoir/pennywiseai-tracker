@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.navigation.NavDestination
@@ -126,7 +127,7 @@ fun PennyWiseBottomNavigation(
                             icon = {
                                 Icon(
                                     imageVector = item.icon,
-                                    contentDescription = item.title,
+                                    contentDescription = stringResource(item.titleRes),
                                     tint = if (selected) {
                                         if (hidePill) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onPrimaryContainer
@@ -143,7 +144,7 @@ fun PennyWiseBottomNavigation(
                             label = if (hideLabels) null else {
                                 {
                                     Text(
-                                        text = item.title,
+                                        text = stringResource(item.titleRes),
                                         color = if (selected) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium
@@ -241,14 +242,14 @@ fun PennyWiseBottomNavigation(
                             ),
                             modifier = Modifier.padding(horizontal = Spacing.xs)
                         ) {
-                            Icon(imageVector = item.icon, contentDescription = item.title)
+                            Icon(imageVector = item.icon, contentDescription = stringResource(item.titleRes))
                             AnimatedVisibility(
                                 visible = selected,
                                 enter = fadeIn() + expandHorizontally(MaterialTheme.motionScheme.fastSpatialSpec()),
                                 exit = fadeOut() + shrinkHorizontally(MaterialTheme.motionScheme.fastSpatialSpec())
                             ) {
                                 Text(
-                                    text = item.title,
+                                    text = stringResource(item.titleRes),
                                     modifier = Modifier.padding(start = Spacing.sm)
                                 )
                             }

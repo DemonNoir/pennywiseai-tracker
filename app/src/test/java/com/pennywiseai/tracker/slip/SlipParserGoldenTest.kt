@@ -60,4 +60,57 @@ class SlipParserGoldenTest {
         // ต้องได้ยอด 500.00 ไม่ใช่ null (เพราะถูกลบทั้งบรรทัด) และไม่ใช่ 0.00
         assertEquals(BigDecimal("500.00"), parsed.amountBigDecimal)
     }
+
+    @Test
+    fun testKBankFeeNoise() {
+        // ทดสอบเคสที่ OCR อ่านตัวเลขบนพื้นหลังลายน้ำพลาด แล้วเกิด noise "fee" ก่อนขึ้นบรรทัดยอดจริง
+        val rawOcrText = """
+            จ่ายบิลสําเร็จ                            |
+            20 A.A. 69 17.3ไน.                         จ
+            นาย สมมติ ทดสอบ
+            ธ.กสิกรไทย
+            %%%-%-%9937-%
+            บริษัท เอ็กซ์วายแซด จำกัด
+            JPT20260720783xxx
+            BbbBTOO2
+            เลขที่รายการ:
+            |
+            016201173139ธอม13550 LI ri [a]
+            จํานวน:                             ฮา       fee
+            15.00 บาท %       แง Peg
+            ค่าธรรมเนียม:                       [my]
+            0.00 บาท      สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+
+        // ต้องได้ยอด 15.00 ไม่ใช่ null เพราะโดน feeSnippetRegex กินบรรทัดล่าง
+        assertEquals(BigDecimal("15.00"), parsed.amountBigDecimal)
+    }
+
+    @Test
+    fun testKBankMissingDecimalPoint() {
+        // ทดสอบเคสที่ OCR ลบจุดทศนิยมทิ้งไป (เช่น "1700บาท" ซึ่งจริง ๆ คือ "17.00 บาท")
+        val rawOcrText = """
+            จ่ายบิลสําเร็จ
+            17 ก.ุค. 69 08เ9น.                      จ
+            นาย มานะ รักดี
+            (ว    ธ.กสิกรไทย
+            %%%-%-%9937-%
+            บริษัท เอบีซี จํากัด
+            JPT2026071xx71313
+            BbbBTOO2
+            เลขทีรายการ:
+            016198081943ธ8ห07934     ORS a(n]
+            จํานวน:                                    หงไว "
+            1700บาท AR tas
+            ค่าธรรมเนียม:                     [ล] hor
+            0.00 บาท      สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+
+        // ต้องได้ยอด 17.00 ไม่ใช่ 1700
+        assertEquals(BigDecimal("17.00"), parsed.amountBigDecimal)
+    }
 }

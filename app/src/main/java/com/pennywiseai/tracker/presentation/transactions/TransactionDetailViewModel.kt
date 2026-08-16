@@ -28,6 +28,8 @@ import com.pennywiseai.tracker.data.repository.TransactionRepository
 import com.pennywiseai.tracker.data.database.entity.TransactionGroupEntity
 import com.pennywiseai.tracker.core.Constants
 import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
+import com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao
+import com.pennywiseai.tracker.data.database.entity.ScanCorrectionEntity
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,6 +55,7 @@ class TransactionDetailViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val receiptManager: ReceiptManager,
     private val ocrEngine: SlipOcrEngine,
+    private val scanCorrectionDao: ScanCorrectionDao,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
     
@@ -112,6 +115,44 @@ class TransactionDetailViewModel @Inject constructor(
     // The alias that was loaded when edit mode opened, so save can tell
     // "set/changed" from "cleared" from "untouched".
     private var _originalMerchantAlias: String = ""
+
+    // For Strict Parsing UI
+    private val _fieldConfidences = MutableStateFlow<Map<String, com.pennywiseai.tracker.slip.parser.Confidence>>(emptyMap())
+    val fieldConfidences: StateFlow<Map<String, com.pennywiseai.tracker.slip.parser.Confidence>> = _fieldConfidences.asStateFlow()
+
+    // For Correction Logging
+    var lastRescanResult: com.pennywiseai.tracker.slip.parser.ParsedReceiptResult? = null
+
+    // For Suggestion Chips (Phase 3)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val suggestedMerchantName: StateFlow<String?> = combine(
+        _editableTransaction,
+        _fieldConfidences
+    ) { txn, confidences ->
+        Pair(txn, confidences)
+    }.flatMapLatest { (txn, confidences) ->
+        val bankName = txn?.bankName
+        val originalValue = lastRescanResult?.payeeName?.value
+        
+        if (com.pennywiseai.tracker.core.FeatureFlags.ENABLE_CORRECTION_LEARNING &&
+            confidences["merchantName"] == com.pennywiseai.tracker.slip.parser.Confidence.MEDIUM &&
+            bankName != null &&
+            originalValue != null
+        ) {
+            scanCorrectionDao.getFrequentCorrections(
+                bankName = bankName,
+                fieldName = "merchantName",
+                originalValue = originalValue,
+                limit = 1
+            ).map { suggestions ->
+                suggestions.firstOrNull()
+                    ?.takeIf { it.frequency >= com.pennywiseai.tracker.core.FeatureFlags.MIN_CORRECTION_COUNT }
+                    ?.correctedValue
+            }
+        } else {
+            flowOf(null)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // Alias to render in the detail header for the loaded transaction's merchant
     // (#583). Resolved here (the detail screen sits outside the merchant-display
@@ -422,26 +463,88 @@ class TransactionDetailViewModel @Inject constructor(
             _isScanning.value = true
             try {
                 val rawText = ocrEngine.getRawTextSync(uri)
-                val parsed = com.pennywiseai.tracker.slip.parser.SlipParser.parse(rawText)
-                
-                _editableTransaction.update { current ->
-                    if (current == null) return@update null
-                    var updated = current.copy(
-                        amount = parsed.amountBigDecimal ?: current.amount,
-                        merchantName = parsed.receiverName ?: current.merchantName,
-                        reference = parsed.refNo ?: current.reference,
-                        bankName = parsed.bankName ?: current.bankName,
-                        smsBody = rawText
-                    )
+
+                if (!com.pennywiseai.tracker.core.FeatureFlags.ENABLE_STRICT_PARSING) {
+                    // Legacy Flow
+                    val parsed = com.pennywiseai.tracker.slip.parser.SlipParser.parse(rawText)
                     
-                    if (parsed.dateTimeIso != null) {
-                        try {
-                            val parsedDate = LocalDateTime.parse(parsed.dateTimeIso)
-                            updated = updated.copy(dateTime = parsedDate)
-                        } catch (e: Exception) {}
+                    _editableTransaction.update { current ->
+                        if (current == null) return@update null
+                        var updated = current.copy(
+                            amount = parsed.amountBigDecimal ?: current.amount,
+                            merchantName = parsed.receiverName ?: current.merchantName,
+                            reference = parsed.refNo ?: current.reference,
+                            bankName = parsed.bankName ?: current.bankName,
+                            smsBody = rawText
+                        )
+                        
+                        if (parsed.dateTimeIso != null) {
+                            try {
+                                val parsedDate = LocalDateTime.parse(parsed.dateTimeIso)
+                                updated = updated.copy(dateTime = parsedDate)
+                            } catch (e: Exception) {}
+                        }
+                        
+                        updated
                     }
+                    _fieldConfidences.value = emptyMap()
+                    lastRescanResult = null
+                } else {
+                    // Strict Parsing Flow
+                    val template = com.pennywiseai.tracker.slip.parser.ReceiptParserRegistry.findTemplate(rawText)
+                    val result = template.parse(rawText)
                     
-                    updated
+                    lastRescanResult = result
+                    
+                    _editableTransaction.update { current ->
+                        if (current == null) return@update null
+                        
+                        var updated = current.copy(smsBody = rawText)
+                        val newConfidences = _fieldConfidences.value.toMutableMap()
+                        
+                        // Amount
+                        result.amount?.let { fieldResult ->
+                            if (fieldResult.confidence != com.pennywiseai.tracker.slip.parser.Confidence.LOW || current.amount == BigDecimal.ZERO) {
+                                updated = updated.copy(amount = fieldResult.value)
+                                newConfidences["amount"] = fieldResult.confidence
+                            }
+                        }
+                        
+                        // Payee (merchantName)
+                        result.payeeName?.let { fieldResult ->
+                            if (fieldResult.confidence != com.pennywiseai.tracker.slip.parser.Confidence.LOW || current.merchantName.isBlank()) {
+                                updated = updated.copy(merchantName = fieldResult.value)
+                                newConfidences["merchantName"] = fieldResult.confidence
+                            }
+                        }
+                        
+                        // RefNo
+                        result.refNo?.let { fieldResult ->
+                            if (fieldResult.confidence != com.pennywiseai.tracker.slip.parser.Confidence.LOW || current.reference.isNullOrBlank()) {
+                                updated = updated.copy(reference = fieldResult.value)
+                                newConfidences["reference"] = fieldResult.confidence
+                            }
+                        }
+                        
+                        // Bank
+                        result.bank?.let { fieldResult ->
+                            if (fieldResult.confidence != com.pennywiseai.tracker.slip.parser.Confidence.LOW || current.bankName.isNullOrBlank()) {
+                                updated = updated.copy(bankName = fieldResult.value)
+                                newConfidences["bankName"] = fieldResult.confidence
+                            }
+                        }
+                        
+                        // DateTime
+                        result.dateTime?.let { fieldResult ->
+                            if (fieldResult.confidence != com.pennywiseai.tracker.slip.parser.Confidence.LOW) {
+                                updated = updated.copy(dateTime = fieldResult.value)
+                                newConfidences["dateTime"] = fieldResult.confidence
+                            }
+                        }
+                        
+                        _fieldConfidences.value = newConfidences
+                        updated
+                    }
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to scan receipt: ${e.message}"
@@ -455,6 +558,15 @@ class TransactionDetailViewModel @Inject constructor(
         _applyToAllFromMerchant.value = !_applyToAllFromMerchant.value
     }
 
+    private fun clearFieldConfidence(fieldName: String) {
+        val current = _fieldConfidences.value
+        if (current.containsKey(fieldName)) {
+            val updated = current.toMutableMap()
+            updated.remove(fieldName)
+            _fieldConfidences.value = updated
+        }
+    }
+
     fun updateMerchantAlias(alias: String) {
         _merchantAlias.value = alias
     }
@@ -464,21 +576,21 @@ class TransactionDetailViewModel @Inject constructor(
     }
     
     fun updateMerchantName(name: String) {
-        _editableTransaction.update { current ->
-            current?.copy(merchantName = name)
-        }
+        _editableTransaction.update { it?.copy(merchantName = name) }
+        clearFieldConfidence("merchantName")
         validateMerchantName(name)
     }
     
     fun updateAmount(amountStr: String) {
-        val amount = amountStr.toBigDecimalOrNull()
-        if (amount != null && amount > BigDecimal.ZERO) {
-            _editableTransaction.update { current ->
-                current?.copy(amount = amount)
-            }
+        try {
+            val amount = if (amountStr.isBlank()) BigDecimal.ZERO else BigDecimal(amountStr)
+            _editableTransaction.update { it?.copy(amount = amount) }
+            clearFieldConfidence("amount")
             _errorMessage.value = null
-        } else if (amountStr.isNotEmpty()) {
-            _errorMessage.value = "Amount must be a positive number"
+        } catch (e: NumberFormatException) {
+            if (amountStr.isNotEmpty()) {
+                _errorMessage.value = "Amount must be a positive number"
+            }
         }
     }
     
@@ -551,9 +663,8 @@ class TransactionDetailViewModel @Inject constructor(
     }
     
     fun updateDateTime(dateTime: LocalDateTime) {
-        _editableTransaction.update { current ->
-            current?.copy(dateTime = dateTime)
-        }
+        _editableTransaction.update { it?.copy(dateTime = dateTime) }
+        clearFieldConfidence("dateTime")
     }
     
     fun updateDescription(description: String?) {
@@ -599,9 +710,8 @@ class TransactionDetailViewModel @Inject constructor(
      * silently never updates (issues #566, #570).
      */
     fun updateBankName(bankName: String?) {
-        _editableTransaction.update { current ->
-            current?.copy(bankName = if (bankName.isNullOrEmpty()) null else bankName)
-        }
+        _editableTransaction.update { it?.copy(bankName = bankName) }
+        clearFieldConfidence("bankName")
     }
 
     fun updateFromAccount(account: String?) {
@@ -910,7 +1020,7 @@ class TransactionDetailViewModel @Inject constructor(
                 // If the merchant was renamed, drop any alias still keyed under
                 // the old name so it isn't orphaned under a name nothing uses.
                 if (merchantRenamed && _originalMerchantAlias.isNotBlank()) {
-                    merchantAliasRepository.removeAlias(oldMerchantName!!)
+                    merchantAliasRepository.removeAlias(oldMerchantName.orEmpty())
                 }
                 // Write the alias under the current name when it changed, or when
                 // the merchant was renamed (so a carried-over alias re-homes).
@@ -926,6 +1036,35 @@ class TransactionDetailViewModel @Inject constructor(
                 loadReceiptUri(normalizedTransaction)
                 _pendingReceiptUri.value = null
                 _receiptRemoved.value = false
+
+                // Correction logging (Phase 2) — compare parsed values against what user saved.
+                // Must run BEFORE clearing lastRescanResult.
+                if (com.pennywiseai.tracker.core.FeatureFlags.ENABLE_CORRECTION_LEARNING) {
+                    val rescan = lastRescanResult
+                    if (rescan != null) {
+                        val bankName = normalizedTransaction.bankName ?: "unknown"
+                        // Helper to log if parsed value != saved value
+                        suspend fun logIfChanged(fieldName: String, parsedValue: String?, savedValue: String?) {
+                            if (!parsedValue.isNullOrBlank() && !savedValue.isNullOrBlank() && parsedValue != savedValue) {
+                                scanCorrectionDao.insertCorrection(
+                                    ScanCorrectionEntity(
+                                        transactionId = normalizedTransaction.id,
+                                        fieldName = fieldName,
+                                        originalValue = parsedValue,
+                                        correctedValue = savedValue,
+                                        bankName = bankName
+                                    )
+                                )
+                            }
+                        }
+                        logIfChanged("merchantName", rescan.payeeName?.value, normalizedTransaction.merchantName)
+                        logIfChanged("amount", rescan.amount?.value?.toPlainString(), normalizedTransaction.amount.toPlainString())
+                        logIfChanged("reference", rescan.refNo?.value, normalizedTransaction.reference)
+                    }
+                }
+                // Clear rescan state (always, regardless of feature flag)
+                lastRescanResult = null
+                _fieldConfidences.value = emptyMap()
                 _saveSuccess.value = true
                 com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
                 _isEditMode.value = false

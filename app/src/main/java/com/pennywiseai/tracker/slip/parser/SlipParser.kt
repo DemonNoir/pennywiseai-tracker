@@ -94,9 +94,9 @@ object SlipParser {
         "เลขที่อ้างอิง", "เลขอ้างอิง", "ค่าธรรมเนียม", "Ref", "Trans", "พรบ"
     )
 
-    // ตัดเฉพาะช่วงค่าธรรมเนียม + ตัวเลขของมัน ไม่กินทั้งบรรทัด (OCR ชอบรวมยอดจริงไว้บรรทัดเดียว)
+    // ตัดเฉพาะช่วงค่าธรรมเนียม + ตัวเลขของมัน ไม่กินข้ามบรรทัดถ้าไม่จำเป็น เพื่อป้องกันไปลบยอดจริงที่อยู่บรรทัดถัดไป
     private val feeSnippetRegex = Regex(
-        """(?i)(?:ค่า)?[^\n]{0,12}(?:รรมเน|fee)\s*[:\s]*[\d,]*(?:\.\d{2})?\s*(?:บาท|THB)?"""
+        """(?i)(?:ค่า)?[^\n]{0,12}(?:รรมเน|fee)[ \t]*[: \t]*[\d,]*(?:\.\d{2})?[ \t]*(?:บาท|THB)?"""
     )
 
     private val fallbackLabelRegex = Regex(
@@ -359,6 +359,7 @@ object SlipParser {
             .replace(Regex("""(\d+),(\d{2})(?!\d)"""), "$1.$2")           // "13,00" -> "13.00"
             .replace(Regex("""(\d+[\.])\s+(\d{2})"""), "$1$2")            // "299. 00" -> "299.00"
             .replace(Regex("""(\d{1,3})\s+(\d{2})(?!\d)(?=\s*(?:บาท|THB))""", RegexOption.IGNORE_CASE), "$1.$2") // "13 00 บาท" -> "13.00 บาท"
+            .replace(Regex("""(?<!\.)\b([\d,]+)(\d{2})(?=\s*(?:บาท|THB))""", RegexOption.IGNORE_CASE), "$1.$2") // "1700 บาท" -> "17.00 บาท" (จุดทศนิยมหาย)
             .replace(Regex("""(?<=\d)\s+(?=\d)"""), "")                    // เหลือ space ระหว่างเลข ("1 300" -> "1300")
         val matches = mutableListOf<MatchResult>()
         amountWithLabelRegex.findAll(amountText).forEach { matches.add(it) }

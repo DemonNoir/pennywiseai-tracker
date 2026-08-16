@@ -69,4 +69,32 @@ class SlipGroundTruthTest {
         assertEquals("TrueMoney Shop (ไอเดียผักสด)", parsed.receiverName)
         assertEquals(LocalDateTime.of(2026, 8, 9, 12, 57), SlipParser.parseToLocalDateTime(parsed.date, parsed.time))
     }
+
+    @Test
+    fun testKTBGroundTruth() {
+        val rawText = """
+            โอนเงินสำเร็จ
+            10 ส.ค. 69 14:30 น.
+            นาง ทดสอบ ข
+            กรุงไทย
+            XXX-X-X3333-X
+            ไปยัง กรุงเทพ
+            บริษัท เอบีซี จำกัด
+            XXX-X-X4444-X
+            เลขที่รายการ:
+            2026081014300001
+            จำนวนเงิน
+            500.00 บาท
+            ค่าธรรมเนียม 0.00 บาท
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawText)
+
+        assertEquals("Krungthai", parsed.bankName)
+        assertEquals(SlipDirection.OUTGOING, parsed.direction)
+        assertEquals(BigDecimal("500.00"), parsed.amountBigDecimal)
+        assertEquals("2026081014300001", parsed.refNo)
+        assertEquals("บริษัท เอบีซี จำกัด", parsed.receiverName)
+        assertEquals(LocalDateTime.of(2026, 8, 10, 14, 30), SlipParser.parseToLocalDateTime(parsed.date, parsed.time))
+    }
 }
