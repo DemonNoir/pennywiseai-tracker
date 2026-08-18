@@ -112,7 +112,7 @@ class TransactionsViewModel @Inject constructor(
     private val _sortOption = MutableStateFlow(SortOption.DATE_NEWEST)
     val sortOption: StateFlow<SortOption> = _sortOption.asStateFlow()
 
-    private val _selectedCurrency = MutableStateFlow("INR") // Will be initialized from preferences
+    private val _selectedCurrency = MutableStateFlow("THB") // Will be initialized from preferences
     val selectedCurrency: StateFlow<String> = _selectedCurrency.asStateFlow()
 
     private val _isUnifiedMode = MutableStateFlow(false)
@@ -1509,7 +1509,7 @@ class TransactionsViewModel @Inject constructor(
 
         // Note: availableCurrencies are now provided by the separate availableCurrencies StateFlow
         // We'll keep the old behavior for compatibility but the UI should use availableCurrencies property
-        // Use standard currency sorting (INR first, then alphabetical)
+        // Use standard currency sorting (THB first, then alphabetical)
         val filteredAvailableCurrencies = CurrencyUtils.sortCurrencies(
             totalsByCurrency.keys.toList()
         )

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.pennywiseai.tracker.data.database.PennyWiseDatabase
+import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -97,9 +98,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
             // Get the transaction
             val transaction = transactionDao.getTransactionById(transactionId)
             if (transaction != null) {
-                // Update with new category
+                // Update with new category — ผู้ใช้แก้หมวดหมู่แล้ว = ตรวจสอบแล้ว
+                // → ลบป้าย [รอตรวจสอบ] ออกจาก description อัตโนมัติ
                 val updated = transaction.copy(
                     category = newCategory,
+                    description = TransactionEntity.clearReviewTag(transaction.description),
                     updatedAt = java.time.LocalDateTime.now()
                 )
                 transactionDao.updateTransaction(updated)

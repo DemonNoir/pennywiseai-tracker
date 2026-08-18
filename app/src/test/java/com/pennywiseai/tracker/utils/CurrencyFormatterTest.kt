@@ -14,7 +14,7 @@ import java.math.BigDecimal
  *
  * Regression: account reinserts (edit / update balance) stamp source_type = MANUAL so a
  * rescan won't purge them. That made resolveAccountCurrency trust the stored currency,
- * which for an SMS-tracked non-INR account is the INR default — silently flipping the
+ * which for an SMS-tracked non-THB account is the default — silently flipping the
  * displayed currency. The reinsert paths now write the *resolved* currency, so these
  * cases must stay stable.
  */
@@ -35,8 +35,8 @@ class CurrencyFormatterTest {
     }
 
     @Test
-    fun `sms-tracked non-INR account ignores stored INR default and uses parser currency`() {
-        // The core regression: an SMS-tracked UAE account stores the INR default but must
+    fun `sms-tracked non-default account ignores stored default and uses parser currency`() {
+        // The core regression: an SMS-tracked UAE account stores the app default but must
         // display its parser currency (AED). Both the null and "TRANSACTION" source types
         // (what SMS rows carry) must resolve to the parser value.
         listOf(null, "TRANSACTION", "SMS_BALANCE", "CARD_LINK").forEach { sourceType ->
@@ -45,7 +45,7 @@ class CurrencyFormatterTest {
                 "AED",
                 CurrencyFormatter.resolveAccountCurrency(
                     sourceType = sourceType,
-                    storedCurrency = "INR",
+                    storedCurrency = "THB",
                     bankName = "Liv Bank"
                 )
             )
@@ -53,12 +53,12 @@ class CurrencyFormatterTest {
     }
 
     @Test
-    fun `sms-tracked account on an unknown bank defaults to INR`() {
+    fun `sms-tracked account on an unknown bank defaults to THB`() {
         assertEquals(
-            "INR",
+            "THB",
             CurrencyFormatter.resolveAccountCurrency(
                 sourceType = null,
-                storedCurrency = "INR",
+                storedCurrency = "THB",
                 bankName = "Totally Unknown Bank"
             )
         )
@@ -113,10 +113,10 @@ class CurrencyFormatterTest {
         // still show "$0", not the INR fallback.
         val out = CurrencyFormatter.formatByCurrency(
             mapOf("USD" to Money(BigDecimal.ZERO, "USD"))
-            // fallbackCurrency left at its INR default on purpose
+            // fallbackCurrency left at its THB default on purpose
         )
         assertTrue("zero should keep the USD symbol, got: $out", out.contains("$"))
-        assertFalse("must not fall back to ₹: $out", out.contains("₹"))
+        assertFalse("must not fall back to ฿: $out", out.contains("฿"))
     }
 
     @Test
@@ -185,6 +185,12 @@ class CurrencyFormatterTest {
             Money(BigDecimal(600), "USD"),
             Money(BigDecimal(100), "USD") + Money(BigDecimal(500), "USD")
         )
+    }
+
+    @Test
+    fun `THB is the first supported currency in picker sorting`() {
+        assertEquals("THB", CurrencyUtils.sortCurrencies(listOf("USD", "THB", "INR")).first())
+        assertEquals("THB", CurrencyUtils.getAllSupportedCurrencies().first())
     }
 
     // Note: grouping *values* (1,50,000 vs 150,000) can't be asserted here — the plain

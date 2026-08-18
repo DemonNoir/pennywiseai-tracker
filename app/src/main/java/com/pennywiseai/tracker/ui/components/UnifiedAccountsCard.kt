@@ -26,7 +26,7 @@ fun UnifiedAccountsCard(
     bankAccounts: List<AccountBalanceEntity>,
     totalBalance: BigDecimal,
     totalAvailableCredit: BigDecimal,
-    selectedCurrency: String = "INR",
+    selectedCurrency: String = "THB",
     onAccountClick: (bankName: String, accountLast4: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {

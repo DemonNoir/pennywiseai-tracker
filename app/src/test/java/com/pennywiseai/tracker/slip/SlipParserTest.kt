@@ -4,6 +4,7 @@ import com.pennywiseai.tracker.slip.parser.SlipConfidence
 import com.pennywiseai.tracker.slip.parser.SlipDirection
 import com.pennywiseai.tracker.slip.parser.SlipParser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import java.math.BigDecimal
@@ -212,6 +213,35 @@ class SlipParserTest {
     }
 
     @Test
+    fun testDecimalInjection_KeepsThousandsAndMissingDecimalSeparate() {
+        // "1 300" (หลักพันมีช่องว่าง) ต้องเป็น 1300 ไม่ใช่ 13.00
+        val thousands = SlipParser.parse(
+            """
+            โอนเงินสำเร็จ
+            01 ม.ค. 69 09:00 น.
+            จาก นาย ก
+            ไปยัง นาย ข
+            จำนวนเงิน
+            1 300 บาท
+            """.trimIndent()
+        )
+        assertEquals(0, thousands.amountBigDecimal?.compareTo(BigDecimal("1300.00")))
+
+        // "13 00 บาท" (จุดทศนิยมหาย) ต้องเป็น 13.00 ตามระบบซ่อมจุดทศนิยม (สลิปไทยลงท้าย .00 เสมอ)
+        val missingDecimal = SlipParser.parse(
+            """
+            โอนเงินสำเร็จ
+            01 ม.ค. 69 09:00 น.
+            จาก นาย ก
+            ไปยัง นาย ข
+            จำนวนเงิน
+            13 00 บาท
+            """.trimIndent()
+        )
+        assertEquals(0, missingDecimal.amountBigDecimal?.compareTo(BigDecimal("13.00")))
+    }
+
+    @Test
     fun testRealSCBUploadedSlipParsing() {
         val rawOcrText = """
             ๕๐19:
@@ -299,9 +329,129 @@ class SlipParserTest {
     }
 
     @Test
+    fun testTwoDigitBeYearBeforeCurrentYearIsNotShiftedForward() {
+        // Regression: reduced year ที่ base = ปีปัจจุบัน (2569) ทำให้ "68" -> 2668 (= ค.ศ. 2125)
+        // สลิปปีที่แล้ว (พ.ศ. 2568 = "68") ต้องได้ ค.ศ. 2025 ไม่ใช่ 2125
+        val parsed = SlipParser.parseToLocalDateTime("11 ส.ค. 68", "15:37 น.")
+        assertEquals("2025-08-11T15:37:00", parsed?.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+    }
+
+    @Test
+    fun testTwoDigitBeYearEarlyEraStaysIn25xx() {
+        // "00" = พ.ศ. 2500 (ค.ศ. 1957) ต้องไม่กลายเป็น พ.ศ. 2600
+        val parsed = SlipParser.parseToLocalDateTime("11 ส.ค. 00", "15:37 น.")
+        assertEquals("1957-08-11T15:37:00", parsed?.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+    }
+
+    @Test
+    fun testThaiSlipPreviousYearParsesFullFlow() {
+        // End-to-end: สลิปไทยปีที่แล้ว (พ.ศ. 2568 = "68") ผ่าน parse() เต็มรูปแบบต้องได้ ค.ศ. 2025
+        val rawOcrText = """
+            จ่ายบิลสําเร็จ                   K
+            11 ส.ค. 68 15:37 น.                       +
+
+            นาย ทดสอบ สมมติ
+            ธ.กสิกรไทย              ‘          >
+
+            XXX-X-X1111-x
+
+            บริษัท ทดสอบ จำกัด
+            TESTBTOO2
+
+            จำนวนเงิน: 1,250.00 บาท
+
+            เลขที่รายการ:
+            016223153750TEST0001
+            สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        assertEquals("2025-08-11T15:37:00", parsed.dateTimeIso)
+        // วันที่เป็นอดีต (ไม่ใช่อนาคต 2125) → ไม่โดนบังคับ NEEDS_REVIEW
+        assertNotEquals(SlipConfidence.NEEDS_REVIEW, parsed.confidence)
+    }
+
+    @Test
+    fun testEnglishSlipTwoDigitYearIsAD() {
+        // สลิปภาษาอังกฤษ "15 Aug 26" = 15 ส.ค. 2026 (ค.ศ.) — ต้องไม่ถูกตีความเป็น พ.ศ. 2626 (= ค.ศ. 2083)
+        val parsed = SlipParser.parseToLocalDateTime("15 Aug 26", "5:56")
+        assertEquals("2026-08-15T05:56:00", parsed?.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+    }
+
+    @Test
+    fun testEnglishSlipFourDigitYearIsAD() {
+        val parsed = SlipParser.parseToLocalDateTime("15 Aug 2026", "5:56")
+        assertEquals("2026-08-15T05:56:00", parsed?.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+    }
+
+    @Test
     fun testInvalidClockTimeIsRejectedByJavaTime() {
         assertEquals(null, SlipParser.parseToLocalDateTime("11 ส.ค. 69", "24:01"))
         assertEquals(null, SlipParser.parseToLocalDateTime("11 ส.ค. 69", "12:60"))
+    }
+
+    @Test
+    fun testFutureDateForcesNeedsReview() {
+        // ปี พ.ศ. ปีหน้า (dynamic เพื่อไม่ให้ test พังเมื่อเวลาผ่านไป)
+        val futureThaiYear = java.time.LocalDate.now().plusYears(1).year + 543
+        val rawOcrText = """
+            จ่ายบิลสําเร็จ                   K
+            11 ส.ค. $futureThaiYear 15:37 น.                       +
+
+            นาย ทดสอบ สมมติ
+            ธ.กสิกรไทย              ‘          >
+
+            XXX-X-X1111-x
+
+            บริษัท ทดสอบ จำกัด
+            TESTBTOO2
+
+            จำนวนเงิน: 1,250.00 บาท
+
+            เลขที่รายการ:
+            016223153750TEST0001
+            สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+
+        // ข้อมูลครบทุกอย่าง (bank/amount/date/refNo/parties) แต่ OCR อ่านวันที่เพี้ยนเป็นอนาคต
+        // → ต้องโดนบังคับ NEEDS_REVIEW ไม่ใช่ CONFIRMED
+        assertEquals(SlipConfidence.NEEDS_REVIEW, parsed.confidence)
+        assertNotNull(parsed.timestampMillis)
+    }
+
+    @Test
+    fun testRecentPastDateStillConfirms() {
+        // วันที่ผ่านมาไม่นาน (3 วันก่อน) ต้องไม่ถูกบังคับ NEEDS_REVIEW —
+        // สร้างจาก now แบบ dynamic เพื่อให้ test ผ่านทุกเดือน/ปี
+        val thaiMonths = listOf(
+            "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+            "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+        )
+        val past = java.time.LocalDate.now().minusDays(3)
+        val pastDateStr = "${past.dayOfMonth} ${thaiMonths[past.monthValue - 1]} ${past.year + 543}"
+        val rawOcrText = """
+            จ่ายบิลสําเร็จ                   K
+            $pastDateStr 15:37 น.                       +
+
+            นาย ทดสอบ สมมติ
+            ธ.กสิกรไทย              ‘          >
+
+            XXX-X-X1111-x
+
+            บริษัท ทดสอบ จำกัด
+            TESTBTOO2
+
+            จำนวนเงิน: 1,250.00 บาท
+
+            เลขที่รายการ:
+            016223153750TEST0001
+            สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        assertEquals(SlipConfidence.CONFIRMED, parsed.confidence)
     }
 }
 

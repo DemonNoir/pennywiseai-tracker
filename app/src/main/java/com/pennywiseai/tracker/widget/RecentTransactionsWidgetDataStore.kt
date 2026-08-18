@@ -32,7 +32,7 @@ object RecentTransactionsWidgetDataStore {
                 val title = prefs[titleKey(index)] ?: return@mapNotNull null
                 val subtitle = prefs[subtitleKey(index)] ?: ""
                 val amount = prefs[amountKey(index)]?.toBigDecimalOrNull() ?: BigDecimal.ZERO
-                val currency = prefs[currencyKey(index)] ?: prefs[CURRENCY] ?: "INR"
+                val currency = prefs[currencyKey(index)] ?: prefs[CURRENCY] ?: "THB"
                 val type = prefs[typeKey(index)]
                     ?.let { com.pennywiseai.tracker.data.database.entity.TransactionType.valueOf(it) }
                     ?: com.pennywiseai.tracker.data.database.entity.TransactionType.EXPENSE
@@ -47,7 +47,7 @@ object RecentTransactionsWidgetDataStore {
 
             RecentTransactionsWidgetData(
                 totalSpent = prefs[TOTAL_SPENT]?.toBigDecimalOrNull() ?: BigDecimal.ZERO,
-                currency = prefs[CURRENCY] ?: prefs[currencyKey(0)] ?: "INR",
+                currency = prefs[CURRENCY] ?: prefs[currencyKey(0)] ?: "THB",
                 transactions = items
             )
         }

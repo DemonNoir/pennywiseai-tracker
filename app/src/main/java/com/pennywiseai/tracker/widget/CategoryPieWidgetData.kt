@@ -23,7 +23,7 @@ data class CategoryPieSlice(
 @Serializable
 data class CategoryPieWidgetData(
     val monthLabel: String = "",
-    val currency: String = "INR",
+    val currency: String = "THB",
     val totalFormatted: String = "",
     val slices: List<CategoryPieSlice> = emptyList()
 )

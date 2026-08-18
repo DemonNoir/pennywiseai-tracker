@@ -60,7 +60,7 @@ fun GroupCard(
 
     val latestDate = remember(transactions) { transactions.map { it.dateTime }.maxOrNull() }
     val dateText = latestDate?.format(DateTimeFormatter.ofPattern("d MMM")) ?: ""
-    val currency = displayCurrency ?: transactions.firstOrNull()?.currency ?: "INR"
+    val currency = displayCurrency ?: transactions.firstOrNull()?.currency ?: "THB"
 
     val countText = "${transactions.size} transaction${if (transactions.size != 1) "s" else ""}"
     val subtitle = if (dateText.isNotEmpty()) "$countText · $dateText" else countText

@@ -16,6 +16,9 @@ interface ScanCorrectionDao {
     @Query("SELECT * FROM scan_corrections WHERE bankName = :bankName AND fieldName = :fieldName ORDER BY createdAt DESC")
     fun getCorrections(bankName: String, fieldName: String): Flow<List<ScanCorrectionEntity>>
 
+    @Query("SELECT * FROM scan_corrections WHERE bankName = :bankName AND fieldName = :fieldName ORDER BY createdAt DESC")
+    suspend fun getCorrectionsList(bankName: String, fieldName: String): List<ScanCorrectionEntity>
+
     @Query("""
         SELECT correctedValue, COUNT(*) as frequency 
         FROM scan_corrections 

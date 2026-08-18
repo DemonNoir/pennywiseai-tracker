@@ -106,10 +106,20 @@ private fun editFilledColors() = TextFieldDefaults.colors(
     disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
 )
 
-private val editTopShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-private val editMiddleShape = RoundedCornerShape(4.dp)
-private val editBottomShape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
-private val editFullShape = RoundedCornerShape(16.dp)
+private val editTopShape = RoundedCornerShape(
+    topStart = Dimensions.CornerRadius.large,
+    topEnd = Dimensions.CornerRadius.large,
+    bottomStart = Dimensions.CornerRadius.small,
+    bottomEnd = Dimensions.CornerRadius.small
+)
+private val editMiddleShape = RoundedCornerShape(Dimensions.CornerRadius.small)
+private val editBottomShape = RoundedCornerShape(
+    topStart = Dimensions.CornerRadius.small,
+    topEnd = Dimensions.CornerRadius.small,
+    bottomStart = Dimensions.CornerRadius.large,
+    bottomEnd = Dimensions.CornerRadius.large
+)
+private val editFullShape = RoundedCornerShape(Dimensions.CornerRadius.large)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -310,7 +320,7 @@ fun TransactionDetailScreen(
                             if (isSaving) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(Dimensions.Icon.small),
-                                    strokeWidth = 2.dp,
+                                    strokeWidth = Dimensions.Component.dividerThickness * 2,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             } else {
@@ -363,7 +373,7 @@ fun TransactionDetailScreen(
                     if (isDeleting) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(Dimensions.Icon.small),
-                            strokeWidth = 2.dp,
+                            strokeWidth = Dimensions.Component.dividerThickness * 2,
                             color = MaterialTheme.colorScheme.primary
                         )
                     } else {
@@ -604,7 +614,7 @@ private fun TransactionReceipt(
                     merchantName = transaction.merchantName,
                     category = transaction.category,
                     modifier = heroIconModifier,
-                    size = 56.dp,
+                    size = Dimensions.Component.fab,
                     showBackground = true
                 )
 
@@ -736,8 +746,7 @@ private fun TransactionReceipt(
 
                 Text(
                     text = "$sign${transaction.formatAmount()}",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
+                    style = PennyWiseText.heroAmount,
                     color = typeColor,
                     textAlign = TextAlign.Center
                 )
@@ -760,9 +769,9 @@ private fun TransactionReceipt(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp)),
+                .clip(RoundedCornerShape(Dimensions.CornerRadius.card)),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(Dimensions.CornerRadius.card)
         ) {
             Row(
                 modifier = Modifier
@@ -951,10 +960,10 @@ private fun TransactionReceipt(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(Dimensions.CornerRadius.card))
                     .clickable { viewModel.showFullScreenReceipt() },
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(Dimensions.CornerRadius.card)
             ) {
                 Column(modifier = Modifier.padding(Spacing.md)) {
                     Row(
@@ -985,8 +994,8 @@ private fun TransactionReceipt(
                         contentDescription = "Receipt",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .heightIn(max = Dimensions.Component.receiptThumbnailMaxHeight)
+                            .clip(RoundedCornerShape(Dimensions.CornerRadius.medium)),
                         contentScale = ContentScale.Crop
                     )
                 }
@@ -1019,7 +1028,7 @@ private fun DetailInfoRow(
             .fillMaxWidth()
             .padding(horizontal = Spacing.xs, vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(Spacing.smd)
     ) {
         Icon(
             icon,
@@ -1030,7 +1039,7 @@ private fun DetailInfoRow(
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.weight(1f))
         Text(
@@ -1062,15 +1071,15 @@ private fun TransferFlowRow(
         )
 
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(Dimensions.CornerRadius.medium),
             color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 1.dp
+            tonalElevation = Dimensions.Elevation.raisedCard
         ) {
             Text(
                 text = fromValue,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = Spacing.sm)
+                modifier = Modifier.padding(horizontal = Spacing.smd, vertical = Spacing.sm)
             )
         }
 
@@ -1082,15 +1091,15 @@ private fun TransferFlowRow(
         )
 
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(Dimensions.CornerRadius.medium),
             color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 1.dp
+            tonalElevation = Dimensions.Elevation.raisedCard
         ) {
             Text(
                 text = toValue,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = Spacing.sm)
+                modifier = Modifier.padding(horizontal = Spacing.smd, vertical = Spacing.sm)
             )
         }
     }
@@ -1102,8 +1111,8 @@ private fun ExpandableSmsSection(smsBody: String) {
 
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        shape = RoundedCornerShape(Dimensions.CornerRadius.card),
+        border = BorderStroke(Dimensions.Component.dividerThickness, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column {
             Row(
@@ -1182,7 +1191,7 @@ private fun EditableTransactionHeader(
             CurrencyDropdown(
                 selectedCurrency = transaction.currency.ifEmpty { primaryCurrency },
                 onCurrencySelected = { viewModel.updateCurrency(it) },
-                modifier = Modifier.width(130.dp)
+                modifier = Modifier.width(Dimensions.Component.currencyFieldWidth)
             )
 
             TextField(
@@ -1201,7 +1210,7 @@ private fun EditableTransactionHeader(
         // Merchant + Description (connected group)
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(1.5.dp)
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
         ) {
             TextField(
                 value = transaction.merchantName,
@@ -1211,7 +1220,7 @@ private fun EditableTransactionHeader(
                     BrandIcon(
                         merchantName = transaction.merchantName,
                         category = transaction.category,
-                        size = 24.dp,
+                        size = Dimensions.Icon.medium,
                         showBackground = false
                     )
                 },
@@ -1224,7 +1233,7 @@ private fun EditableTransactionHeader(
 
             // Suggestion Chip (Phase 3)
             AnimatedVisibility(
-                visible = suggestedMerchantName != null && fieldConfidences["merchantName"] == com.pennywiseai.tracker.slip.parser.Confidence.MEDIUM,
+                visible = suggestedMerchantName != null,
                 enter = fadeIn() + androidx.compose.animation.expandVertically(),
                 exit = fadeOut() + androidx.compose.animation.shrinkVertically()
             ) {
@@ -1239,7 +1248,7 @@ private fun EditableTransactionHeader(
                         Icons.Default.AutoAwesome,
                         contentDescription = "Suggestion",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(Dimensions.Icon.small)
                     )
                     Text(
                         text = "Suggested:",
@@ -1256,7 +1265,7 @@ private fun EditableTransactionHeader(
                             labelColor = MaterialTheme.colorScheme.onPrimaryContainer
                         ),
                         border = null,
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(Dimensions.CornerRadius.medium)
                     )
                 }
             }
@@ -1337,7 +1346,7 @@ private fun EditableTransactionHeader(
                         labelColor = MaterialTheme.colorScheme.onSurface
                     ),
                     border = FilterChipDefaults.filterChipBorder(
-                        borderWidth = 0.dp,
+                        borderWidth = Spacing.none,
                         selected = transaction.transactionType == type,
                         enabled = true
                     )
@@ -1375,7 +1384,7 @@ private fun EditableExtractedInfoCard(
         // Account + Category (connected group)
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(1.5.dp)
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
         ) {
             if (transaction.transactionType == TransactionType.TRANSFER) {
                 AccountNumberField(
@@ -1533,11 +1542,14 @@ private fun EditableExtractedInfoCard(
                 onClick = { viewModel.rescanReceipt() },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isScanning,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(Dimensions.CornerRadius.card)
             ) {
                 if (isScanning) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(Dimensions.Icon.small),
+                        strokeWidth = Dimensions.Component.dividerThickness * 2
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
                     Text("Scanning...")
                 } else {
                     Icon(
@@ -1545,7 +1557,7 @@ private fun EditableExtractedInfoCard(
                         contentDescription = null,
                         modifier = Modifier.size(Dimensions.Icon.small)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(Spacing.sm))
                     Text("Re-scan Receipt")
                 }
             }
@@ -1595,7 +1607,7 @@ private fun EditableExtractedInfoCard(
             availableCategories = categories.map { it.name },
             onSplitsChanged = { viewModel.updateSplits(it) },
             onRemoveSplits = { viewModel.removeSplits() },
-            modifier = Modifier.padding(horizontal = 0.dp)
+            modifier = Modifier.padding(horizontal = Spacing.none)
         )
     }
 }
@@ -1710,7 +1722,7 @@ private fun CategoryDropdown(
                     CategoryChip(
                         category = selectedCategoryEntity,
                         showText = false,
-                        modifier = Modifier.padding(start = 12.dp)
+                        modifier = Modifier.padding(start = Spacing.smd)
                     )
                 } else {
                     Icon(
@@ -2007,12 +2019,12 @@ private fun CurrencyDropdown(
                     text = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                         ) {
                             Text(
                                 CurrencyFormatter.getCurrencySymbol(currency),
                                 style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.width(32.dp)
+                                modifier = Modifier.width(Spacing.xl)
                             )
                             Text(currency)
                         }
@@ -2118,7 +2130,7 @@ private fun AccountNumberField(
                         text = { 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                             ) {
                                 Icon(
                                     if (account.isCreditCard) Icons.Default.CreditCard 
@@ -2213,7 +2225,7 @@ private fun MarkAsLoanBottomSheet(
                         shape = RoundedCornerShape(Dimensions.CornerRadius.medium),
                         color = if (personName == name) loanColor.copy(alpha = 0.12f)
                         else MaterialTheme.colorScheme.surfaceContainerLow,
-                        border = if (personName == name) BorderStroke(1.dp, loanColor)
+                        border = if (personName == name) BorderStroke(Dimensions.Component.dividerThickness, loanColor)
                         else null
                     ) {
                         Row(
@@ -2225,7 +2237,7 @@ private fun MarkAsLoanBottomSheet(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(Dimensions.Icon.large)
                                     .clip(CircleShape)
                                     .background(loanColor.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center

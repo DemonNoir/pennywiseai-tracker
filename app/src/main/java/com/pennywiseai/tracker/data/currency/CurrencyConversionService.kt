@@ -274,7 +274,7 @@ class CurrencyConversionService @Inject constructor(
      * Get the base currency for the app
      */
     private suspend fun getBaseCurrency(): String {
-        return userPreferencesRepository.baseCurrency.first() ?: "INR"
+        return userPreferencesRepository.baseCurrency.first()
     }
 
     /**

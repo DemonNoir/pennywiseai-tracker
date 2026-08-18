@@ -9,9 +9,11 @@ import com.pennywiseai.tracker.data.mapper.toEntity
 import com.pennywiseai.tracker.data.repository.*
 import com.pennywiseai.tracker.domain.repository.RuleRepository
 import com.pennywiseai.tracker.domain.service.RuleEngine
+import com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao
 import com.pennywiseai.tracker.slip.parser.ParsedSlip
 import com.pennywiseai.tracker.slip.parser.SlipConfidence
 import com.pennywiseai.tracker.slip.parser.SlipDirection
+import com.pennywiseai.tracker.slip.recipient.SlipRecipientResolver
 import java.math.BigDecimal
 import java.text.Normalizer
 import java.time.LocalDateTime
@@ -29,7 +31,8 @@ class ProcessSlipUseCase @Inject constructor(
     private val merchantMappingRepository: MerchantMappingRepository,
     private val ruleRepository: RuleRepository,
     private val ruleEngine: RuleEngine,
-    private val receiptManager: com.pennywiseai.tracker.data.receipt.ReceiptManager
+    private val receiptManager: com.pennywiseai.tracker.data.receipt.ReceiptManager,
+    private val scanCorrectionDao: ScanCorrectionDao
 ) {
     suspend fun execute(parsedSlip: ParsedSlip): Long {
         // 1. แปลง ParsedSlip เป็น ParsedTransaction (เพื่อใช้ Logic ร่วมกับระบบหลัก)
@@ -54,10 +57,12 @@ class ProcessSlipUseCase @Inject constructor(
                 com.pennywiseai.parser.core.TransactionType.EXPENSE
         }
 
+        val resolvedMerchantName = resolveMerchantName(parsedSlip)
+
         val parsedTransaction = ParsedTransaction(
             amount = amount,
             type = type,
-            merchant = parsedSlip.receiverName ?: parsedSlip.bankName ?: "Bank Slip",
+            merchant = resolvedMerchantName,
             reference = parsedSlip.refNo,
             accountLast4 = parsedSlip.senderAccount?.let { acc -> 
                 val digits = acc.filter { it.isDigit() }
@@ -121,6 +126,28 @@ class ProcessSlipUseCase @Inject constructor(
 
         Log.i("ProcessSlipUseCase", "Saved slip transaction: ID=$rowId, Merchant=${finalEntity.merchantName}, Amount=${finalEntity.amount}")
         return rowId
+    }
+
+    private suspend fun resolveMerchantName(parsedSlip: ParsedSlip): String {
+        val ocrName = parsedSlip.receiverName
+        val fallback = ocrName ?: parsedSlip.bankName ?: "Bank Slip"
+        if (ocrName.isNullOrBlank()) return fallback
+
+        val bankName = parsedSlip.bankName ?: "unknown"
+        val corrections = scanCorrectionDao.getCorrectionsList(bankName, "merchantName") +
+            scanCorrectionDao.getCorrectionsList("unknown", "merchantName")
+        val history = transactionRepository.getAllTransactionsList()
+
+        return SlipRecipientResolver.bestAutoApply(
+            ocrName = ocrName,
+            rawText = parsedSlip.rawText,
+            bankName = parsedSlip.bankName,
+            corrections = corrections,
+            transactionHistory = history,
+            // Use full raw OCR for better merchant recovery, but explicitly
+            // exclude senderName so a user's own name cannot win as recipient.
+            excludedNames = listOf(parsedSlip.senderName)
+        )?.merchantName ?: fallback
     }
 
     /**

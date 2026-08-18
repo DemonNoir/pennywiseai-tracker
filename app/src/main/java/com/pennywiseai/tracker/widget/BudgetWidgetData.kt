@@ -12,5 +12,5 @@ data class BudgetWidgetData(
     val netSavings: BigDecimal = BigDecimal.ZERO,
     val savingsRate: Float = 0f,
     val savingsDelta: BigDecimal? = null,
-    val currency: String = "INR"
+    val currency: String = "THB"
 )

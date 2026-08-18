@@ -158,6 +158,12 @@ object Dimensions {
         /** The colour dot beside a chart legend entry. */
         val legendDot = 10.dp
 
+        /** Fixed width for the currency selector dropdown. */
+        val currencyFieldWidth = 132.dp
+
+        /** Maximum height for a receipt/slip thumbnail image in detail views. */
+        val receiptThumbnailMaxHeight = 200.dp
+
         /** Standard FAB diameter. */
         val fab = 56.dp
 

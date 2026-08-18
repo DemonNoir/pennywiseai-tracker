@@ -48,7 +48,7 @@ class CsvTransactionImporter @Inject constructor() {
 
         private const val DEFAULT_BANK = "Imported"
         private const val DEFAULT_CATEGORY = "Others"
-        private const val DEFAULT_CURRENCY = "INR"
+        private const val DEFAULT_CURRENCY = "THB"
     }
 
     /**

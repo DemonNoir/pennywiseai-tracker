@@ -1309,7 +1309,7 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Auto-select currency: prefer baseCurrency from preferences, then INR, then first available
+        // Auto-select currency: prefer baseCurrency from preferences, then THB, then first available
         val currentSelectedCurrency = _uiState.value.selectedCurrency
         if (!availableCurrencies.contains(currentSelectedCurrency) && availableCurrencies.isNotEmpty()) {
             // Need to get baseCurrency asynchronously
@@ -1317,8 +1317,8 @@ class HomeViewModel @Inject constructor(
                 val baseCurrency = userPreferencesRepository.baseCurrency.first()
                 val selectedCurrency = if (availableCurrencies.contains(baseCurrency)) {
                     baseCurrency
-                } else if (availableCurrencies.contains("INR")) {
-                    "INR"
+                } else if (availableCurrencies.contains("THB")) {
+                    "THB"
                 } else {
                     availableCurrencies.first()
                 }
@@ -1647,7 +1647,7 @@ data class HomeUiState(
     val creditCards: List<AccountBalanceEntity> = emptyList(),
     val totalBalance: BigDecimal = BigDecimal.ZERO,
     val totalAvailableCredit: BigDecimal = BigDecimal.ZERO,
-    val selectedCurrency: String = "INR",
+    val selectedCurrency: String = "THB",
     val availableCurrencies: List<String> = emptyList(),
     val recentTransactionConvertedAmounts: Map<Long, BigDecimal> = emptyMap(),
     val spendingHistory: List<BigDecimal> = emptyList(),

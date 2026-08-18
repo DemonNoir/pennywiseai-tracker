@@ -31,9 +31,23 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
                     val prefs = currentData.toMutablePreferences()
                     val hasCompletedOnboarding = prefs[booleanPreferencesKey("has_completed_onboarding")] == true
                     val hasAllTimeSet = prefs.contains(booleanPreferencesKey("sms_scan_all_time"))
+                    val baseCurrencyKey = stringPreferencesKey("base_currency")
+                    val displayCurrencyKey = stringPreferencesKey("display_currency")
+                    val baseCurrencyUserSetKey = booleanPreferencesKey("base_currency_user_set")
                     
                     if (hasCompletedOnboarding && !hasAllTimeSet) {
                         prefs[booleanPreferencesKey("sms_scan_all_time")] = false
+                    }
+                    if (prefs[baseCurrencyUserSetKey] != true) {
+                        val targetCurrency = prefs[baseCurrencyKey]
+                            ?.takeUnless { it.isBlank() || it == "INR" }
+                            ?: DEFAULT_BASE_CURRENCY
+                        if (prefs[baseCurrencyKey].isNullOrBlank() || prefs[baseCurrencyKey] == "INR") {
+                            prefs[baseCurrencyKey] = targetCurrency
+                        }
+                        if (prefs[displayCurrencyKey].isNullOrBlank() || prefs[displayCurrencyKey] == "INR") {
+                            prefs[displayCurrencyKey] = targetCurrency
+                        }
                     }
                     return prefs
                 }
@@ -41,12 +55,23 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
                 override suspend fun shouldMigrate(currentData: Preferences): Boolean {
                     val hasCompletedOnboarding = currentData[booleanPreferencesKey("has_completed_onboarding")] == true
                     val hasAllTimeSet = currentData.contains(booleanPreferencesKey("sms_scan_all_time"))
-                    return hasCompletedOnboarding && !hasAllTimeSet
+                    val baseCurrencyKey = stringPreferencesKey("base_currency")
+                    val displayCurrencyKey = stringPreferencesKey("display_currency")
+                    val baseCurrencyUserSetKey = booleanPreferencesKey("base_currency_user_set")
+                    val needsCurrencyDefaultMigration =
+                        currentData[baseCurrencyUserSetKey] != true &&
+                            (currentData[baseCurrencyKey].isNullOrBlank() ||
+                                currentData[baseCurrencyKey] == "INR" ||
+                                currentData[displayCurrencyKey].isNullOrBlank() ||
+                                currentData[displayCurrencyKey] == "INR")
+                    return (hasCompletedOnboarding && !hasAllTimeSet) || needsCurrencyDefaultMigration
                 }
             }
         )
     }
 )
+
+private const val DEFAULT_BASE_CURRENCY = "THB"
 
 @Singleton
 class UserPreferencesRepository @Inject constructor(
@@ -188,10 +213,10 @@ class UserPreferencesRepository @Inject constructor(
                 hasShownScanTutorial = preferences[PreferencesKeys.HAS_SHOWN_SCAN_TUTORIAL] ?: false,
                 smsScanMonths = preferences[PreferencesKeys.SMS_SCAN_MONTHS] ?: 3,
                 smsScanAllTime = preferences[PreferencesKeys.SMS_SCAN_ALL_TIME] ?: true,
-                baseCurrency = preferences[PreferencesKeys.BASE_CURRENCY] ?: "INR",
+                baseCurrency = preferences[PreferencesKeys.BASE_CURRENCY] ?: DEFAULT_BASE_CURRENCY,
                 unifiedCurrencyMode = preferences[PreferencesKeys.UNIFIED_CURRENCY_MODE] ?: false,
                 displayCurrency = preferences[PreferencesKeys.DISPLAY_CURRENCY]
-                    ?: preferences[PreferencesKeys.BASE_CURRENCY] ?: "INR",
+                    ?: preferences[PreferencesKeys.BASE_CURRENCY] ?: DEFAULT_BASE_CURRENCY,
                 blurEffectsEnabled = preferences[PreferencesKeys.BLUR_EFFECTS_ENABLED] ?: true,
                 navBarStyle = preferences[PreferencesKeys.NAV_BAR_STYLE]?.let {
                     try { NavBarStyle.valueOf(it) } catch (_: Exception) { NavBarStyle.FLOATING }
@@ -216,7 +241,7 @@ class UserPreferencesRepository @Inject constructor(
 
     val baseCurrency: Flow<String> = context.dataStore.data
         .map { preferences ->
-            preferences[PreferencesKeys.BASE_CURRENCY] ?: "INR"
+            preferences[PreferencesKeys.BASE_CURRENCY] ?: DEFAULT_BASE_CURRENCY
         }
 
     val unifiedCurrencyMode: Flow<Boolean> = context.dataStore.data
@@ -227,7 +252,7 @@ class UserPreferencesRepository @Inject constructor(
     val displayCurrency: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.DISPLAY_CURRENCY]
-                ?: preferences[PreferencesKeys.BASE_CURRENCY] ?: "INR"
+                ?: preferences[PreferencesKeys.BASE_CURRENCY] ?: DEFAULT_BASE_CURRENCY
         }
 
     val isDeveloperModeEnabled: Flow<Boolean> = context.dataStore.data
@@ -951,9 +976,9 @@ data class UserPreferences(
     val hasShownScanTutorial: Boolean = false,
     val smsScanMonths: Int = 3,
     val smsScanAllTime: Boolean = true,
-    val baseCurrency: String = "INR",
+    val baseCurrency: String = DEFAULT_BASE_CURRENCY,
     val unifiedCurrencyMode: Boolean = false,
-    val displayCurrency: String = "INR",
+    val displayCurrency: String = DEFAULT_BASE_CURRENCY,
     val blurEffectsEnabled: Boolean = true,
     val navBarStyle: NavBarStyle = NavBarStyle.FLOATING,
     val coverStyle: CoverStyle = CoverStyle.AURORA,

@@ -116,7 +116,26 @@ data class TransactionEntity(
 
     @ColumnInfo(name = "profile_id", defaultValue = "NULL")
     val profileId: Long? = null
-)
+) {
+    companion object {
+        /** ป้ายที่ `ProcessSlipUseCase` ต่อท้าย description เมื่อสลิป confidence ต่ำ */
+        const val REVIEW_TAG = "[รอตรวจสอบ]"
+
+        /** transaction นี้ติดป้ายรอตรวจสอบหรือไม่ */
+        fun hasReviewTag(description: String?): Boolean =
+            description?.contains(REVIEW_TAG) == true
+
+        /**
+         * ลบป้ายรอตรวจสอบออกจาก description — ใช้เมื่อผู้ใช้แก้ไขรายการแล้ว
+         * (การแก้ = ผู้ใช้ได้ตรวจสอบแล้ว จึงไม่ต้องรอตรวจสอบอีก)
+         */
+        fun clearReviewTag(description: String?): String? {
+            if (description == null) return null
+            val cleaned = description.replace(REVIEW_TAG, "").trim()
+            return cleaned.ifEmpty { null }
+        }
+    }
+}
 
 @Serializable
 enum class BudgetImpactType {

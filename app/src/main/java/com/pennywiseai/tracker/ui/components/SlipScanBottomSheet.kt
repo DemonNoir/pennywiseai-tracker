@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import com.pennywiseai.tracker.slip.parser.ParsedSlip
+import com.pennywiseai.tracker.slip.parser.SlipParser
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -117,6 +118,8 @@ fun SlipScanBottomSheet(
     var isScanning by remember { mutableStateOf(false) }
     var parseResult by remember { mutableStateOf<ParsedSlip?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    // ระบบรีวิวข้อมูลก่อนบันทึก — เปิด dialog ให้ตรวจ/แก้ไข ยอดเงิน/ผู้รับ/วันที่ ก่อนยืนยัน
+    var showReviewDialog by remember { mutableStateOf(false) }
 
     // Launcher for selecting a single slip image
     val singlePhotoPickerLauncher = rememberLauncherForActivityResult(
@@ -430,11 +433,10 @@ fun SlipScanBottomSheet(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Save Button
+                        // Save Button — เปิด dialog รีวิวก่อนบันทึก (ตรวจ/แก้ไขข้อมูล)
                         Button(
                             onClick = {
-                                onSaveTransaction(result)
-                                onDismissRequest()
+                                showReviewDialog = true
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
@@ -450,7 +452,194 @@ fun SlipScanBottomSheet(
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+
+    // Review-before-save dialog: ตรวจสอบ/แก้ไขข้อมูลจาก OCR ก่อนบันทึกลงบัญชี
+    if (showReviewDialog) {
+        parseResult?.let { result ->
+            SlipReviewDialog(
+                slip = result,
+                onDismiss = { showReviewDialog = false },
+                onConfirm = { editedSlip ->
+                    showReviewDialog = false
+                    onSaveTransaction(editedSlip)
+                    onDismissRequest()
+                }
+            )
+        }
+    }
 }
+
+
+/**
+ * Dialog รีวิวข้อมูลสลิปก่อนบันทึก — แสดงผล OCR ให้ตรวจสอบ
+ * และเปิดโหมดแก้ไข ยอดเงิน/ผู้รับ/วันที่ ได้ (OCR อาจอ่านผิดได้)
+ */
+@Composable
+private fun SlipReviewDialog(
+    slip: ParsedSlip,
+    onDismiss: () -> Unit,
+    onConfirm: (ParsedSlip) -> Unit
+) {
+    var isEditing by remember { mutableStateOf(false) }
+    var amountText by remember { mutableStateOf(
+        slip.amountBigDecimal?.toPlainString() ?: slip.amount?.toString() ?: ""
+    ) }
+    var receiverText by remember { mutableStateOf(slip.receiverName ?: "") }
+    var dateText by remember { mutableStateOf(slip.date ?: "") }
+    var timeText by remember { mutableStateOf(slip.time?.replace("น.", "")?.trim() ?: "") }
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (isEditing) "แก้ไขข้อมูลสลิป" else "ตรวจสอบข้อมูลก่อนบันทึก")
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (isEditing) {
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("ยอดเงิน (บาท)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = receiverText,
+                        onValueChange = { receiverText = it },
+                        label = { Text("ผู้รับ / ร้านค้า") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = dateText,
+                        onValueChange = { dateText = it },
+                        label = { Text("วันที่ (เช่น 11 ส.ค. 69)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = timeText,
+                        onValueChange = { timeText = it },
+                        label = { Text("เวลา (เช่น 15:37)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    ReviewRow("ยอดเงิน", "฿%.2f".format(slip.amountBigDecimal?.toDouble() ?: slip.amount ?: 0.0))
+                    slip.receiverName?.let { ReviewRow("ผู้รับ", it) }
+                    (slip.dateTimeIso ?: slip.date)?.let { ReviewRow("วันที่", it) }
+                    if (slip.confidence != com.pennywiseai.tracker.slip.parser.SlipConfidence.CONFIRMED) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "⚠️ OCR อ่านข้อมูลไม่ครบถ้วน — ควรตรวจสอบก่อนบันทึก",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                errorText?.let {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            if (isEditing) {
+                TextButton(onClick = {
+                    // สร้าง ParsedSlip ใหม่จากค่าที่แก้ไข
+                    val cleanedAmount = amountText.trim()
+                    val amountBigDecimal = if (cleanedAmount.isEmpty()) {
+                        slip.amountBigDecimal
+                    } else {
+                        try {
+                            java.math.BigDecimal(cleanedAmount.replace(",", ""))
+                        } catch (e: NumberFormatException) {
+                            null
+                        }
+                    }
+                    if (cleanedAmount.isNotEmpty() && amountBigDecimal == null) {
+                        errorText = "กรุณากรอกยอดเงินให้ถูกต้อง"
+                        return@TextButton
+                    }
+
+                    val cleanedDate = dateText.trim()
+                    val cleanedTime = timeText.trim()
+                    val localDateTime = if (cleanedDate.isEmpty() && cleanedTime.isEmpty()) {
+                        null
+                    } else {
+                        SlipParser.parseToLocalDateTime(
+                            cleanedDate.ifEmpty { null },
+                            cleanedTime.ifEmpty { null }
+                        )
+                    }
+                    if (cleanedDate.isNotEmpty() && localDateTime == null) {
+                        errorText = "รูปแบบวันที่ไม่ถูกต้อง (เช่น 11 ส.ค. 69)"
+                        return@TextButton
+                    }
+
+                    val edited = slip.copy(
+                        amountBigDecimal = amountBigDecimal,
+                        amount = amountBigDecimal?.toDouble(),
+                        receiverName = receiverText.trim().ifEmpty { slip.receiverName },
+                        date = cleanedDate.ifEmpty { null },
+                        time = cleanedTime.ifEmpty { null },
+                        dateTimeIso = localDateTime?.toString(),
+                        timestampMillis = localDateTime
+                            ?.atZone(java.time.ZoneId.systemDefault())
+                            ?.toInstant()
+                            ?.toEpochMilli()
+                    )
+                    onConfirm(edited)
+                }) {
+                    Text("บันทึก")
+                }
+            } else {
+                Button(onClick = { onConfirm(slip) }) {
+                    Text("ยืนยัน")
+                }
+            }
+        },
+        dismissButton = {
+            if (isEditing) {
+                TextButton(onClick = {
+                    isEditing = false
+                    errorText = null
+                }) {
+                    Text("ยกเลิก")
+                }
+            } else {
+                TextButton(onClick = {
+                    isEditing = true
+                    errorText = null
+                }) {
+                    Text("แก้ไข")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ReviewRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(80.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
 
 private fun processSlipUri(
     ocrEngine: SlipOcrEngine,

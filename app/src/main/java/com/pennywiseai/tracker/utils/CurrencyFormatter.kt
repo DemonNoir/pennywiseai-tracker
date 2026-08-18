@@ -155,7 +155,7 @@ object CurrencyFormatter {
     /**
      * Formats a BigDecimal amount as currency with the specified currency code
      */
-    fun formatCurrency(amount: BigDecimal, currencyCode: String = "INR"): String {
+    fun formatCurrency(amount: BigDecimal, currencyCode: String = "THB"): String {
         if (currencyCode in EXPLICIT_SYMBOL_CURRENCIES) {
             return "${CURRENCY_SYMBOLS[currencyCode]}${formatAmount(amount, currencyCode)}"
         }
@@ -198,13 +198,13 @@ object CurrencyFormatter {
     /**
      * Formats a Double amount as currency with the specified currency code
      */
-    fun formatCurrency(amount: Double, currencyCode: String = "INR"): String {
+    fun formatCurrency(amount: Double, currencyCode: String = "THB"): String {
         return formatCurrency(amount.toBigDecimal(), currencyCode)
     }
 
     /**
-     * Defaults the currency to INR, which silently mislabels every non-INR
-     * amount (the "₹600 for a $600 group" bug). Always pass the amount's own
+     * Defaults the currency to THB, which silently mislabels every non-THB
+     * amount (the "฿600 for a $600 group" bug). Always pass the amount's own
      * currency. For a total over a possibly-mixed list, bucket with
      * [com.pennywiseai.tracker.utils.sumByCurrency] and render with
      * [formatByCurrency] instead of summing into one figure.
@@ -216,11 +216,11 @@ object CurrencyFormatter {
         level = DeprecationLevel.ERROR
     )
     fun formatCurrency(amount: BigDecimal): String {
-        return formatCurrency(amount, "INR")
+        return formatCurrency(amount, "THB")
     }
 
     /**
-     * Defaults the currency to INR — see the [BigDecimal] overload above. Always
+     * Defaults the currency to THB — see the [BigDecimal] overload above. Always
      * pass the amount's own currency.
      */
     @Deprecated(
@@ -229,7 +229,7 @@ object CurrencyFormatter {
         level = DeprecationLevel.ERROR
     )
     fun formatCurrency(amount: Double): String {
-        return formatCurrency(amount.toBigDecimal(), "INR")
+        return formatCurrency(amount.toBigDecimal(), "THB")
     }
 
     /**
@@ -246,12 +246,12 @@ object CurrencyFormatter {
     fun formatByCurrency(
         totalsByCurrency: Map<String, Money>,
         signPrefix: String = "",
-        fallbackCurrency: String = "INR"
+        fallbackCurrency: String = "THB"
     ): String {
         val nonZero = totalsByCurrency.values.filter { it.amount.signum() != 0 }
         if (nonZero.isEmpty()) {
             // Keep the symbol right for an all-cancelling single-currency set
-            // (e.g. a $300 charge + $300 refund) instead of defaulting to ₹0.
+            // (e.g. a $300 charge + $300 refund) instead of defaulting to ฿0.
             val currency = totalsByCurrency.keys.firstOrNull() ?: fallbackCurrency
             return Money.zero(currency).format(signPrefix)
         }
@@ -308,7 +308,7 @@ object CurrencyFormatter {
     /**
      * Resolves the effective currency for an account. Manual accounts store the
      * currency the user chose — trust it. SMS-tracked accounts fall back to the bank
-     * parser's currency (their stored value may be the INR default even for a non-INR
+     * parser's currency (their stored value may be the default even for a non-default
      * bank). Shared by Account Detail, onboarding, and Settings so the rule stays
      * consistent everywhere.
      */
@@ -326,14 +326,14 @@ object CurrencyFormatter {
 
     /**
      * Gets the base currency for a bank using the BankParserFactory
-     * Returns INR as default for unknown banks
+     * Returns THB as default for unknown banks
      */
     fun getBankBaseCurrency(bankName: String?): String {
-        if (bankName == null) return "INR"
+        if (bankName == null) return "THB"
 
 
         // Try to find a parser that can handle this bank name
         val parser = BankParserFactory.getParserByName(bankName)
-        return parser?.getCurrency() ?: "INR"
+        return parser?.getCurrency() ?: "THB"
     }
 }

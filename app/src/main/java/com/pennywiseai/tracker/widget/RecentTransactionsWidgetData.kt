@@ -13,6 +13,6 @@ data class RecentTransactionItem(
 
 data class RecentTransactionsWidgetData(
     val totalSpent: BigDecimal = BigDecimal.ZERO,
-    val currency: String = "INR",
+    val currency: String = "THB",
     val transactions: List<RecentTransactionItem> = emptyList()
 )

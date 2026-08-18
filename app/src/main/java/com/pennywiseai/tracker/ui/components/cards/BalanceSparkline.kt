@@ -22,7 +22,7 @@ fun BalanceSparkline(
     data: List<BigDecimal>,
     lineColor: Color,
     modifier: Modifier = Modifier,
-    currency: String = "INR",
+    currency: String = "THB",
     isBalanceHidden: Boolean = false,
     comparisonData: List<BigDecimal>? = null,
     comparisonLineColor: Color = Color.Gray
@@ -143,6 +143,7 @@ fun BalanceSparkline(
 
 private fun formatCompactBalance(value: BigDecimal, currency: String): String {
     val symbol = when (currency) {
+        "THB" -> "\u0E3F"
         "INR" -> "\u20B9"
         "USD" -> "$"
         "EUR" -> "\u20AC"

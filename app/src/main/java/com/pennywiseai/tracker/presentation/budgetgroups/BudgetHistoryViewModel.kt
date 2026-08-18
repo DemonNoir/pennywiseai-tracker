@@ -34,8 +34,8 @@ data class BudgetHistoryUiState(
     val displayedCapDate: java.time.LocalDate = java.time.LocalDate.now(),
     val displayedIsLive: Boolean = false,
     val totalSpent: BigDecimal = BigDecimal.ZERO,
-    val currency: String = "INR",
-    val baseCurrency: String = "INR",
+    val currency: String = "THB",
+    val baseCurrency: String = "THB",
     val budgetAmount: BigDecimal = BigDecimal.ZERO,
     /**
      * The per-window category breakdown currently shown in the bottom

@@ -49,7 +49,7 @@ data class BudgetGroupEditUiState(
     val availableTypeBuckets: List<TypeBucketOption> = emptyList(),
     val categorySpending: Map<String, BigDecimal> = emptyMap(),
     val typeSpending: Map<String, BigDecimal> = emptyMap(),
-    val currency: String = "INR",
+    val currency: String = "THB",
     val availableCurrencies: List<String> = emptyList(),
     /**
      * The cadence this budget runs on.

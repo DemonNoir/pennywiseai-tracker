@@ -600,7 +600,7 @@ data class TransactionUiState(
     // For a TRANSFER, [selectedAccount] is the FROM account and this is the TO
     // account. Unused for all other transaction types.
     val toAccount: AccountBalanceEntity? = null,
-    val currency: String = "INR",
+    val currency: String = "THB",
     val receiptUri: Uri? = null,
     val budgetImpactType: BudgetImpactType? = null,
     val budgetCategory: String? = null
@@ -642,7 +642,7 @@ data class SubscriptionUiState(
     val notes: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
-    val currency: String = "INR",
+    val currency: String = "THB",
     /**
      * Income vs Expense (#371). Income subscriptions get phantom-created
      * on schedule (wallet top-ups etc.); expense subscriptions match

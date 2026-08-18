@@ -22,7 +22,7 @@ class AddSubscriptionUseCase @Inject constructor(
         autoRenewal: Boolean = true,
         paymentReminder: Boolean = true,
         notes: String? = null,
-        currency: String = "INR",
+        currency: String = "THB",
         direction: SubscriptionDirection = SubscriptionDirection.EXPENSE,
         bankName: String? = null,
         accountLast4: String? = null

@@ -58,7 +58,7 @@ class SlipAutoScanWorker @AssistedInject constructor(
             var successCount = 0
             var failCount = 0
             
-            for (uri in imageUris) {
+            for ((uri, mediaTimestamp) in imageUris) {
                 val uriString = uri.toString()
                 val history = slipScanHistoryDao.getHistoryByUri(uriString)
                 
@@ -73,8 +73,15 @@ class SlipAutoScanWorker @AssistedInject constructor(
 
                 try {
                     val rawText = ocrEngine.getRawTextSync(uri)
-                    val parsedSlip = ocrEngine.processRawText(rawText)
-                    
+                    var parsedSlip = ocrEngine.processRawText(rawText)
+
+                    // ถ้า OCR หาวันที่ในสลิปไม่เจอ → fallback ไปที่วันที่รูปถูกบันทึก
+                    // (DATE_ADDED จาก MediaStore) เหมือน SlipForegroundScanner
+                    // แทนที่จะปล่อยให้ ProcessSlipUseCase ใช้เวลาที่ worker รัน
+                    if (parsedSlip.timestampMillis == null) {
+                        parsedSlip = parsedSlip.copy(timestampMillis = mediaTimestamp)
+                    }
+
                     if (parsedSlip.amount != null && (parsedSlip.amount ?: 0.0) > 0.0) {
                         processSlipUseCase.execute(parsedSlip)
                         
@@ -119,9 +126,12 @@ class SlipAutoScanWorker @AssistedInject constructor(
         }
     }
 
-    private fun queryRecentBankImages(): List<Uri> {
-        val uris = mutableListOf<Uri>()
-        val projection = arrayOf(MediaStore.Images.Media._ID)
+    private fun queryRecentBankImages(): List<Pair<Uri, Long>> {
+        val results = mutableListOf<Pair<Uri, Long>>()
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DATE_ADDED
+        )
         
         // สแกนย้อนหลัง 7 วันเพื่อหาความแน่ใจ (Deduplication จะจัดการส่วนที่ซ้ำเอง)
         val sevenDaysAgo = TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()) - TimeUnit.DAYS.toSeconds(7)
@@ -155,14 +165,18 @@ class SlipAutoScanWorker @AssistedInject constructor(
                 sortOrder
             )?.use { cursor ->
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                while (cursor.moveToNext() && uris.size < 50) { // Limit to 50 recent images
+                val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                while (cursor.moveToNext() && results.size < 50) { // Limit to 50 recent images
                     val id = cursor.getLong(idColumn)
-                    uris.add(Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString()))
+                    // MediaStore เก็บ DATE_ADDED เป็นวินาที → คูณ 1000 เป็น millis
+                    val dateAddedMillis = cursor.getLong(dateColumn) * 1000L
+                    val uri = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString())
+                    results.add(Pair(uri, dateAddedMillis))
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to query bank folder images: ${e.message}", e)
         }
-        return uris
+        return results
     }
 }

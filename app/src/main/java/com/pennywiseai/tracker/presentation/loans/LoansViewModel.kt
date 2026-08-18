@@ -22,7 +22,7 @@ data class LoansUiState(
     val settledLoans: List<LoanEntity> = emptyList(),
     val totalLentRemaining: BigDecimal = BigDecimal.ZERO,
     val totalBorrowedRemaining: BigDecimal = BigDecimal.ZERO,
-    val summaryCurrency: String = "INR",
+    val summaryCurrency: String = "THB",
     val isLoading: Boolean = true,
     val showSettledLoans: Boolean = false
 )

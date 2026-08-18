@@ -260,7 +260,7 @@ class AccountDetailViewModel @Inject constructor(
     private fun primaryCurrencyForAccount(latestBalance: AccountBalanceEntity?): String {
         return CurrencyFormatter.resolveAccountCurrency(
             sourceType = latestBalance?.sourceType,
-            storedCurrency = latestBalance?.currency ?: "INR",
+            storedCurrency = latestBalance?.currency ?: "THB",
             bankName = bankName
         )
     }
@@ -276,7 +276,7 @@ data class AccountDetailUiState(
     val totalIncome: BigDecimal = BigDecimal.ZERO,
     val totalExpenses: BigDecimal = BigDecimal.ZERO,
     val netBalance: BigDecimal = BigDecimal.ZERO,
-    val primaryCurrency: String = "INR",
+    val primaryCurrency: String = "THB",
     val hasMultipleCurrencies: Boolean = false,
     val isLoading: Boolean = true,
     val billedOutstanding: BigDecimal? = null,

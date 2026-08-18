@@ -207,7 +207,7 @@ class AnalyticsViewModel @Inject constructor(
                 startDate = dateRange.first,
                 endDate = dateRange.second
             ).flatMapLatest { allTransactions ->
-                // Update available currencies using standard sorting (INR first, then alphabetical)
+                // Update available currencies using standard sorting (THB first, then alphabetically)
                 val allCurrencies = CurrencyUtils.sortCurrencies(
                     allTransactions.map { it.currency }.distinct()
                 )
@@ -777,4 +777,3 @@ data class MerchantData(
     val transactionCount: Int,
     val isSubscription: Boolean
 )
-

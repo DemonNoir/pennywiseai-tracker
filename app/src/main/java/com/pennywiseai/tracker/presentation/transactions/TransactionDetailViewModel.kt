@@ -31,6 +31,8 @@ import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
 import com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao
 import com.pennywiseai.tracker.data.database.entity.ScanCorrectionEntity
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
+import com.pennywiseai.tracker.slip.parser.SlipParser
+import com.pennywiseai.tracker.slip.recipient.SlipRecipientResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -62,7 +64,7 @@ class TransactionDetailViewModel @Inject constructor(
     private val _transaction = MutableStateFlow<TransactionEntity?>(null)
     val transaction: StateFlow<TransactionEntity?> = _transaction.asStateFlow()
 
-    private val _primaryCurrency = MutableStateFlow("INR")
+    private val _primaryCurrency = MutableStateFlow("THB")
     val primaryCurrency: StateFlow<String> = _primaryCurrency.asStateFlow()
 
     private val _convertedAmount = MutableStateFlow<BigDecimal?>(null)
@@ -127,27 +129,47 @@ class TransactionDetailViewModel @Inject constructor(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val suggestedMerchantName: StateFlow<String?> = combine(
         _editableTransaction,
-        _fieldConfidences
-    ) { txn, confidences ->
-        Pair(txn, confidences)
-    }.flatMapLatest { (txn, confidences) ->
-        val bankName = txn?.bankName
+        _transaction
+    ) { editable, original ->
+        editable to original
+    }.flatMapLatest { (editable, original) ->
+        val bankName = editable?.bankName ?: original?.bankName
+        val rawText = editable?.smsBody?.takeIf { editable.smsSender == "SLIP_SCAN" || original?.smsSender == "SLIP_SCAN" }
+            ?: original?.smsBody?.takeIf { original.smsSender == "SLIP_SCAN" }
         val originalValue = lastRescanResult?.payeeName?.value
-        
-        if (com.pennywiseai.tracker.core.FeatureFlags.ENABLE_CORRECTION_LEARNING &&
-            confidences["merchantName"] == com.pennywiseai.tracker.slip.parser.Confidence.MEDIUM &&
-            bankName != null &&
-            originalValue != null
-        ) {
-            scanCorrectionDao.getFrequentCorrections(
-                bankName = bankName,
-                fieldName = "merchantName",
-                originalValue = originalValue,
-                limit = 1
-            ).map { suggestions ->
-                suggestions.firstOrNull()
-                    ?.takeIf { it.frequency >= com.pennywiseai.tracker.core.FeatureFlags.MIN_CORRECTION_COUNT }
-                    ?.correctedValue
+            ?: rawText?.let { SlipParser.parse(it).receiverName }
+            ?: editable?.merchantName
+
+        if (bankName != null && !originalValue.isNullOrBlank()) {
+            combine(
+                scanCorrectionDao.getCorrections(bankName, "merchantName"),
+                transactionRepository.getAllTransactions()
+            ) { corrections, transactions ->
+                val bankBlacklist = setOf(
+                    "kbank", "scb", "ttb", "bay", "gsb", "kkp", "bbl", "ktb", "uob", "cimb",
+                    "ธนาคาร", "กสิกร", "ไทยพาณิชย์", "กรุงไทย", "กรุงเทพ", "กรุงศรี", "ออมสิน"
+                )
+
+                // Filter out transactions where the merchant name is essentially a bank name
+                val filteredHistory = transactions.filter { txn ->
+                    val lowerName = txn.merchantName.lowercase()
+                    bankBlacklist.none { lowerName.contains(it) }
+                }
+
+                SlipRecipientResolver.resolve(
+                    ocrName = originalValue,
+                    rawText = rawText,
+                    bankName = bankName,
+                    corrections = corrections,
+                    transactionHistory = filteredHistory,
+                    limit = 1
+                ).firstOrNull()
+                    ?.takeIf { candidate ->
+                        val lowerCandidate = candidate.merchantName.lowercase()
+                        !candidate.merchantName.equals(editable?.merchantName, ignoreCase = true) &&
+                            bankBlacklist.none { lowerCandidate.contains(it) }
+                    }
+                    ?.merchantName
             }
         } else {
             flowOf(null)
@@ -380,7 +402,7 @@ class TransactionDetailViewModel @Inject constructor(
             if (!bankName.isNullOrEmpty()) {
                 com.pennywiseai.tracker.utils.CurrencyFormatter.getBankBaseCurrency(bankName)
             } else {
-                transaction.currency.takeIf { it.isNotEmpty() } ?: "INR"
+                transaction.currency.takeIf { it.isNotEmpty() } ?: "THB"
             }
         }
         _primaryCurrency.value = primaryCurrency
@@ -1039,28 +1061,66 @@ class TransactionDetailViewModel @Inject constructor(
 
                 // Correction logging (Phase 2) — compare parsed values against what user saved.
                 // Must run BEFORE clearing lastRescanResult.
-                if (com.pennywiseai.tracker.core.FeatureFlags.ENABLE_CORRECTION_LEARNING) {
-                    val rescan = lastRescanResult
-                    if (rescan != null) {
-                        val bankName = normalizedTransaction.bankName ?: "unknown"
-                        // Helper to log if parsed value != saved value
-                        suspend fun logIfChanged(fieldName: String, parsedValue: String?, savedValue: String?) {
-                            if (!parsedValue.isNullOrBlank() && !savedValue.isNullOrBlank() && parsedValue != savedValue) {
-                                scanCorrectionDao.insertCorrection(
-                                    ScanCorrectionEntity(
-                                        transactionId = normalizedTransaction.id,
-                                        fieldName = fieldName,
-                                        originalValue = parsedValue,
-                                        correctedValue = savedValue,
-                                        bankName = bankName
-                                    )
-                                )
+                val rescan = lastRescanResult
+                val learnedMerchantCorrections = mutableListOf<ScanCorrectionEntity>()
+                val originalParsedSlip = originalTxn
+                    ?.smsBody
+                    ?.takeIf { originalTxn.smsSender == "SLIP_SCAN" }
+                    ?.let { SlipParser.parse(it) }
+                val canLearnMerchantCorrection =
+                    originalTxn?.smsSender == "SLIP_SCAN" &&
+                        normalizedTransaction.transactionType != TransactionType.TRANSFER &&
+                        !SlipRecipientResolver.looksLikeSameParty(
+                            originalParsedSlip?.senderName,
+                            originalParsedSlip?.receiverName
+                        )
+                if (rescan != null) {
+                    val bankName = normalizedTransaction.bankName ?: "unknown"
+                    // Helper to log if parsed value != saved value
+                    suspend fun logIfChanged(fieldName: String, parsedValue: String?, savedValue: String?) {
+                        if (fieldName == "merchantName" && !canLearnMerchantCorrection) return
+                        if (!parsedValue.isNullOrBlank() && !savedValue.isNullOrBlank() && parsedValue != savedValue) {
+                            val correction = ScanCorrectionEntity(
+                                transactionId = normalizedTransaction.id,
+                                fieldName = fieldName,
+                                originalValue = parsedValue,
+                                correctedValue = savedValue,
+                                bankName = bankName
+                            )
+                            scanCorrectionDao.insertCorrection(correction)
+                            if (fieldName == "merchantName") {
+                                learnedMerchantCorrections += correction
                             }
                         }
-                        logIfChanged("merchantName", rescan.payeeName?.value, normalizedTransaction.merchantName)
-                        logIfChanged("amount", rescan.amount?.value?.toPlainString(), normalizedTransaction.amount.toPlainString())
-                        logIfChanged("reference", rescan.refNo?.value, normalizedTransaction.reference)
                     }
+                    logIfChanged("merchantName", rescan.payeeName?.value, normalizedTransaction.merchantName)
+                    logIfChanged("amount", rescan.amount?.value?.toPlainString(), normalizedTransaction.amount.toPlainString())
+                    logIfChanged("reference", rescan.refNo?.value, normalizedTransaction.reference)
+                } else {
+                    val originalSlipMerchant = originalParsedSlip?.receiverName ?: originalTxn?.merchantName
+                    if (
+                        canLearnMerchantCorrection &&
+                        !originalSlipMerchant.isNullOrBlank() &&
+                        originalSlipMerchant != normalizedTransaction.merchantName
+                    ) {
+                        val correction = ScanCorrectionEntity(
+                            transactionId = normalizedTransaction.id,
+                            fieldName = "merchantName",
+                            originalValue = originalSlipMerchant,
+                            correctedValue = normalizedTransaction.merchantName,
+                            bankName = normalizedTransaction.bankName ?: "unknown"
+                        )
+                        scanCorrectionDao.insertCorrection(correction)
+                        learnedMerchantCorrections += correction
+                    }
+                }
+                learnedMerchantCorrections.forEach { correction ->
+                    backfillMatchingSlipMerchants(
+                        correction = correction,
+                        correctedMerchantName = normalizedTransaction.merchantName,
+                        correctedCategory = normalizedTransaction.category,
+                        excludeTransactionId = normalizedTransaction.id
+                    )
                 }
                 // Clear rescan state (always, regardless of feature flag)
                 lastRescanResult = null
@@ -1081,6 +1141,46 @@ class TransactionDetailViewModel @Inject constructor(
                 _errorMessage.value = "Failed to save changes: ${e.message}"
             } finally {
                 _isSaving.value = false
+            }
+        }
+    }
+    
+    private suspend fun backfillMatchingSlipMerchants(
+        correction: ScanCorrectionEntity,
+        correctedMerchantName: String,
+        correctedCategory: String,
+        excludeTransactionId: Long
+    ) {
+        val slipTransactions = transactionRepository.getAllTransactionsList()
+            .filter { txn ->
+                txn.id != excludeTransactionId &&
+                    txn.smsSender == "SLIP_SCAN" &&
+                    !txn.smsBody.isNullOrBlank() &&
+                    !txn.merchantName.equals(correctedMerchantName, ignoreCase = true)
+            }
+
+        for (txn in slipTransactions) {
+            val rawText = txn.smsBody.orEmpty()
+            if (txn.transactionType == TransactionType.TRANSFER) continue
+            val parsedSlip = SlipParser.parse(rawText)
+            if (SlipRecipientResolver.looksLikeSameParty(parsedSlip.senderName, parsedSlip.receiverName)) continue
+            val parsedReceiver = parsedSlip.receiverName ?: txn.merchantName
+            val matched = SlipRecipientResolver.bestAutoApply(
+                ocrName = parsedReceiver,
+                rawText = rawText,
+                bankName = txn.bankName,
+                corrections = listOf(correction),
+                transactionHistory = emptyList()
+            ) ?: continue
+
+            if (matched.merchantName.equals(correctedMerchantName, ignoreCase = true)) {
+                transactionRepository.updateTransaction(
+                    txn.copy(
+                        merchantName = correctedMerchantName,
+                        category = if (txn.category == "Others") correctedCategory else txn.category,
+                        updatedAt = LocalDateTime.now()
+                    )
+                )
             }
         }
     }
