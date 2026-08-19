@@ -8,6 +8,7 @@ import com.pennywiseai.tracker.data.database.entity.CategoryEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.data.repository.CategoryRepository
+import com.pennywiseai.tracker.data.repository.MerchantAliasRepository
 import com.pennywiseai.tracker.data.repository.TagRepository
 import com.pennywiseai.tracker.data.repository.TransactionRepository
 import com.pennywiseai.tracker.domain.model.BudgetCycle
@@ -49,6 +50,7 @@ class TransactionsViewModel @Inject constructor(
     private val transactionRepository: TransactionRepository,
     private val categoryRepository: CategoryRepository,
     private val tagRepository: TagRepository,
+    private val merchantAliasRepository: MerchantAliasRepository,
     private val transactionSplitDao: TransactionSplitDao,
     private val userPreferencesRepository: com.pennywiseai.tracker.data.preferences.UserPreferencesRepository,
     private val currencyConversionService: CurrencyConversionService,
@@ -70,6 +72,13 @@ class TransactionsViewModel @Inject constructor(
     // transactionId -> tag names, kept in sync for in-memory tag search.
     private val transactionTagsMap: StateFlow<Map<Long, List<String>>> =
         tagRepository.observeTransactionTagNames()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // raw merchant name -> user-set display alias (#583), so a merchant's alias
+    // is searchable too, not just its raw name (#691).
+    private val merchantAliases: StateFlow<Map<String, String>> =
+        merchantAliasRepository.getAllAliases()
+            .map { list -> list.associate { it.merchantName to it.alias } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
     
     private val _selectedPeriod = MutableStateFlow(TimePeriod.THIS_CYCLE)
@@ -806,7 +815,8 @@ class TransactionsViewModel @Inject constructor(
             _isUnifiedMode.map { "unifiedMode" },
             sortOption.map { "sort" },
             customDateRange.map { "customDate" },
-            transactionTagsMap.map { "tags" }
+            transactionTagsMap.map { "tags" },
+            merchantAliases.map { "aliases" }
         )
             .transformLatest { trigger ->
                 // Get current values from all StateFlows
@@ -1408,6 +1418,10 @@ class TransactionsViewModel @Inject constructor(
                     val matchesTag = transactionTagsMap.value[transaction.id]
                         ?.any { it.contains(searchQuery, ignoreCase = true) } == true
 
+                    // Check the merchant's user-set display alias (#691)
+                    val matchesAlias = merchantAliases.value[transaction.merchantName]
+                        ?.contains(searchQuery, ignoreCase = true) == true
+
                     // Check SMS body (full text search)
                     val matchesSmsBody = transaction.smsBody?.contains(searchQuery, ignoreCase = true) == true
                     
@@ -1430,7 +1444,7 @@ class TransactionsViewModel @Inject constructor(
                         false
                     }
                     
-                    matchesMerchant || matchesDescription || matchesTag || matchesSmsBody || matchesAmount
+                    matchesMerchant || matchesDescription || matchesTag || matchesAlias || matchesSmsBody || matchesAmount
                 }
             }
         }
