@@ -9,7 +9,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.ui.components.PennyWiseScaffold
 import com.pennywiseai.tracker.ui.theme.*
 import kotlinx.coroutines.launch
@@ -24,13 +26,16 @@ fun AddScreen(
     val coroutineScope = rememberCoroutineScope()
     val uiState by viewModel.uiState.collectAsState()
     
-    val tabs = listOf("Transaction", "Subscription")
+    val tabs = listOf(
+        stringResource(R.string.add_txn_tab),
+        stringResource(R.string.add_sub_tab)
+    )
     
     PennyWiseScaffold(
-        title = "Add New",
+        title = stringResource(R.string.add_screen_title),
         navigationIcon = {
             IconButton(onClick = onNavigateBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
             }
         }
     ) { paddingValues ->

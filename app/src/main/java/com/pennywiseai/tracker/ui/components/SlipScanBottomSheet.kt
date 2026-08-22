@@ -23,6 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
 import com.pennywiseai.tracker.slip.parser.ParsedSlip
 import com.pennywiseai.tracker.slip.parser.SlipParser
@@ -109,8 +111,8 @@ fun SlipScanBottomSheet(
             onConfirm = {
                 permissionLauncher.launch(requiredPermissions.toTypedArray())
             },
-            title = "เข้าถึงรูปภาพเพื่อแสกนสลิป",
-            description = "PennyWise จำเป็นต้องขอสิทธิ์เข้าถึงรูปภาพเพื่อตรวจหาและอ่านข้อมูลจากสลิปธนาคารโดยใช้ AI OCR ข้อมูลทั้งหมดจะถูกประมวลผลภายในเครื่องของคุณเท่านั้น และเราจะไม่อ่านรูปภาพอื่นที่ไม่ใช่สลิปธนาคาร"
+            title = stringResource(R.string.slip_scan_disclosure_title),
+            description = stringResource(R.string.slip_scan_disclosure_body)
         )
     }
 
@@ -126,7 +128,7 @@ fun SlipScanBottomSheet(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri?.let {
-            processSlipUri(ocrEngine, it, { isScanning = it }, { result -> parseResult = result }, { err -> errorMessage = err })
+            processSlipUri(context, ocrEngine, it, { isScanning = it }, { result -> parseResult = result }, { err -> errorMessage = err })
         }
     }
 
@@ -135,7 +137,7 @@ fun SlipScanBottomSheet(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            processSlipUri(ocrEngine, it, { isScanning = it }, { result -> parseResult = result }, { err -> errorMessage = err })
+            processSlipUri(context, ocrEngine, it, { isScanning = it }, { result -> parseResult = result }, { err -> errorMessage = err })
         }
     }
 
@@ -164,13 +166,13 @@ fun SlipScanBottomSheet(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "สแกนสลิปโอนเงิน",
+                        text = stringResource(R.string.slip_scan_header),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                 }
                 IconButton(onClick = onDismissRequest) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+                    Icon(imageVector = Icons.Default.Close, contentDescription = stringResource(R.string.common_close))
                 }
             }
 
@@ -186,7 +188,7 @@ fun SlipScanBottomSheet(
                             Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "จำเป็นต้องเข้าถึงรูปภาพเพื่อแสกนสลิป",
+                                text = stringResource(R.string.slip_scan_permission_required),
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
@@ -198,7 +200,7 @@ fun SlipScanBottomSheet(
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("อนุญาตสิทธิ์การเข้าถึง")
+                            Text(stringResource(R.string.slip_scan_grant_permission))
                         }
                     }
                 }
@@ -206,7 +208,7 @@ fun SlipScanBottomSheet(
 
             // Bank Folder Selector Title
             Text(
-                text = "เลือกตามโฟลเดอร์สลิปธนาคาร",
+                text = stringResource(R.string.slip_scan_folder_selector),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.Start)
@@ -256,7 +258,7 @@ fun SlipScanBottomSheet(
                 Spacer(modifier = Modifier.height(10.dp))
                 if (folderImages.isNotEmpty()) {
                     Text(
-                        text = "พบ ${folderImages.size} รูปในโฟลเดอร์ ${selectedBankFolder.bankName}:",
+                        text = stringResource(R.string.slip_scan_found_images, folderImages.size, selectedBankFolder.bankName),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.align(Alignment.Start)
@@ -269,7 +271,7 @@ fun SlipScanBottomSheet(
                         items(folderImages) { uri ->
                             ElevatedCard(
                                 onClick = {
-                                    processSlipUri(ocrEngine, uri, { isScanning = it }, { result -> parseResult = result }, { err -> errorMessage = err })
+                                    processSlipUri(context, ocrEngine, uri, { isScanning = it }, { result -> parseResult = result }, { err -> errorMessage = err })
                                 },
                                 modifier = Modifier.size(70.dp),
                                 shape = RoundedCornerShape(12.dp)
@@ -289,7 +291,7 @@ fun SlipScanBottomSheet(
                     }
                 } else {
                     Text(
-                        text = "ไม่พบรูปสลิปในโฟลเดอร์ ${selectedBankFolder.folderName} (สามารถกดเลือกรูปจากแกลเลอรีหลักได้)",
+                        text = stringResource(R.string.slip_scan_no_images, selectedBankFolder.folderName),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Start)
@@ -316,7 +318,7 @@ fun SlipScanBottomSheet(
             ) {
                 Icon(imageVector = Icons.Default.AddPhotoAlternate, contentDescription = null)
                 Spacer(modifier = Modifier.width(10.dp))
-                Text(text = "เลือกรูปสลิปจากแกลเลอรี", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(text = stringResource(R.string.slip_scan_pick_gallery), fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -329,7 +331,7 @@ fun SlipScanBottomSheet(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("กำลังถอดข้อมูลสลิปด้วย AI OCR...", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.slip_scan_processing), style = MaterialTheme.typography.bodyMedium)
                 }
             }
 
@@ -363,7 +365,7 @@ fun SlipScanBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "สแกนสำเร็จ!",
+                                text = stringResource(R.string.slip_scan_success),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -373,7 +375,7 @@ fun SlipScanBottomSheet(
                                 shape = CircleShape
                             ) {
                                 Text(
-                                    text = result.bankName ?: "สลิปธนาคาร",
+                                    text = result.bankName ?: stringResource(R.string.slip_scan_bank_slip),
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
@@ -405,7 +407,7 @@ fun SlipScanBottomSheet(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "ผู้รับ: $receiver",
+                                    text = stringResource(R.string.slip_scan_receiver_label, receiver),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -424,7 +426,7 @@ fun SlipScanBottomSheet(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "วันที่: $dateTime",
+                                    text = stringResource(R.string.slip_scan_date_label, dateTime),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -443,7 +445,7 @@ fun SlipScanBottomSheet(
                         ) {
                             Icon(Icons.Default.Check, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("บันทึกรายการนี้เข้าบัญชี")
+                            Text(stringResource(R.string.slip_scan_save_to_account))
                         }
                     }
                 }
@@ -480,6 +482,7 @@ private fun SlipReviewDialog(
     onDismiss: () -> Unit,
     onConfirm: (ParsedSlip) -> Unit
 ) {
+    val context = LocalContext.current
     var isEditing by remember { mutableStateOf(false) }
     var amountText by remember { mutableStateOf(
         slip.amountBigDecimal?.toPlainString() ?: slip.amount?.toString() ?: ""
@@ -492,7 +495,7 @@ private fun SlipReviewDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(if (isEditing) "แก้ไขข้อมูลสลิป" else "ตรวจสอบข้อมูลก่อนบันทึก")
+            Text(if (isEditing) stringResource(R.string.slip_scan_edit_title) else stringResource(R.string.slip_scan_review_title))
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -500,7 +503,7 @@ private fun SlipReviewDialog(
                     OutlinedTextField(
                         value = amountText,
                         onValueChange = { amountText = it },
-                        label = { Text("ยอดเงิน (บาท)") },
+                        label = { Text(stringResource(R.string.slip_scan_amount_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -508,7 +511,7 @@ private fun SlipReviewDialog(
                     OutlinedTextField(
                         value = receiverText,
                         onValueChange = { receiverText = it },
-                        label = { Text("ผู้รับ / ร้านค้า") },
+                        label = { Text(stringResource(R.string.slip_scan_recipient_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -516,7 +519,7 @@ private fun SlipReviewDialog(
                     OutlinedTextField(
                         value = dateText,
                         onValueChange = { dateText = it },
-                        label = { Text("วันที่ (เช่น 11 ส.ค. 69)") },
+                        label = { Text(stringResource(R.string.slip_scan_date_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -524,18 +527,18 @@ private fun SlipReviewDialog(
                     OutlinedTextField(
                         value = timeText,
                         onValueChange = { timeText = it },
-                        label = { Text("เวลา (เช่น 15:37)") },
+                        label = { Text(stringResource(R.string.slip_scan_time_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
-                    ReviewRow("ยอดเงิน", "฿%.2f".format(slip.amountBigDecimal?.toDouble() ?: slip.amount ?: 0.0))
-                    slip.receiverName?.let { ReviewRow("ผู้รับ", it) }
-                    (slip.dateTimeIso ?: slip.date)?.let { ReviewRow("วันที่", it) }
+                    ReviewRow(stringResource(R.string.slip_scan_amount_row_label), "฿%.2f".format(slip.amountBigDecimal?.toDouble() ?: slip.amount ?: 0.0))
+                    slip.receiverName?.let { ReviewRow(stringResource(R.string.slip_scan_receiver_row_label), it) }
+                    (slip.dateTimeIso ?: slip.date)?.let { ReviewRow(stringResource(R.string.slip_scan_date_row_label), it) }
                     if (slip.confidence != com.pennywiseai.tracker.slip.parser.SlipConfidence.CONFIRMED) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "⚠️ OCR อ่านข้อมูลไม่ครบถ้วน — ควรตรวจสอบก่อนบันทึก",
+                            text = stringResource(R.string.slip_scan_incomplete_warning),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -562,7 +565,7 @@ private fun SlipReviewDialog(
                         }
                     }
                     if (cleanedAmount.isNotEmpty() && amountBigDecimal == null) {
-                        errorText = "กรุณากรอกยอดเงินให้ถูกต้อง"
+                        errorText = context.getString(R.string.slip_scan_invalid_amount)
                         return@TextButton
                     }
 
@@ -577,7 +580,7 @@ private fun SlipReviewDialog(
                         )
                     }
                     if (cleanedDate.isNotEmpty() && localDateTime == null) {
-                        errorText = "รูปแบบวันที่ไม่ถูกต้อง (เช่น 11 ส.ค. 69)"
+                        errorText = context.getString(R.string.slip_scan_invalid_date)
                         return@TextButton
                     }
 
@@ -595,11 +598,11 @@ private fun SlipReviewDialog(
                     )
                     onConfirm(edited)
                 }) {
-                    Text("บันทึก")
+                    Text(stringResource(R.string.common_save))
                 }
             } else {
                 Button(onClick = { onConfirm(slip) }) {
-                    Text("ยืนยัน")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         },
@@ -609,14 +612,14 @@ private fun SlipReviewDialog(
                     isEditing = false
                     errorText = null
                 }) {
-                    Text("ยกเลิก")
+                    Text(stringResource(R.string.common_cancel))
                 }
             } else {
                 TextButton(onClick = {
                     isEditing = true
                     errorText = null
                 }) {
-                    Text("แก้ไข")
+                    Text(stringResource(R.string.common_edit))
                 }
             }
         }
@@ -642,6 +645,7 @@ private fun ReviewRow(label: String, value: String) {
 
 
 private fun processSlipUri(
+    context: Context,
     ocrEngine: SlipOcrEngine,
     uri: Uri,
     setScanning: (Boolean) -> Unit,
@@ -660,12 +664,12 @@ private fun processSlipUri(
             if (amt > 0.0) {
                 setResult(parsed)
             } else {
-                setError("ไม่สามารถถอดจำนวนเงินจากสลิปได้ กรุณาลองใช้สลิปรูปอื่น")
+                setError(context.getString(R.string.slip_scan_error_no_amount))
             }
         },
         onError = { ex ->
             setScanning(false)
-            setError("เกิดข้อผิดพลาดในการอ่านรูปสลิป: ${ex.localizedMessage}")
+            setError(context.getString(R.string.slip_scan_error_generic, ex.localizedMessage ?: ""))
         }
     )
 }

@@ -5,6 +5,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -89,7 +91,7 @@ fun BalanceChart(
             .padding(horizontal = Spacing.sm, vertical = Spacing.md),
         data = listOf(
             Line(
-                label = "Balance Trend",
+                label = stringResource(R.string.chart_balance_trend),
                 values = chartValues,
                 color = SolidColor(themeColors.primary),
                 firstGradientFillColor = themeColors.primary.copy(alpha = 0.3f),

@@ -10,6 +10,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.pennywiseai.tracker.ui.theme.Spacing
 
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
+
 /**
  * Represents a single feature or change in a version
  */
@@ -113,7 +116,7 @@ fun WhatsNewDialog(
         },
         confirmButton = {
             Button(onClick = onDismiss) {
-                Text("Got it")
+                Text(stringResource(R.string.common_got_it))
             }
         }
     )

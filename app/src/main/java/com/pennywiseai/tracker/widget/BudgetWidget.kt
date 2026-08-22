@@ -30,6 +30,8 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.MainActivity
 import com.pennywiseai.tracker.utils.CurrencyFormatter
 import kotlinx.coroutines.flow.first
@@ -56,19 +58,20 @@ class BudgetWidget : GlanceAppWidget() {
         }
 
         provideContent {
+            val context = androidx.glance.LocalContext.current
             GlanceTheme(
                 colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     GlanceTheme.colors
                 else
                     PennyWiseWidgetTheme.colors
             ) {
-                BudgetWidgetContent(data)
+                BudgetWidgetContent(context, data)
             }
         }
     }
 
     @Composable
-    private fun BudgetWidgetContent(data: BudgetWidgetData) {
+    private fun BudgetWidgetContent(context: Context, data: BudgetWidgetData) {
         val hasBudget = data.totalLimit > BigDecimal.ZERO
 
         Column(
@@ -80,22 +83,22 @@ class BudgetWidget : GlanceAppWidget() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (!hasBudget) {
-                NoBudgetContent()
+                NoBudgetContent(context)
             } else {
-                BudgetOverviewContent(data)
+                BudgetOverviewContent(context, data)
             }
         }
     }
 
     @Composable
-    private fun NoBudgetContent() {
+    private fun NoBudgetContent(context: Context) {
         Column(
             modifier = GlanceModifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Monthly Budget",
+                text = context.getString(R.string.widget_budget_title),
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurface,
                     fontSize = 14.sp,
@@ -104,7 +107,7 @@ class BudgetWidget : GlanceAppWidget() {
             )
             Spacer(modifier = GlanceModifier.height(6.dp))
             Text(
-                text = "Tap to set up",
+                text = context.getString(R.string.widget_tap_to_setup),
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 12.sp
@@ -114,7 +117,7 @@ class BudgetWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun BudgetOverviewContent(data: BudgetWidgetData) {
+    private fun BudgetOverviewContent(context: Context, data: BudgetWidgetData) {
         val size = LocalSize.current
         val isSmall = size.width < 280.dp
         val statusColor = PennyWiseWidgetTheme.budgetStatusColor(data.percentageUsed)
@@ -125,7 +128,7 @@ class BudgetWidget : GlanceAppWidget() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Monthly Budget",
+                text = context.getString(R.string.widget_budget_title),
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurface,
                     fontSize = 14.sp,
@@ -134,7 +137,7 @@ class BudgetWidget : GlanceAppWidget() {
             )
             Spacer(modifier = GlanceModifier.defaultWeight())
             Text(
-                text = "${data.percentageUsed.toInt()}% used",
+                text = context.getString(R.string.widget_used_label, data.percentageUsed.toInt()),
                 style = TextStyle(
                     color = statusColor,
                     fontSize = 13.sp,
@@ -189,7 +192,7 @@ class BudgetWidget : GlanceAppWidget() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "of ${CurrencyFormatter.formatCurrency(data.totalLimit, data.currency)}",
+                    text = context.getString(R.string.widget_of_limit, CurrencyFormatter.formatCurrency(data.totalLimit, data.currency)),
                     style = TextStyle(
                         color = GlanceTheme.colors.onSurfaceVariant,
                         fontSize = 12.sp
@@ -197,9 +200,9 @@ class BudgetWidget : GlanceAppWidget() {
                 )
                 Spacer(modifier = GlanceModifier.defaultWeight())
                 val remainingText = if (data.remaining >= BigDecimal.ZERO) {
-                    "${CurrencyFormatter.formatCurrency(data.remaining, data.currency)} left"
+                    context.getString(R.string.widget_left_label, CurrencyFormatter.formatCurrency(data.remaining, data.currency))
                 } else {
-                    "${CurrencyFormatter.formatCurrency(data.remaining.abs(), data.currency)} over"
+                    context.getString(R.string.widget_over_label, CurrencyFormatter.formatCurrency(data.remaining.abs(), data.currency))
                 }
                 Text(
                     text = remainingText,
@@ -220,7 +223,7 @@ class BudgetWidget : GlanceAppWidget() {
             ) {
                 if (data.dailyAllowance > BigDecimal.ZERO) {
                     Text(
-                        text = "${CurrencyFormatter.formatCurrency(data.dailyAllowance, data.currency)}/day",
+                        text = CurrencyFormatter.formatCurrency(data.dailyAllowance, data.currency) + context.getString(R.string.widget_per_day_suffix),
                         style = TextStyle(
                             color = GlanceTheme.colors.onSurfaceVariant,
                             fontSize = 12.sp
@@ -234,7 +237,7 @@ class BudgetWidget : GlanceAppWidget() {
                     val savingsColor = PennyWiseWidgetTheme.savingsColor(data.netSavings >= BigDecimal.ZERO)
 
                     val savingsText = buildString {
-                        append(if (data.netSavings >= BigDecimal.ZERO) "Saved " else "Over ")
+                        append(if (data.netSavings >= BigDecimal.ZERO) context.getString(R.string.widget_saved_label, "") else context.getString(R.string.widget_over_budget_label, ""))
                         append(CurrencyFormatter.formatCurrency(data.netSavings.abs(), data.currency))
                         data.savingsDelta?.let { delta ->
                             if (delta.compareTo(BigDecimal.ZERO) != 0) {

@@ -27,6 +27,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import kotlin.math.roundToInt
 
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmsParsingProgressDialog(
@@ -52,7 +55,7 @@ fun SmsParsingProgressDialog(
                 ) {
                     // Title
                     Text(
-                        text = "Scanning SMS Messages",
+                        text = stringResource(R.string.sms_scan_title),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
@@ -87,14 +90,14 @@ fun SmsParsingProgressDialog(
                                 modifier = Modifier.size(Dimensions.Icon.small)
                             )
                             Spacer(modifier = Modifier.width(Spacing.sm))
-                            Text("Cancel Scan")
+                            Text(stringResource(R.string.sms_scan_cancel))
                         }
                     } else if (workInfo.state == WorkInfo.State.SUCCEEDED) {
                         TextButton(
                             onClick = onDismiss,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Done")
+                            Text(stringResource(R.string.common_done))
                         }
                     } else if (workInfo.state == WorkInfo.State.FAILED) {
                         TextButton(
@@ -104,7 +107,7 @@ fun SmsParsingProgressDialog(
                                 contentColor = MaterialTheme.colorScheme.error
                             )
                         ) {
-                            Text("Close")
+                            Text(stringResource(R.string.common_close))
                         }
                     }
                 }
@@ -131,9 +134,9 @@ private fun ProgressDetails(workInfo: WorkInfo) {
         // Main progress text
         if (totalMessages > 0) {
             val progressText = if (processedMessages == totalMessages) {
-                "All messages processed!"
+                stringResource(R.string.sms_scan_all_processed)
             } else {
-                "Processed $processedMessages of $totalMessages messages"
+                stringResource(R.string.sms_scan_processed_count, processedMessages, totalMessages)
             }
 
             Text(
@@ -149,7 +152,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
             val detailsText = buildAnnotatedString {
                 if (parsedTransactions > 0) {
                     withStyle(style = SpanStyle(fontWeight = FontWeight.Medium)) {
-                        append("$parsedTransactions transactions parsed")
+                        append(stringResource(R.string.sms_scan_parsed_count, parsedTransactions))
                     }
                 }
                 if (parsedTransactions > 0 && savedTransactions > 0) {
@@ -157,7 +160,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
                 }
                 if (savedTransactions > 0) {
                     withStyle(style = SpanStyle(fontWeight = FontWeight.Medium)) {
-                        append("$savedTransactions saved")
+                        append(stringResource(R.string.sms_scan_saved_count, savedTransactions))
                     }
                 }
             }
@@ -186,7 +189,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
                 // Estimated time remaining
                 if (estimatedTimeRemaining > 0 && workInfo.state == WorkInfo.State.RUNNING) {
                     Text(
-                        text = "~${formatDuration(estimatedTimeRemaining)} left",
+                        text = stringResource(R.string.sms_scan_time_left, formatDuration(estimatedTimeRemaining)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -197,7 +200,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
         // Batch information (for parallel processing)
         if (totalBatches > 1 && workInfo.state == WorkInfo.State.RUNNING) {
             Text(
-                text = "Batch $currentBatch of $totalBatches",
+                text = stringResource(R.string.sms_scan_batch_info, currentBatch, totalBatches),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -215,7 +218,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
                         strokeWidth = 2.dp
                     )
                     Text(
-                        text = "Processing...",
+                        text = stringResource(R.string.sms_scan_processing),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -233,7 +236,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
                         modifier = Modifier.size(Dimensions.Icon.medium)
                     )
                     Text(
-                        text = "Scan completed successfully!",
+                        text = stringResource(R.string.sms_scan_complete),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -251,7 +254,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
                         modifier = Modifier.size(Dimensions.Icon.medium)
                     )
                     Text(
-                        text = "Scan failed. Please try again.",
+                        text = stringResource(R.string.sms_scan_failed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -269,7 +272,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
                         modifier = Modifier.size(Dimensions.Icon.medium)
                     )
                     Text(
-                        text = "Scan cancelled",
+                        text = stringResource(R.string.sms_scan_cancelled),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -286,7 +289,7 @@ private fun ProgressDetails(workInfo: WorkInfo) {
                         strokeWidth = 2.dp
                     )
                     Text(
-                        text = "Starting scan...",
+                        text = stringResource(R.string.sms_scan_starting),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -332,7 +335,7 @@ fun SmsParsingProgressIndicator(
                 )
 
                 Text(
-                    text = "Scanning SMS: $processedMessages/$totalMessages",
+                    text = stringResource(R.string.sms_scan_progress_label, processedMessages, totalMessages),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

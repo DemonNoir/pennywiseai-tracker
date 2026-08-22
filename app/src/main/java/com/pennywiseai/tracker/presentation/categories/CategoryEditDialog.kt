@@ -20,6 +20,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.data.database.entity.CategoryEntity
 import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
 import com.pennywiseai.tracker.ui.theme.Dimensions
@@ -49,6 +52,7 @@ fun CategoryEditDialog(
     onSave: (name: String, color: String, isIncome: Boolean) -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf(category?.name ?: "") }
     var isIncome by remember { mutableStateOf(category?.isIncome ?: defaultIsIncome) }
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -72,7 +76,7 @@ fun CategoryEditDialog(
             ) {
                 // Title
                 Text(
-                    text = if (category == null) "Add Category" else "Edit Category",
+                    text = if (category == null) stringResource(R.string.cat_add_title) else stringResource(R.string.cat_edit_title),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -82,9 +86,9 @@ fun CategoryEditDialog(
                     value = name,
                     onValueChange = {
                         name = it
-                        nameError = if (it.isBlank()) "Category name is required" else null
+                        nameError = if (it.isBlank()) context.getString(R.string.cat_name_required) else null
                     },
-                    label = { Text("Category Name", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.rule_category_name_label), fontWeight = FontWeight.SemiBold) },
                     isError = nameError != null,
                     supportingText = nameError?.let { { Text(it) } },
                     singleLine = true,
@@ -106,7 +110,7 @@ fun CategoryEditDialog(
                 if (!lockType) {
                     Column {
                         Text(
-                            text = "Category Type",
+                            text = stringResource(R.string.cat_type_label),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium
                         )
@@ -118,13 +122,13 @@ fun CategoryEditDialog(
                             FilterChip(
                                 selected = !isIncome,
                                 onClick = { isIncome = false },
-                                label = { Text("Expense") },
+                                label = { Text(stringResource(R.string.filter_type_expense)) },
                                 modifier = Modifier.weight(1f)
                             )
                             FilterChip(
                                 selected = isIncome,
                                 onClick = { isIncome = true },
-                                label = { Text("Income") },
+                                label = { Text(stringResource(R.string.filter_type_income)) },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -134,7 +138,7 @@ fun CategoryEditDialog(
                 // Color Selection
                 Column {
                     Text(
-                        text = "Color",
+                        text = stringResource(R.string.cat_color_label),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
@@ -186,7 +190,7 @@ fun CategoryEditDialog(
                     contentPadding = Dimensions.Padding.content
                 ) {
                     Text(
-                        text = "Preview",
+                        text = stringResource(R.string.rule_preview),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -206,7 +210,7 @@ fun CategoryEditDialog(
                                 )
                         )
                         Text(
-                            text = name.ifBlank { "Category Name" },
+                            text = name.ifBlank { stringResource(R.string.rule_category_name_label) },
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
@@ -221,20 +225,20 @@ fun CategoryEditDialog(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.common_cancel))
                     }
                     Button(
                         onClick = {
                             if (name.isNotBlank()) {
                                 onSave(name.trim(), selectedColor, isIncome)
                             } else {
-                                nameError = "Category name is required"
+                                nameError = context.getString(R.string.cat_name_required)
                             }
                         },
                         modifier = Modifier.weight(1f),
                         enabled = name.isNotBlank()
                     ) {
-                        Text(if (category == null) "Add" else "Save")
+                        Text(if (category == null) stringResource(R.string.common_add) else stringResource(R.string.common_save))
                     }
                 }
 
@@ -254,7 +258,7 @@ fun CategoryEditDialog(
                             modifier = Modifier.size(Dimensions.Icon.small)
                         )
                         Spacer(Modifier.width(Spacing.xs))
-                        Text("Delete category")
+                        Text(stringResource(R.string.cat_delete_btn))
                     }
                 }
             }
@@ -264,11 +268,10 @@ fun CategoryEditDialog(
     if (showDeleteConfirm && category != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete category?") },
+            title = { Text(stringResource(R.string.cat_delete_confirm_title)) },
             text = {
                 Text(
-                    "\"${category.name}\" will be removed. Existing transactions keep " +
-                        "their current label. This can't be undone."
+                    stringResource(R.string.cat_delete_confirm_body, category.name)
                 )
             },
             confirmButton = {
@@ -280,10 +283,10 @@ fun CategoryEditDialog(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
-                ) { Text("Delete") }
+                ) { Text(stringResource(R.string.common_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.common_cancel)) }
             }
         )
     }

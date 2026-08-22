@@ -37,8 +37,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.ui.components.PermissionDisclosureDialog
 import com.pennywiseai.tracker.ui.components.PennyWiseScaffold
 import com.pennywiseai.tracker.ui.theme.Spacing
@@ -87,8 +89,8 @@ fun PermissionScreen(
                 }
                 smsPermissionLauncher.launch(smsPermissions.toTypedArray())
             },
-            title = "SMS Transaction Detection",
-            description = "PennyWise reads SMS messages from your bank to automatically record transactions. We only process transaction-related messages; personal conversations are never read or stored."
+            title = stringResource(R.string.permission_sms_title),
+            description = stringResource(R.string.permission_sms_desc)
         )
     }
 
@@ -109,8 +111,8 @@ fun PermissionScreen(
                 }
                 mediaPermissionLauncher.launch(mediaPermissions.toTypedArray())
             },
-            title = "Bank Slip Scanner",
-            description = "To scan and extract data from your bank slips, PennyWise needs access to your images. We only analyze slips you select or those in bank folders; no other photos are accessed."
+            title = stringResource(R.string.permission_slip_title),
+            description = stringResource(R.string.permission_slip_desc)
         )
     }
 
@@ -141,7 +143,7 @@ fun PermissionScreen(
             Spacer(modifier = Modifier.height(Spacing.xl))
 
             Text(
-                text = "Enable Automatic Transaction Detection",
+                text = stringResource(R.string.permission_screen_heading),
                 style = MaterialTheme.typography.headlineMedium,
                 textAlign = TextAlign.Center
             )
@@ -149,7 +151,7 @@ fun PermissionScreen(
             Spacer(modifier = Modifier.height(Spacing.md))
 
             Text(
-                text = "PennyWise can automatically detect and categorize your bank transactions from SMS messages and Bank Slip Images, saving you time and effort.",
+                text = stringResource(R.string.permission_screen_subheading),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -167,16 +169,13 @@ fun PermissionScreen(
                     modifier = Modifier.padding(Spacing.md)
                 ) {
                     Text(
-                        text = "Your Privacy Matters",
+                        text = stringResource(R.string.permission_privacy_title),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Spacer(modifier = Modifier.height(Spacing.sm))
                     Text(
-                        text = "• Only transaction messages and slip images are processed\n" +
-                            "• All data stays on your device\n" +
-                            "• No personal messages or other photos are read\n" +
-                            "• You can revoke access anytime in Settings",
+                        text = stringResource(R.string.permission_privacy_body),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -193,12 +192,12 @@ fun PermissionScreen(
             ) {
                 Column(modifier = Modifier.padding(Spacing.md)) {
                     Text(
-                        text = "Enable Bank Notification Access",
+                        text = stringResource(R.string.permission_notif_title),
                         style = MaterialTheme.typography.titleSmall
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     Text(
-                        text = "Allow PennyWise to read transaction notifications from supported banking apps. This helps capture purchases when SMS is delayed or unavailable.",
+                        text = stringResource(R.string.permission_notif_desc),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -207,7 +206,7 @@ fun PermissionScreen(
                         AssistChip(
                             onClick = {},
                             enabled = false,
-                            label = { Text("Notification access enabled") }
+                            label = { Text(stringResource(R.string.permission_notif_enabled)) }
                         )
                     } else {
                         Button(
@@ -217,7 +216,7 @@ fun PermissionScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Open Notification Access Settings")
+                            Text(stringResource(R.string.permission_notif_open_settings))
                         }
                     }
                 }
@@ -233,8 +232,7 @@ fun PermissionScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Without SMS access, you'll need to manually add all your transactions. " +
-                            "We only read bank transaction messages, not personal conversations.",
+                        text = stringResource(R.string.permission_rationale_sms),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.padding(Spacing.md)
@@ -248,13 +246,13 @@ fun PermissionScreen(
                     onClick = { showSmsDisclosure = true },
                     modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.sm)
                 ) {
-                    Text("1. Grant SMS Access")
+                    Text(stringResource(R.string.permission_grant_sms_btn))
                 }
             } else {
                 AssistChip(
                     onClick = {},
                     enabled = false,
-                    label = { Text("SMS Access Granted") },
+                    label = { Text(stringResource(R.string.permission_sms_granted)) },
                     modifier = Modifier.padding(bottom = Spacing.sm)
                 )
             }
@@ -264,13 +262,13 @@ fun PermissionScreen(
                     onClick = { showMediaDisclosure = true },
                     modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.sm)
                 ) {
-                    Text("2. Grant Bank Slip Scanner Access")
+                    Text(stringResource(R.string.permission_grant_slip_btn))
                 }
             } else {
                 AssistChip(
                     onClick = {},
                     enabled = false,
-                    label = { Text("Scanner Access Granted") },
+                    label = { Text(stringResource(R.string.permission_slip_granted)) },
                     modifier = Modifier.padding(bottom = Spacing.sm)
                 )
             }
@@ -283,7 +281,7 @@ fun PermissionScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Finish Setup")
+                    Text(stringResource(R.string.permission_finish_setup_btn))
                 }
             } else {
                 TextButton(
@@ -292,7 +290,7 @@ fun PermissionScreen(
                         onPermissionGranted()
                     }
                 ) {
-                    Text("Skip for now")
+                    Text(stringResource(R.string.permission_skip_btn))
                 }
             }
         }

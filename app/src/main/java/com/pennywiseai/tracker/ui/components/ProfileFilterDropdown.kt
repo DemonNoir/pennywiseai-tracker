@@ -12,6 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.data.database.entity.ProfileEntity
 
 @Composable
@@ -28,7 +30,7 @@ fun ProfileFilterDropdown(
     ) {
         // "All" option
         DropdownMenuItem(
-            text = { Text("All Accounts") },
+            text = { Text(stringResource(R.string.common_all_accounts)) },
             onClick = {
                 onProfileSelected(null)
                 onDismiss()

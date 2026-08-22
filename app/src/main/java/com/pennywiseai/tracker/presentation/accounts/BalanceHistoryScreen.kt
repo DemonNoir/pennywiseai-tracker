@@ -25,6 +25,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.compose.foundation.text.KeyboardOptions
 import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
 import com.pennywiseai.tracker.ui.components.PennyWiseEmptyState
@@ -60,12 +62,12 @@ fun BalanceHistoryScreen(
             CustomTitleTopAppBar(
                 scrollBehaviorSmall = scrollBehaviorSmall,
                 scrollBehaviorLarge = scrollBehaviorLarge,
-                title = "Balance History",
+                title = stringResource(R.string.acct_history_title),
                 hasBackButton = true,
                 hasActionButton = false,
                 navigationContent = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back_desc))
                     }
                 }
             )
@@ -88,8 +90,8 @@ fun BalanceHistoryScreen(
                 if (balanceHistory.isEmpty()) {
                     PennyWiseEmptyState(
                         icon = Icons.Default.History,
-                        headline = "No Balance History",
-                        description = "Balance records will appear here as transactions are processed.",
+                        headline = stringResource(R.string.acct_no_history_title),
+                        description = stringResource(R.string.acct_no_history_desc),
                         modifier = Modifier.weight(1f)
                     )
                 } else {
@@ -157,7 +159,7 @@ fun BalanceHistoryScreen(
                 
                 // Info text
                 Text(
-                    text = "${balanceHistory.size} record(s) • Latest balance is shown in accounts",
+                    text = stringResource(R.string.acct_history_info, balanceHistory.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = Spacing.sm)
@@ -169,8 +171,8 @@ fun BalanceHistoryScreen(
     showDeleteConfirmation?.let { balanceId ->
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = null },
-            title = { Text("Delete Balance Record") },
-            text = { Text("Are you sure you want to delete this balance record? This action cannot be undone.") },
+            title = { Text(stringResource(R.string.acct_delete_record_title)) },
+            text = { Text(stringResource(R.string.acct_delete_record_body)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -178,12 +180,12 @@ fun BalanceHistoryScreen(
                         showDeleteConfirmation = null
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -267,7 +269,7 @@ private fun BalanceHistoryItem(
                                 shape = MaterialTheme.shapes.small
                             ) {
                                 Text(
-                                    text = "CURRENT",
+                                    text = stringResource(R.string.acct_current_badge),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs)
@@ -276,19 +278,19 @@ private fun BalanceHistoryItem(
                         }
                         
                         // Source type badge
-                        val sourceInfo: Triple<androidx.compose.ui.graphics.vector.ImageVector?, String, androidx.compose.ui.graphics.Color> = when (balance.sourceType) {
-                            "TRANSACTION" -> Triple(Icons.Default.SwapHoriz, "Transaction", MaterialTheme.colorScheme.tertiary)
-                            "SMS_BALANCE" -> Triple(Icons.AutoMirrored.Filled.Message, "Balance SMS", MaterialTheme.colorScheme.secondary)
-                            "CARD_LINK" -> Triple(Icons.Default.CreditCard, "Card Link", MaterialTheme.colorScheme.primary)
-                            "MANUAL" -> Triple(Icons.Default.Edit, "Manual", MaterialTheme.colorScheme.onSurfaceVariant)
+                        val sourceInfo: Triple<androidx.compose.ui.graphics.vector.ImageVector?, Int, androidx.compose.ui.graphics.Color> = when (balance.sourceType) {
+                            "TRANSACTION" -> Triple(Icons.Default.SwapHoriz, R.string.acct_source_transaction, MaterialTheme.colorScheme.tertiary)
+                            "SMS_BALANCE" -> Triple(Icons.AutoMirrored.Filled.Message, R.string.acct_source_sms, MaterialTheme.colorScheme.secondary)
+                            "CARD_LINK" -> Triple(Icons.Default.CreditCard, R.string.acct_source_card, MaterialTheme.colorScheme.primary)
+                            "MANUAL" -> Triple(Icons.Default.Edit, R.string.acct_source_manual, MaterialTheme.colorScheme.onSurfaceVariant)
                             else -> if (balance.transactionId != null)
-                                Triple(Icons.Default.SwapHoriz, "Transaction", MaterialTheme.colorScheme.tertiary)
+                                Triple(Icons.Default.SwapHoriz, R.string.acct_source_transaction, MaterialTheme.colorScheme.tertiary)
                             else
-                                Triple(null, "", MaterialTheme.colorScheme.onSurfaceVariant)
+                                Triple(null, 0, MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        val (sourceIcon, sourceText, sourceColor) = sourceInfo
+                        val (sourceIcon, sourceTextRes, sourceColor) = sourceInfo
 
-                        if (sourceText.isNotEmpty()) {
+                        if (sourceTextRes != 0) {
                             Surface(
                                 color = sourceColor.copy(alpha = 0.12f),
                                 shape = MaterialTheme.shapes.small
@@ -307,7 +309,7 @@ private fun BalanceHistoryItem(
                                         )
                                     }
                                     Text(
-                                        text = sourceText,
+                                        text = stringResource(sourceTextRes),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = sourceColor
                                     )
@@ -360,7 +362,7 @@ private fun BalanceHistoryItem(
                         ),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("New Balance") },
+                        label = { Text(stringResource(R.string.acct_new_balance_label)) },
                         leadingIcon = {
                             Text(
                                 text = CurrencyFormatter.getCurrencySymbol(accountPrimaryCurrency),
@@ -389,7 +391,7 @@ private fun BalanceHistoryItem(
                         ) {
                             Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(Dimensions.Icon.small))
                             Spacer(modifier = Modifier.width(Spacing.xs))
-                            Text("Save")
+                            Text(stringResource(R.string.common_save))
                         }
                         OutlinedButton(
                             onClick = onCancelEdit,
@@ -397,7 +399,7 @@ private fun BalanceHistoryItem(
                         ) {
                             Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(Dimensions.Icon.small))
                             Spacer(modifier = Modifier.width(Spacing.xs))
-                            Text("Cancel")
+                            Text(stringResource(R.string.common_cancel))
                         }
                     }
                 }
@@ -409,7 +411,7 @@ private fun BalanceHistoryItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Balance",
+                        text = stringResource(R.string.add_current_balance),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -458,13 +460,13 @@ private fun BalanceHistoryItem(
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
-                                        text = "SMS Source",
+                                        text = stringResource(R.string.acct_sms_source_label),
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     if (!isExpanded) {
                                         Text(
-                                            text = "(${smsSource.length} chars)",
+                                            text = stringResource(R.string.common_chars, smsSource.length),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

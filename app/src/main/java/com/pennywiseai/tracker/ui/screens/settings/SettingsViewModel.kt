@@ -42,6 +42,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.FileProvider
 import androidx.core.os.LocaleListCompat
 import com.pennywiseai.tracker.core.Constants
+import com.pennywiseai.tracker.R
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -346,8 +347,8 @@ class SettingsViewModel @Inject constructor(
             try {
                 // Create download request
                 val request = DownloadManager.Request(Uri.parse(modelUrl))
-                    .setTitle("AI Chat Model")
-                    .setDescription("Downloading AI chat assistant for PennyWise")
+                    .setTitle(context.getString(R.string.settings_ai_model_name))
+                    .setDescription(context.getString(R.string.settings_ai_model_desc))
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, Constants.ModelDownload.MODEL_FILE_NAME)
                     .setAllowedOverMetered(true) // Allow mobile data downloads
@@ -583,16 +584,16 @@ class SettingsViewModel @Inject constructor(
                     is ExportResult.Success -> {
                         // Store the file for later saving
                         _exportedBackupFile.value = result.file
-                        _importExportMessage.value = "Backup created successfully! Choose where to save it."
+                        _importExportMessage.value = context.getString(R.string.settings_backup_success_choose)
                     }
                     is ExportResult.Error -> {
-                        _importExportMessage.value = "Export failed: ${result.message}"
+                        _importExportMessage.value = context.getString(R.string.settings_export_failed, result.message)
                         Log.e("SettingsViewModel", "Export failed: ${result.message}")
                     }
                     else -> {}
                 }
             } catch (e: Exception) {
-                _importExportMessage.value = "Export error: ${e.message}"
+                _importExportMessage.value = context.getString(R.string.settings_export_error, e.message)
                 Log.e("SettingsViewModel", "Export error", e)
             }
         }
@@ -607,11 +608,11 @@ class SettingsViewModel @Inject constructor(
                             inputStream.copyTo(outputStream)
                         }
                     }
-                    _importExportMessage.value = "Backup saved successfully!"
+                    _importExportMessage.value = context.getString(R.string.settings_backup_saved_success)
                     _exportedBackupFile.value = null
                 }
             } catch (e: Exception) {
-                _importExportMessage.value = "Failed to save backup: ${e.message}"
+                _importExportMessage.value = context.getString(R.string.settings_backup_save_failed, e.message)
                 Log.e("SettingsViewModel", "Error saving backup", e)
             }
         }
@@ -650,20 +651,27 @@ class SettingsViewModel @Inject constructor(
     fun importBackup(uri: android.net.Uri) {
         viewModelScope.launch {
             try {
-                _importExportMessage.value = "Importing backup..."
+                _importExportMessage.value = context.getString(R.string.settings_importing_backup)
                 val result = backupImporter.importBackup(uri, ImportStrategy.MERGE)
                 when (result) {
                     is ImportResult.Success -> {
-                        val skipped = if (result.skippedRows > 0) " ${result.skippedRows} rows could not be imported." else ""
-                        _importExportMessage.value = "Import successful! Imported ${result.importedTransactions} transactions, ${result.importedCategories} categories. Skipped ${result.skippedDuplicates} duplicates.$skipped"
+                        val skipped = if (result.skippedRows > 0) {
+                            context.getString(R.string.settings_import_success_skipped, result.skippedRows)
+                        } else ""
+                        _importExportMessage.value = context.getString(
+                            R.string.settings_import_success,
+                            result.importedTransactions,
+                            result.importedCategories,
+                            result.skippedDuplicates
+                        ) + skipped
                     }
                     is ImportResult.Error -> {
-                        _importExportMessage.value = "Import failed: ${result.message}"
+                        _importExportMessage.value = context.getString(R.string.settings_import_failed, result.message)
                         Log.e("SettingsViewModel", "Import failed: ${result.message}")
                     }
                 }
             } catch (e: Exception) {
-                _importExportMessage.value = "Import error: ${e.message}"
+                _importExportMessage.value = context.getString(R.string.settings_import_error, e.message)
                 Log.e("SettingsViewModel", "Import error", e)
             }
         }
@@ -676,14 +684,17 @@ class SettingsViewModel @Inject constructor(
     fun importCsv(uri: android.net.Uri) {
         viewModelScope.launch {
             try {
-                _importExportMessage.value = "Importing transactions..."
+                _importExportMessage.value = context.getString(R.string.settings_importing_transactions)
                 when (val result = importCsvUseCase.execute(uri)) {
                     is com.pennywiseai.tracker.data.csv.ImportCsvUseCase.Result.Success -> {
                         val failedSuffix = if (result.failed > 0) {
-                            ", ${result.failed} rows could not be parsed"
+                            context.getString(R.string.settings_import_csv_failed_suffix, result.failed)
                         } else ""
-                        _importExportMessage.value =
-                            "Imported ${result.imported} transactions, skipped ${result.skippedDuplicate} duplicates$failedSuffix"
+                        _importExportMessage.value = context.getString(
+                            R.string.settings_import_csv_success,
+                            result.imported,
+                            result.skippedDuplicate
+                        ) + failedSuffix
                     }
                     is com.pennywiseai.tracker.data.csv.ImportCsvUseCase.Result.Error -> {
                         _importExportMessage.value = result.message
@@ -691,7 +702,7 @@ class SettingsViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                _importExportMessage.value = "Import error: ${e.message}"
+                _importExportMessage.value = context.getString(R.string.settings_import_error, e.message)
                 Log.e("SettingsViewModel", "CSV import error", e)
             }
         }
@@ -714,7 +725,7 @@ class SettingsViewModel @Inject constructor(
             } else {
                 userPreferencesRepository.setScheduledFolderBackupEnabled(false)
                 scheduledFolderBackupScheduler.cancel()
-                _importExportMessage.value = "Automatic folder backup disabled"
+                _importExportMessage.value = context.getString(R.string.settings_auto_backup_disabled)
             }
         }
     }
@@ -748,7 +759,7 @@ class SettingsViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                _importExportMessage.value = "Could not access the selected folder: ${e.message}"
+                _importExportMessage.value = context.getString(R.string.settings_folder_access_error, e.message)
                 Log.e("SettingsViewModel", "Failed to persist backup folder", e)
             }
         }
@@ -763,12 +774,12 @@ class SettingsViewModel @Inject constructor(
     private suspend fun performFolderBackup(showSuccessMessage: Boolean): Boolean {
         val treeUri = userPreferencesRepository.getScheduledFolderBackupTreeUri()
         if (treeUri.isNullOrBlank()) {
-            _importExportMessage.value = "Select a backup folder first"
+            _importExportMessage.value = context.getString(R.string.settings_select_folder_first)
             return false
         }
 
         if (!folderBackupWriter.canWriteToFolder(treeUri)) {
-            _importExportMessage.value = "Cannot write to the selected backup folder"
+            _importExportMessage.value = context.getString(R.string.settings_folder_write_error)
             return false
         }
 
@@ -780,7 +791,7 @@ class SettingsViewModel @Inject constructor(
                             System.currentTimeMillis()
                         )
                         if (showSuccessMessage) {
-                            _importExportMessage.value = "Backup saved to folder"
+                            _importExportMessage.value = context.getString(R.string.settings_backup_saved_folder)
                         }
                         true
                     }
@@ -799,7 +810,7 @@ class SettingsViewModel @Inject constructor(
 
     private suspend fun enableScheduledFolderBackup(treeUri: String) {
         if (!folderBackupWriter.canWriteToFolder(treeUri)) {
-            _importExportMessage.value = "Cannot write to the selected backup folder"
+            _importExportMessage.value = context.getString(R.string.settings_folder_write_error)
             return
         }
 
@@ -808,8 +819,7 @@ class SettingsViewModel @Inject constructor(
         // Only claim success if the immediate backup actually wrote. On failure,
         // performFolderBackup has already surfaced the reason — don't clobber it.
         if (performFolderBackup(showSuccessMessage = false)) {
-            _importExportMessage.value =
-                "Automatic folder backup enabled. Backups run daily at 2:00 AM."
+            _importExportMessage.value = context.getString(R.string.settings_auto_backup_enabled_msg)
         }
     }
     
@@ -864,7 +874,7 @@ class SettingsViewModel @Inject constructor(
     fun cleanUpLegacyDuplicates() {
         viewModelScope.launch {
             try {
-                _importExportMessage.value = "Scanning for duplicate slips..."
+                _importExportMessage.value = context.getString(R.string.settings_cleaning_duplicates)
                 val legacySlips = transactionRepository.getLegacySlipTransactions()
                 var deletedCount = 0
 
@@ -886,10 +896,10 @@ class SettingsViewModel @Inject constructor(
                     }
                 }
 
-                _importExportMessage.value = "Cleanup complete. Deleted $deletedCount duplicate slips."
+                _importExportMessage.value = context.getString(R.string.settings_cleanup_success, deletedCount)
             } catch (e: Exception) {
                 Log.e("SettingsViewModel", "Failed to clean up duplicate slips", e)
-                _importExportMessage.value = "Cleanup failed: ${e.message}"
+                _importExportMessage.value = context.getString(R.string.settings_cleanup_failed, e.message)
             }
         }
     }

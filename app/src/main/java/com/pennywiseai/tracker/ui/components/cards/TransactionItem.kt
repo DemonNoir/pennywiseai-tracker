@@ -7,9 +7,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import com.pennywiseai.tracker.R
 import androidx.compose.ui.text.style.TextOverflow
 import android.view.HapticFeedbackConstants
 import com.pennywiseai.tracker.data.contacts.LocalMerchantDisplay
@@ -79,6 +81,14 @@ fun TransactionItem(
     // tag below. (#383)
     val description = transaction.description?.takeIf { it.isNotBlank() }
 
+    val creditLabel = stringResource(R.string.filter_type_credit)
+    val transferLabel = stringResource(R.string.filter_type_transfer)
+    val investmentLabel = stringResource(R.string.filter_type_investment)
+    val recurringLabel = stringResource(R.string.txn_recurring_label)
+    val businessLabel = stringResource(R.string.profile_business)
+    val excludedLabel = stringResource(R.string.txn_exclude_analytics)
+    val balanceLabel = stringResource(R.string.acct_balance_label).take(3)
+
     val subtitle = remember(transaction, dateTimeText, isEffectivelyBusiness) {
         buildList {
             if (description != null) add(description)
@@ -91,23 +101,23 @@ fun TransactionItem(
 
             if (showTypeLabel) {
                 when (transaction.transactionType) {
-                    TransactionType.CREDIT -> add("Credit")
+                    TransactionType.CREDIT -> add(creditLabel)
                     TransactionType.TRANSFER -> {
                         if (transferTitleOverride(transaction) == null) {
-                            add("Transfer")
+                            add(transferLabel)
                         }
                     }
-                    TransactionType.INVESTMENT -> add("Investment")
+                    TransactionType.INVESTMENT -> add(investmentLabel)
                     else -> {}
                 }
             }
-            if (transaction.isRecurring) add("Recurring")
-            if (isEffectivelyBusiness) add("Business")
+            if (transaction.isRecurring) add(recurringLabel)
+            if (isEffectivelyBusiness) add(businessLabel)
             // Mark rows the user excluded from analytics so it's visible in the
             // list which ones are skipped by spending stats (#451).
-            if (transaction.excludedFromAnalytics) add("Excluded")
+            if (transaction.excludedFromAnalytics) add(excludedLabel)
             transaction.balanceAfter?.let { balance ->
-                add("Bal ${CurrencyFormatter.formatCurrency(balance, transaction.currency)}")
+                add("$balanceLabel ${CurrencyFormatter.formatCurrency(balance, transaction.currency)}")
             }
         }.joinToString(" \u00B7 ")
     }

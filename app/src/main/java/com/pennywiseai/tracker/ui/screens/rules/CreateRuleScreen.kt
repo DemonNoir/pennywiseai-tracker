@@ -18,6 +18,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.domain.model.rule.*
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
 import com.pennywiseai.tracker.ui.components.FinancialAccountIdentity
@@ -29,22 +32,23 @@ import com.pennywiseai.tracker.ui.theme.Spacing
 import java.util.UUID
 
 /**
- * Transaction-type options for rule condition/action pickers: stored enum name → display label.
+ * Transaction-type options for rule condition/action pickers: stored enum name → display label resource.
  * Labels mirror the [com.pennywiseai.tracker.data.database.entity.TransactionType] names (e.g.
  * EXPENSE → "Expense") so what the user picks matches what the rule stores and applies.
  */
-internal val RULE_TRANSACTION_TYPE_OPTIONS: List<Pair<String, String>> = listOf(
-    "INCOME" to "Income",
-    "EXPENSE" to "Expense",
-    "CREDIT" to "Credit",
-    "TRANSFER" to "Transfer",
-    "INVESTMENT" to "Investment"
+internal val RULE_TRANSACTION_TYPE_OPTIONS: List<Pair<String, Int>> = listOf(
+    "INCOME" to R.string.filter_type_income,
+    "EXPENSE" to R.string.filter_type_expense,
+    "CREDIT" to R.string.filter_type_credit,
+    "TRANSFER" to R.string.filter_type_transfer,
+    "INVESTMENT" to R.string.filter_type_investment
 )
 
 /** User-facing label for a stored transaction-type value, falling back to the raw value. */
-internal fun ruleTransactionTypeLabel(value: String): String =
-    RULE_TRANSACTION_TYPE_OPTIONS.firstOrNull { it.first.equals(value, ignoreCase = true) }?.second
-        ?: value
+internal fun ruleTransactionTypeLabel(value: String, context: android.content.Context): String {
+    val resId = RULE_TRANSACTION_TYPE_OPTIONS.firstOrNull { it.first.equals(value, ignoreCase = true) }?.second
+    return if (resId != null) context.getString(resId) else value
+}
 
 /** The operator a field should reset to when it becomes the condition's field. */
 private fun TransactionField.defaultConditionOperator(): ConditionOperator = when (this) {
@@ -60,57 +64,57 @@ private fun TransactionField.defaultConditionOperator(): ConditionOperator = whe
 }
 
 /**
- * Operators offered for a condition field, paired with their display label. The first entry is
+ * Operators offered for a condition field, paired with their display label resource. The first entry is
  * the field's default (see [defaultConditionOperator]); every default must appear in its list.
  */
 private fun conditionOperatorsForField(
     field: TransactionField
-): List<Pair<ConditionOperator, String>> = when (field) {
+): List<Pair<ConditionOperator, Int>> = when (field) {
     TransactionField.AMOUNT -> listOf(
-        ConditionOperator.LESS_THAN to "<",
-        ConditionOperator.GREATER_THAN to ">",
-        ConditionOperator.EQUALS to "="
+        ConditionOperator.LESS_THAN to R.string.rule_op_less_symbol,
+        ConditionOperator.GREATER_THAN to R.string.rule_op_greater_symbol,
+        ConditionOperator.EQUALS to R.string.rule_op_equal_symbol
     )
     TransactionField.TYPE -> listOf(
-        ConditionOperator.EQUALS to "is",
-        ConditionOperator.NOT_EQUALS to "is not"
+        ConditionOperator.EQUALS to R.string.rule_op_is,
+        ConditionOperator.NOT_EQUALS to R.string.rule_op_is_not
     )
     TransactionField.TRANSACTION_TIME -> listOf(
-        ConditionOperator.LESS_THAN to "before",
-        ConditionOperator.GREATER_THAN to "after",
-        ConditionOperator.GREATER_THAN_OR_EQUAL to "at or after",
-        ConditionOperator.LESS_THAN_OR_EQUAL to "at or before",
-        ConditionOperator.EQUALS to "exactly at"
+        ConditionOperator.LESS_THAN to R.string.rule_op_before,
+        ConditionOperator.GREATER_THAN to R.string.rule_op_after,
+        ConditionOperator.GREATER_THAN_OR_EQUAL to R.string.rule_op_at_after,
+        ConditionOperator.LESS_THAN_OR_EQUAL to R.string.rule_op_at_before,
+        ConditionOperator.EQUALS to R.string.rule_op_exactly
     )
     TransactionField.TRANSACTION_HOUR -> listOf(
-        ConditionOperator.EQUALS to "is",
-        ConditionOperator.LESS_THAN to "before",
-        ConditionOperator.GREATER_THAN to "after"
+        ConditionOperator.EQUALS to R.string.rule_op_is,
+        ConditionOperator.LESS_THAN to R.string.rule_op_before,
+        ConditionOperator.GREATER_THAN to R.string.rule_op_after
     )
     TransactionField.TRANSACTION_DAY_OF_WEEK -> listOf(
-        ConditionOperator.EQUALS to "is",
-        ConditionOperator.IN to "is any of",
-        ConditionOperator.NOT_EQUALS to "is not"
+        ConditionOperator.EQUALS to R.string.rule_op_is,
+        ConditionOperator.IN to R.string.rule_op_any_of,
+        ConditionOperator.NOT_EQUALS to R.string.rule_op_is_not
     )
     TransactionField.TRANSACTION_DAY_OF_MONTH -> listOf(
-        ConditionOperator.EQUALS to "is",
-        ConditionOperator.IN to "is any of",
-        ConditionOperator.LESS_THAN to "before",
-        ConditionOperator.GREATER_THAN to "after"
+        ConditionOperator.EQUALS to R.string.rule_op_is,
+        ConditionOperator.IN to R.string.rule_op_any_of,
+        ConditionOperator.LESS_THAN to R.string.rule_op_before,
+        ConditionOperator.GREATER_THAN to R.string.rule_op_after
     )
     TransactionField.TRANSACTION_DATE -> listOf(
-        ConditionOperator.EQUALS to "is",
-        ConditionOperator.LESS_THAN to "before",
-        ConditionOperator.GREATER_THAN to "after"
+        ConditionOperator.EQUALS to R.string.rule_op_is,
+        ConditionOperator.LESS_THAN to R.string.rule_op_before,
+        ConditionOperator.GREATER_THAN to R.string.rule_op_after
     )
     TransactionField.ACCOUNT -> listOf(
-        ConditionOperator.EQUALS to "is",
-        ConditionOperator.NOT_EQUALS to "is not"
+        ConditionOperator.EQUALS to R.string.rule_op_is,
+        ConditionOperator.NOT_EQUALS to R.string.rule_op_is_not
     )
     else -> listOf(
-        ConditionOperator.CONTAINS to "contains",
-        ConditionOperator.EQUALS to "equals",
-        ConditionOperator.STARTS_WITH to "starts with"
+        ConditionOperator.CONTAINS to R.string.rule_op_contains,
+        ConditionOperator.EQUALS to R.string.rule_op_equals,
+        ConditionOperator.STARTS_WITH to R.string.rule_op_starts_with
     )
 }
 
@@ -127,6 +131,7 @@ fun CreateRuleScreen(
     isEditing: Boolean = false,
     allAccounts: List<RulesViewModel.AccountInfo> = emptyList()
 ) {
+    val context = LocalContext.current
     var ruleName by remember(existingRule) { mutableStateOf(existingRule?.name ?: "") }
     var description by remember(existingRule) { mutableStateOf(existingRule?.description ?: "") }
 
@@ -349,7 +354,7 @@ fun CreateRuleScreen(
                     verticalArrangement = Arrangement.spacedBy(Spacing.sm)
                 ) {
                     Text(
-                        text = "Quick Templates",
+                        text = stringResource(R.string.rule_quick_templates),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Medium
                     )
@@ -372,8 +377,8 @@ fun CreateRuleScreen(
             TextField(
                 value = ruleName,
                 onValueChange = { ruleName = it },
-                label = { Text("Rule Name") },
-                placeholder = { Text("e.g., Food expenses under 200") },
+                label = { Text(stringResource(R.string.rule_name_label)) },
+                placeholder = { Text(stringResource(R.string.rule_name_placeholder)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -381,8 +386,8 @@ fun CreateRuleScreen(
             TextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Description (Optional)") },
-                placeholder = { Text("What does this rule do?") },
+                label = { Text(stringResource(R.string.rule_desc_label)) },
+                placeholder = { Text(stringResource(R.string.rule_desc_placeholder)) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2,
                 maxLines = 3
@@ -409,7 +414,7 @@ fun CreateRuleScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "When",
+                                text = stringResource(R.string.rule_when_header),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Medium
                             )
@@ -425,7 +430,7 @@ fun CreateRuleScreen(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(Dimensions.Icon.small))
                             Spacer(modifier = Modifier.width(Spacing.xs))
-                            Text("Add Condition")
+                            Text(stringResource(R.string.rule_add_condition))
                         }
                     }
 
@@ -472,7 +477,7 @@ fun CreateRuleScreen(
                                         ) {
                                             Icon(
                                                 Icons.Default.Delete,
-                                                contentDescription = "Remove condition",
+                                                contentDescription = stringResource(R.string.rule_remove_condition),
                                                 modifier = Modifier.size(Dimensions.Icon.small),
                                                 tint = MaterialTheme.colorScheme.error
                                             )
@@ -517,7 +522,7 @@ fun CreateRuleScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "Then",
+                                text = stringResource(R.string.rule_then_header),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Medium
                             )
@@ -536,7 +541,7 @@ fun CreateRuleScreen(
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(Dimensions.Icon.small))
                                 Spacer(modifier = Modifier.width(Spacing.xs))
-                                Text("Add Action")
+                                Text(stringResource(R.string.rule_add_action))
                             }
                         }
                     }
@@ -560,7 +565,7 @@ fun CreateRuleScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = if (actions.size > 1) "Action ${index + 1}" else "Action",
+                                        text = if (actions.size > 1) stringResource(R.string.rule_action_n_label, index + 1) else stringResource(R.string.rule_action_label),
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -573,7 +578,7 @@ fun CreateRuleScreen(
                                         ) {
                                             Icon(
                                                 Icons.Default.Delete,
-                                                contentDescription = "Remove action",
+                                                contentDescription = stringResource(R.string.rule_remove_action),
                                                 modifier = Modifier.size(Dimensions.Icon.small),
                                                 tint = MaterialTheme.colorScheme.error
                                             )
@@ -619,41 +624,42 @@ fun CreateRuleScreen(
                         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
                     ) {
                         Text(
-                            text = "Rule Preview",
+                            text = stringResource(R.string.rule_preview_title),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = buildString {
-                                append("When ")
+                                append(stringResource(R.string.rule_when_header))
+                                append(" ")
                                 conditions.forEachIndexed { index, condition ->
                                     if (index > 0) append(" AND ")
                                     append(when(condition.field) {
-                                        TransactionField.AMOUNT -> "amount"
-                                        TransactionField.TYPE -> "type"
-                                        TransactionField.CATEGORY -> "category"
-                                        TransactionField.MERCHANT -> "merchant"
-                                        TransactionField.NARRATION -> "description"
-                                        TransactionField.SMS_TEXT -> "SMS text"
-                                        TransactionField.BANK_NAME -> "bank"
-                                        TransactionField.TRANSACTION_TIME -> "time"
-                                        TransactionField.TRANSACTION_HOUR -> "hour"
-                                        TransactionField.TRANSACTION_DAY_OF_WEEK -> "day of week"
-                                        TransactionField.TRANSACTION_DAY_OF_MONTH -> "day of month"
-                                        TransactionField.TRANSACTION_DATE -> "date"
-                                        TransactionField.ACCOUNT -> "account"
+                                        TransactionField.AMOUNT -> stringResource(R.string.add_amount_required).replace("*", "").trim().lowercase()
+                                        TransactionField.TYPE -> stringResource(R.string.rule_field_type).lowercase()
+                                        TransactionField.CATEGORY -> stringResource(R.string.txn_category_label).lowercase()
+                                        TransactionField.MERCHANT -> stringResource(R.string.txn_merchant_label).lowercase()
+                                        TransactionField.NARRATION -> stringResource(R.string.txn_desc_label).replace("(Optional)", "").trim().lowercase()
+                                        TransactionField.SMS_TEXT -> stringResource(R.string.rule_field_sms).lowercase()
+                                        TransactionField.BANK_NAME -> stringResource(R.string.rule_field_bank).lowercase()
+                                        TransactionField.TRANSACTION_TIME -> stringResource(R.string.rule_field_time_day).lowercase()
+                                        TransactionField.TRANSACTION_HOUR -> stringResource(R.string.rule_field_hour).lowercase()
+                                        TransactionField.TRANSACTION_DAY_OF_WEEK -> stringResource(R.string.rule_field_dow).lowercase()
+                                        TransactionField.TRANSACTION_DAY_OF_MONTH -> stringResource(R.string.rule_field_dom).lowercase()
+                                        TransactionField.TRANSACTION_DATE -> stringResource(R.string.rule_field_date).lowercase()
+                                        TransactionField.ACCOUNT -> stringResource(R.string.filter_account_label).lowercase()
                                     })
                                     append(" ")
                                     append(when(condition.operator) {
-                                        ConditionOperator.LESS_THAN -> "is before"
-                                        ConditionOperator.GREATER_THAN -> "is after"
-                                        ConditionOperator.LESS_THAN_OR_EQUAL -> "is at or before"
-                                        ConditionOperator.GREATER_THAN_OR_EQUAL -> "is at or after"
-                                        ConditionOperator.EQUALS -> "is"
-                                        ConditionOperator.CONTAINS -> "contains"
-                                        ConditionOperator.STARTS_WITH -> "starts with"
-                                        ConditionOperator.IN -> "is any of"
-                                        ConditionOperator.NOT_EQUALS -> "is not"
+                                        ConditionOperator.LESS_THAN -> stringResource(R.string.rule_op_before)
+                                        ConditionOperator.GREATER_THAN -> stringResource(R.string.rule_op_after)
+                                        ConditionOperator.LESS_THAN_OR_EQUAL -> stringResource(R.string.rule_op_at_before)
+                                        ConditionOperator.GREATER_THAN_OR_EQUAL -> stringResource(R.string.rule_op_at_after)
+                                        ConditionOperator.EQUALS -> stringResource(R.string.rule_op_is)
+                                        ConditionOperator.CONTAINS -> stringResource(R.string.rule_op_contains)
+                                        ConditionOperator.STARTS_WITH -> stringResource(R.string.rule_op_starts_with)
+                                        ConditionOperator.IN -> stringResource(R.string.rule_op_any_of)
+                                        ConditionOperator.NOT_EQUALS -> stringResource(R.string.rule_op_is_not)
                                         else -> "matches"
                                     })
                                     append(" ")
@@ -663,7 +669,7 @@ fun CreateRuleScreen(
                                     )
                                     when {
                                         condition.field == TransactionField.TYPE -> {
-                                            append(ruleTransactionTypeLabel(condition.value))
+                                            append(ruleTransactionTypeLabel(condition.value, context))
                                         }
                                         condition.field == TransactionField.TRANSACTION_DAY_OF_WEEK -> {
                                             append(condition.value.split(",").joinToString(", ") { dayNames[it.trim()] ?: it })
@@ -683,18 +689,19 @@ fun CreateRuleScreen(
                                 actions.forEachIndexed { actionIndex, action ->
                                     if (actionIndex > 0) append(", and ")
                                     if (action.actionType == ActionType.BLOCK) {
-                                        append("block transaction")
+                                        append(stringResource(R.string.rule_action_block).lowercase())
                                     } else {
                                         append(when(action.field) {
-                                            TransactionField.CATEGORY -> "set category to "
-                                            TransactionField.MERCHANT -> "set merchant to "
-                                            TransactionField.TYPE -> "set type to "
-                                            TransactionField.NARRATION -> "set description to "
+                                            TransactionField.CATEGORY -> stringResource(R.string.rule_action_set_category).lowercase()
+                                            TransactionField.MERCHANT -> stringResource(R.string.rule_action_set_merchant).lowercase()
+                                            TransactionField.TYPE -> stringResource(R.string.rule_action_set_type).lowercase()
+                                            TransactionField.NARRATION -> stringResource(R.string.rule_action_set_desc).lowercase()
                                             else -> "set field to "
                                         })
+                                        append(" ")
                                         // Show user-friendly labels for transaction types in actions too
                                         if (action.field == TransactionField.TYPE) {
-                                            append(ruleTransactionTypeLabel(action.value))
+                                            append(ruleTransactionTypeLabel(action.value, context))
                                         } else {
                                             append(action.value)
                                         }
@@ -714,22 +721,18 @@ fun CreateRuleScreen(
     if (pendingBlockAction != null) {
         AlertDialog(
             onDismissRequest = { pendingBlockAction = null },
-            title = { Text("Block transaction?") },
+            title = { Text(stringResource(R.string.rule_block_title)) },
             text = {
-                Text(
-                    "Blocking stops a matching transaction from being saved, so this " +
-                        "rule's other actions won't run. Remove the other actions and keep " +
-                        "only Block?"
-                )
+                Text(stringResource(R.string.rule_block_confirm_body))
             },
             confirmButton = {
                 TextButton(onClick = {
                     actions = listOf(pendingBlockAction!!)
                     pendingBlockAction = null
-                }) { Text("Block & remove") }
+                }) { Text(stringResource(R.string.rule_block_btn)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingBlockAction = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingBlockAction = null }) { Text(stringResource(R.string.common_cancel)) }
             }
         )
     }
@@ -750,24 +753,24 @@ private fun ConditionFieldSelector(
         onExpandedChange = { fieldDropdownExpanded = !fieldDropdownExpanded }
     ) {
         val fieldOptions = listOf(
-            TransactionField.AMOUNT to "Amount",
-            TransactionField.TYPE to "Transaction Type",
-            TransactionField.CATEGORY to "Category",
-            TransactionField.MERCHANT to "Merchant",
-            TransactionField.SMS_TEXT to "SMS Text",
-            TransactionField.BANK_NAME to "Bank Name",
-            TransactionField.TRANSACTION_TIME to "Time of Day",
-            TransactionField.TRANSACTION_HOUR to "Hour",
-            TransactionField.TRANSACTION_DAY_OF_WEEK to "Day of Week",
-            TransactionField.TRANSACTION_DAY_OF_MONTH to "Day of Month",
-            TransactionField.TRANSACTION_DATE to "Date",
-            TransactionField.ACCOUNT to "Account"
+            TransactionField.AMOUNT to stringResource(R.string.add_amount_required).replace("*", "").trim(),
+            TransactionField.TYPE to stringResource(R.string.rule_field_type),
+            TransactionField.CATEGORY to stringResource(R.string.txn_category_label),
+            TransactionField.MERCHANT to stringResource(R.string.txn_merchant_label),
+            TransactionField.SMS_TEXT to stringResource(R.string.rule_field_sms),
+            TransactionField.BANK_NAME to stringResource(R.string.rule_field_bank),
+            TransactionField.TRANSACTION_TIME to stringResource(R.string.rule_field_time_day),
+            TransactionField.TRANSACTION_HOUR to stringResource(R.string.rule_field_hour),
+            TransactionField.TRANSACTION_DAY_OF_WEEK to stringResource(R.string.rule_field_dow),
+            TransactionField.TRANSACTION_DAY_OF_MONTH to stringResource(R.string.rule_field_dom),
+            TransactionField.TRANSACTION_DATE to stringResource(R.string.rule_field_date),
+            TransactionField.ACCOUNT to stringResource(R.string.filter_account_label)
         )
         TextField(
-            value = fieldOptions.firstOrNull { it.first == condition.field }?.second ?: "Amount",
+            value = fieldOptions.firstOrNull { it.first == condition.field }?.second ?: stringResource(R.string.add_amount_required).replace("*", "").trim(),
             onValueChange = { },
             readOnly = true,
-            label = { Text("Field") },
+            label = { Text(stringResource(R.string.rule_field_label)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fieldDropdownExpanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
         )
@@ -805,11 +808,11 @@ private fun ConditionFieldSelector(
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         modifier = Modifier.fillMaxWidth()
     ) {
-        operators.forEach { (op, label) ->
+        operators.forEach { (op, labelRes) ->
             FilterChip(
                 selected = condition.operator == op,
                 onClick = { onConditionChange(condition.copy(operator = op)) },
-                label = { Text(label) }
+                label = { Text(stringResource(labelRes)) }
             )
         }
     }
@@ -820,7 +823,7 @@ private fun ConditionFieldSelector(
     when (condition.field) {
         TransactionField.TYPE -> {
             Text(
-                text = "Select transaction type:",
+                text = stringResource(R.string.rule_select_type),
                 style = MaterialTheme.typography.bodySmall
             )
             FlowRow(
@@ -828,12 +831,12 @@ private fun ConditionFieldSelector(
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                RULE_TRANSACTION_TYPE_OPTIONS.forEach { (type, displayLabel) ->
+                RULE_TRANSACTION_TYPE_OPTIONS.forEach { (type, displayLabelRes) ->
                     FilterChip(
                         selected = condition.value.equals(type, ignoreCase = true),
                         onClick = { onConditionChange(condition.copy(value = type)) },
                         label = {
-                            Text(displayLabel, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(displayLabelRes), style = MaterialTheme.typography.bodySmall)
                         }
                     )
                 }
@@ -880,8 +883,8 @@ private fun ConditionFieldSelector(
             TextField(
                 value = condition.value,
                 onValueChange = { onConditionChange(condition.copy(value = it)) },
-                label = { Text("Day (1-31)") },
-                placeholder = { Text("e.g., 1") },
+                label = { Text(stringResource(R.string.rule_field_dom)) },
+                placeholder = { Text(stringResource(R.string.rule_name_placeholder).split(",").getOrNull(0) ?: "e.g., 1") }, // Reuse or generic
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
@@ -901,11 +904,11 @@ private fun ConditionFieldSelector(
                 value = condition.value,
                 onValueChange = { },
                 readOnly = true,
-                label = { Text("Time (HH:mm)") },
-                placeholder = { Text("Tap to select time") },
+                label = { Text(stringResource(R.string.rule_time_label)) },
+                placeholder = { Text(stringResource(R.string.txn_alias_placeholder)) }, // TODO: specific placeholder
                 trailingIcon = {
                     IconButton(onClick = { showTimePicker = true }) {
-                        Icon(Icons.Default.AccessTime, contentDescription = "Pick time")
+                        Icon(Icons.Default.AccessTime, contentDescription = stringResource(R.string.txn_select_time))
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -934,8 +937,8 @@ private fun ConditionFieldSelector(
             TextField(
                 value = condition.value,
                 onValueChange = { onConditionChange(condition.copy(value = it)) },
-                label = { Text("Hour (0-23)") },
-                placeholder = { Text("e.g., 9") },
+                label = { Text(stringResource(R.string.rule_hour_label)) },
+                placeholder = { Text("e.g., 9") }, // TODO: generic
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
@@ -946,7 +949,7 @@ private fun ConditionFieldSelector(
             TextField(
                 value = condition.value,
                 onValueChange = { onConditionChange(condition.copy(value = it)) },
-                label = { Text("Date (yyyy-MM-dd)") },
+                label = { Text(stringResource(R.string.rule_field_date)) },
                 placeholder = { Text("e.g., 2026-03-21") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
@@ -1106,17 +1109,17 @@ private fun ActionEditor(
         ) {
             TextField(
                 value = when(action.actionType) {
-                    ActionType.BLOCK -> "Block Transaction"
-                    ActionType.SET -> "Set Field"
+                    ActionType.BLOCK -> stringResource(R.string.rule_action_block)
+                    ActionType.SET -> stringResource(R.string.rule_action_set)
                     ActionType.APPEND -> "Append to Field"
                     ActionType.PREPEND -> "Prepend to Field"
-                    ActionType.CLEAR -> "Clear Field"
+                    ActionType.CLEAR -> stringResource(R.string.rule_action_clear)
                     ActionType.ADD_TAG -> "Add Tag"
                     ActionType.REMOVE_TAG -> "Remove Tag"
                 },
                 onValueChange = { },
                 readOnly = true,
-                label = { Text("Action Type") },
+                label = { Text(stringResource(R.string.rule_action_type_label)) },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = actionTypeDropdownExpanded) },
                 modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
             )
@@ -1125,9 +1128,9 @@ private fun ActionEditor(
                 onDismissRequest = { actionTypeDropdownExpanded = false }
             ) {
                 listOf(
-                    ActionType.BLOCK to "Block Transaction",
-                    ActionType.SET to "Set Field",
-                    ActionType.CLEAR to "Clear Field"
+                    ActionType.BLOCK to stringResource(R.string.rule_action_block),
+                    ActionType.SET to stringResource(R.string.rule_action_set),
+                    ActionType.CLEAR to stringResource(R.string.rule_action_clear)
                 ).forEach { (type, label) ->
                     DropdownMenuItem(
                         text = { Text(label) },
@@ -1168,7 +1171,7 @@ private fun ActionEditor(
                         tint = MaterialTheme.colorScheme.onErrorContainer
                     )
                     Text(
-                        text = "Transactions matching this rule will be blocked and not saved",
+                        text = stringResource(R.string.rule_block_info),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
@@ -1182,16 +1185,16 @@ private fun ActionEditor(
             ) {
                 TextField(
                     value = when(action.field) {
-                        TransactionField.CATEGORY -> "Set Category"
-                        TransactionField.MERCHANT -> "Set Merchant Name"
-                        TransactionField.TYPE -> "Set Transaction Type"
-                        TransactionField.NARRATION -> "Set Description"
-                        TransactionField.BANK_NAME -> "Set Account"
-                        else -> "Set Field"
+                        TransactionField.CATEGORY -> stringResource(R.string.rule_action_set_category)
+                        TransactionField.MERCHANT -> stringResource(R.string.rule_action_set_merchant)
+                        TransactionField.TYPE -> stringResource(R.string.rule_action_set_type)
+                        TransactionField.NARRATION -> stringResource(R.string.rule_action_set_desc)
+                        TransactionField.BANK_NAME -> stringResource(R.string.rule_action_set_account)
+                        else -> stringResource(R.string.rule_action_set)
                     },
                     onValueChange = { },
                     readOnly = true,
-                    label = { Text("Action") },
+                    label = { Text(stringResource(R.string.rule_action_label)) },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = actionFieldDropdownExpanded) },
                     modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
                 )
@@ -1200,11 +1203,11 @@ private fun ActionEditor(
                     onDismissRequest = { actionFieldDropdownExpanded = false }
                 ) {
                     listOf(
-                        TransactionField.CATEGORY to "Set Category",
-                        TransactionField.MERCHANT to "Set Merchant Name",
-                        TransactionField.TYPE to "Set Transaction Type",
-                        TransactionField.NARRATION to "Set Description",
-                        TransactionField.BANK_NAME to "Set Account"
+                        TransactionField.CATEGORY to stringResource(R.string.rule_action_set_category),
+                        TransactionField.MERCHANT to stringResource(R.string.rule_action_set_merchant),
+                        TransactionField.TYPE to stringResource(R.string.rule_action_set_type),
+                        TransactionField.NARRATION to stringResource(R.string.rule_action_set_desc),
+                        TransactionField.BANK_NAME to stringResource(R.string.rule_action_set_account)
                     ).forEach { (field, label) ->
                         DropdownMenuItem(
                             text = { Text(label) },
@@ -1244,8 +1247,8 @@ private fun ActionEditor(
                     TextField(
                         value = action.value,
                         onValueChange = { onActionChange(action.copy(value = it)) },
-                        label = { Text("Category Name") },
-                        placeholder = { Text("e.g., Rent") },
+                        label = { Text(stringResource(R.string.rule_category_name_label)) },
+                        placeholder = { Text(stringResource(R.string.rule_name_placeholder).split(",").getOrNull(0) ?: "e.g., Rent") }, // Reuse
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -1263,13 +1266,13 @@ private fun ActionEditor(
                         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        RULE_TRANSACTION_TYPE_OPTIONS.forEach { (type, displayLabel) ->
+                        RULE_TRANSACTION_TYPE_OPTIONS.forEach { (type, displayLabelRes) ->
                             FilterChip(
                                 selected = action.value.equals(type, ignoreCase = true),
                                 onClick = { onActionChange(action.copy(value = type)) },
                                 label = {
                                     Text(
-                                        displayLabel,
+                                        stringResource(displayLabelRes),
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                 }
@@ -1301,7 +1304,7 @@ private fun ActionEditor(
                     TextField(
                         value = action.value,
                         onValueChange = { onActionChange(action.copy(value = it)) },
-                        label = { Text("Merchant Name") },
+                        label = { Text(stringResource(R.string.rule_merchant_name_label)) },
                         placeholder = { Text("e.g., Amazon") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -1313,8 +1316,8 @@ private fun ActionEditor(
                     TextField(
                         value = action.value,
                         onValueChange = { onActionChange(action.copy(value = it)) },
-                        label = { Text("Description") },
-                        placeholder = { Text("e.g., Monthly subscription payment") },
+                        label = { Text(stringResource(R.string.txn_desc_label)) },
+                        placeholder = { Text(stringResource(R.string.rule_desc_placeholder)) },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2,
                         maxLines = 3
@@ -1326,8 +1329,8 @@ private fun ActionEditor(
                     TextField(
                         value = action.value,
                         onValueChange = { onActionChange(action.copy(value = it)) },
-                        label = { Text("Account / Bank Name") },
-                        placeholder = { Text("e.g., HDFC Bank") },
+                        label = { Text(stringResource(R.string.rule_bank_name_label)) },
+                        placeholder = { Text("e.g., KBank") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -1338,8 +1341,8 @@ private fun ActionEditor(
                     TextField(
                         value = action.value,
                         onValueChange = { onActionChange(action.copy(value = it)) },
-                        label = { Text("Value") },
-                        placeholder = { Text("Enter value") },
+                        label = { Text(stringResource(R.string.rule_value_label)) },
+                        placeholder = { Text(stringResource(R.string.rule_desc_placeholder).replace("กฎนี้ทำหน้าที่อะไร?", "กรอกข้อมูลที่ต้องการ")) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )

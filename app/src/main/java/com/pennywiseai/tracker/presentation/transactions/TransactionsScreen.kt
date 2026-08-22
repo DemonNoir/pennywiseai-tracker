@@ -52,8 +52,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -159,6 +162,7 @@ fun TransactionsScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val view = LocalView.current
+    val localContext = LocalContext.current
 
     val primaryVisibleCurrency = availableCurrencies.firstOrNull() ?: selectedCurrency
     val hasCurrencyFilter = !isUnifiedMode &&
@@ -167,7 +171,7 @@ fun TransactionsScreen(
     
     // Check if any filter is active (for showing "Clear all" button)
     val hasAnyActiveFilter = searchQuery.isNotEmpty() ||
-        selectedPeriod != TimePeriod.THIS_MONTH ||
+        selectedPeriod != TimePeriod.THIS_CYCLE ||
         categoryFilter != null ||
         categoriesFilter != null ||
         transactionTypeFilter != TransactionTypeFilter.ALL ||
@@ -246,8 +250,8 @@ fun TransactionsScreen(
             
             scope.launch {
                 val result = snackbarHostState.showSnackbar(
-                    message = "Transaction deleted",
-                    actionLabel = "Undo",
+                    message = localContext.getString(R.string.txn_deleted_snackbar),
+                    actionLabel = localContext.getString(R.string.common_undo),
                     duration = SnackbarDuration.Short
                 )
                 if (result == SnackbarResult.ActionPerformed) {
@@ -290,12 +294,12 @@ fun TransactionsScreen(
                 CustomTitleTopAppBar(
                     scrollBehaviorSmall = scrollBehaviorSmall,
                     scrollBehaviorLarge = scrollBehaviorLarge,
-                    title = "${selectedIds.size} selected",
+                    title = stringResource(R.string.txn_selected_count, selectedIds.size),
                     hasBackButton = true,
                     hasActionButton = true,
                     navigationContent = {
                         IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.txn_exit_selection))
                         }
                     },
                     actionContent = {
@@ -309,23 +313,23 @@ fun TransactionsScreen(
                                 IconButton(onClick = { viewModel.bulkMarkAsTransfer() }) {
                                     Icon(
                                         Icons.Default.SwapHoriz,
-                                        contentDescription = "Mark as transfer"
+                                        contentDescription = stringResource(R.string.txn_mark_as_transfer)
                                     )
                                 }
                             }
                             IconButton(onClick = { showBulkCategorySheet = true }) {
-                                Icon(Icons.Default.Category, contentDescription = "Change category")
+                                Icon(Icons.Default.Category, contentDescription = stringResource(R.string.txn_change_category))
                             }
                             IconButton(onClick = { showBulkGroupSheet = true }) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.PlaylistAdd,
-                                    contentDescription = "Add to group"
+                                    contentDescription = stringResource(R.string.txn_add_to_group)
                                 )
                             }
                             IconButton(onClick = { viewModel.bulkDelete() }) {
                                 Icon(
                                     Icons.Default.Delete,
-                                    contentDescription = "Delete selected",
+                                    contentDescription = stringResource(R.string.txn_delete_selected),
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -337,13 +341,13 @@ fun TransactionsScreen(
                 CustomTitleTopAppBar(
                     scrollBehaviorSmall = scrollBehaviorSmall,
                     scrollBehaviorLarge = scrollBehaviorLarge,
-                    title = "Transactions",
+                    title = stringResource(R.string.txn_title),
                     hasBackButton = true,
                     navigationContent = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
+                                contentDescription = stringResource(R.string.settings_back_desc)
                             )
                         }
                     },
@@ -364,7 +368,7 @@ fun TransactionsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.FileDownload,
-                            contentDescription = "Export to CSV",
+                            contentDescription = stringResource(R.string.txn_export_to_csv),
                             modifier = Modifier.size(Dimensions.Icon.medium)
                         )
                     }
@@ -378,7 +382,7 @@ fun TransactionsScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Add Transaction"
+                        contentDescription = stringResource(R.string.txn_add_transaction)
                     )
                 }
             }
@@ -398,7 +402,7 @@ fun TransactionsScreen(
             transactionTypeFilter = transactionTypeFilter,
             categoryLabel = categoryFilter ?: categoriesFilter?.joinToString(", "),
             hasCategoryFilter = categoryFilter != null || categoriesFilter != null,
-            selectedProfileName = profiles.firstOrNull { it.id == selectedProfileId }?.name ?: "Profile",
+            selectedProfileName = profiles.firstOrNull { it.id == selectedProfileId }?.name ?: stringResource(R.string.filter_profile_label),
             hasProfileFilter = selectedProfileId != null,
             hasAnyActiveFilter = hasAnyActiveFilter,
             showSortMenu = showSortMenu,
@@ -547,7 +551,7 @@ fun TransactionsScreen(
                                 netBalance = cardTotals.netBalance,
                                 credit = if (selectionMode) cardTotals.credit else null,
                                 title = if (selectionMode) {
-                                    "${selectedIds.size} selected"
+                                    stringResource(R.string.txn_selected_count, selectedIds.size)
                                 } else {
                                     null
                                 },
@@ -583,7 +587,7 @@ fun TransactionsScreen(
                                         tint = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                     Text(
-                                        text = "Totals may differ from budget due to split transactions",
+                                        text = stringResource(R.string.txn_totals_differ_notice),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
@@ -602,7 +606,7 @@ fun TransactionsScreen(
                         uiState.groupedTransactions[dateGroup]?.let { transactions ->
                             // Date group header
                             val headerContent: @Composable LazyItemScope.(Int) -> Unit = { _ ->
-                                TransactionDateHeader(title = dateGroup.label)
+                                TransactionDateHeader(title = stringResource(dateGroup.labelRes))
                             }
                             stickyHeader(content = headerContent)
                             
@@ -666,7 +670,7 @@ fun TransactionsScreen(
                                         ) {
                                             AssistChip(
                                                 onClick = { viewModel.markPairAsTransfer(transaction.id, partnerId) },
-                                                label = { Text("Mark as transfer") },
+                                                label = { Text(stringResource(R.string.txn_mark_as_transfer)) },
                                                 leadingIcon = {
                                                     Icon(
                                                         imageVector = Icons.Default.SwapHoriz,
@@ -767,7 +771,7 @@ fun TransactionsScreen(
         bulkSnack?.let { snack ->
             val result = snackbarHostState.showSnackbar(
                 message = snack.message,
-                actionLabel = snack.undo?.let { "Undo" },
+                actionLabel = snack.undo?.let { localContext.getString(R.string.common_undo) },
                 duration = SnackbarDuration.Short
             )
             if (result == SnackbarResult.ActionPerformed) snack.undo?.invoke()
@@ -808,7 +812,7 @@ private fun BulkGroupPickerSheet(
                 .padding(bottom = Dimensions.Padding.content)
         ) {
             Text(
-                text = "Add $selectedCount to group",
+                text = stringResource(R.string.txn_bulk_group_title, selectedCount),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(bottom = Spacing.md)
@@ -851,7 +855,7 @@ private fun BulkGroupPickerSheet(
                 OutlinedTextField(
                     value = newGroupName,
                     onValueChange = { newGroupName = it },
-                    label = { Text("Group name") },
+                    label = { Text(stringResource(R.string.txn_group_name_label)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -871,7 +875,7 @@ private fun BulkGroupPickerSheet(
                             },
                             enabled = newGroupName.isNotBlank()
                         ) {
-                            Icon(Icons.Default.Check, contentDescription = "Create")
+                            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.txn_create_btn))
                         }
                     }
                 )
@@ -886,7 +890,7 @@ private fun BulkGroupPickerSheet(
                         modifier = Modifier.size(Dimensions.Icon.small)
                     )
                     Spacer(modifier = Modifier.width(Spacing.xs))
-                    Text("Create new group")
+                    Text(stringResource(R.string.txn_create_group))
                 }
             }
         }
@@ -940,7 +944,7 @@ private fun SwipeToEditCategory(
                     )
                     Spacer(Modifier.width(Spacing.sm))
                     Text(
-                        text = "Change category",
+                        text = stringResource(R.string.txn_change_category),
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         style = MaterialTheme.typography.labelLarge
                     )
@@ -1069,7 +1073,7 @@ private fun TransactionFilterHeader(
                         IconButton(onClick = onSortClick) {
                             Icon(
                                 imageVector = Icons.Rounded.MoreHoriz,
-                                contentDescription = "More options",
+                                contentDescription = stringResource(R.string.filter_more_options),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -1091,7 +1095,7 @@ private fun TransactionFilterHeader(
                                                 onClick = null,
                                                 modifier = Modifier.size(Dimensions.Icon.medium)
                                             )
-                                            Text(option.label)
+                                            Text(stringResource(option.labelRes))
                                         }
                                     },
                                     leadingIcon = {
@@ -1107,7 +1111,7 @@ private fun TransactionFilterHeader(
                             if (hasAnyActiveFilter) {
                                 HorizontalDivider()
                                 DropdownMenuItem(
-                                    text = { Text("Clear filters") },
+                                    text = { Text(stringResource(R.string.filter_clear_all)) },
                                     leadingIcon = {
                                         Icon(
                                             imageVector = Icons.Default.Close,
@@ -1144,7 +1148,7 @@ private fun TransactionFilterHeader(
                             text = if (selectedPeriod == TimePeriod.CUSTOM && customRangeLabel != null) {
                                 customRangeLabel
                             } else {
-                                selectedPeriod.label
+                                stringResource(selectedPeriod.labelRes)
                             },
                             icon = Icons.Default.CalendarMonth,
                             onClick = onPeriodClick
@@ -1156,7 +1160,7 @@ private fun TransactionFilterHeader(
                         ) {
                             timePeriods.forEach { period ->
                                 DropdownMenuItem(
-                                    text = { Text(period.label) },
+                                    text = { Text(stringResource(period.labelRes)) },
                                     leadingIcon = {
                                         if (selectedPeriod == period) {
                                             Icon(Icons.Default.Check, contentDescription = null)
@@ -1185,7 +1189,7 @@ private fun TransactionFilterHeader(
                         ) {
                             TransactionTypeFilter.values().forEach { typeFilter ->
                                 DropdownMenuItem(
-                                    text = { Text(typeFilter.label) },
+                                    text = { Text(stringResource(typeFilter.labelRes)) },
                                     leadingIcon = {
                                         if (transactionTypeFilter == typeFilter) {
                                             Icon(Icons.Default.Check, contentDescription = null)
@@ -1205,13 +1209,15 @@ private fun TransactionFilterHeader(
 
                 item {
                     Box {
+                        val filterContext = LocalContext.current
                         ExpressiveFilterChip(
                             selected = hasCategoryFilter || hasProfileFilter,
                             text = moreFiltersLabel(
                                 categoryLabel = categoryLabel,
                                 selectedProfileName = selectedProfileName,
                                 hasCategoryFilter = hasCategoryFilter,
-                                hasProfileFilter = hasProfileFilter
+                                hasProfileFilter = hasProfileFilter,
+                                context = filterContext
                             ),
                             icon = Icons.Default.Tune,
                             onClick = onMoreFiltersClick,
@@ -1224,7 +1230,7 @@ private fun TransactionFilterHeader(
                             onDismissRequest = onMoreFiltersDismiss
                         ) {
                             DropdownMenuItem(
-                                text = { Text("All categories") },
+                                text = { Text(stringResource(R.string.filter_all_categories)) },
                                 leadingIcon = {
                                     if (!hasCategoryFilter) {
                                         Icon(Icons.Default.Check, contentDescription = null)
@@ -1254,7 +1260,7 @@ private fun TransactionFilterHeader(
                                 HorizontalDivider()
                             }
                             DropdownMenuItem(
-                                text = { Text("All profiles") },
+                                text = { Text(stringResource(R.string.filter_all_profiles)) },
                                 leadingIcon = {
                                     if (selectedProfileId == null) {
                                         Icon(Icons.Default.Check, contentDescription = null)
@@ -1289,7 +1295,7 @@ private fun TransactionFilterHeader(
                         Box {
                             ExpressiveFilterChip(
                                 selected = tagFilter != null,
-                                text = tagFilter ?: "Tag",
+                                text = tagFilter ?: stringResource(R.string.filter_tag_label),
                                 icon = Icons.Default.Sell,
                                 onClick = onTagClick
                             )
@@ -1299,7 +1305,7 @@ private fun TransactionFilterHeader(
                                 onDismissRequest = onTagDismiss
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("All tags") },
+                                    text = { Text(stringResource(R.string.filter_all_tags)) },
                                     leadingIcon = {
                                         if (tagFilter == null) {
                                             Icon(Icons.Default.Check, contentDescription = null)
@@ -1334,7 +1340,7 @@ private fun TransactionFilterHeader(
                                 accountOptions.firstOrNull { it.key == accountFilter }?.label
                             ExpressiveFilterChip(
                                 selected = accountFilter != null,
-                                text = selectedAccountLabel ?: "Account",
+                                text = selectedAccountLabel ?: stringResource(R.string.filter_account_label),
                                 icon = Icons.Outlined.AccountBalanceWallet,
                                 onClick = onAccountClick
                             )
@@ -1344,7 +1350,7 @@ private fun TransactionFilterHeader(
                                 onDismissRequest = onAccountDismiss
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("All accounts") },
+                                    text = { Text(stringResource(R.string.common_all_accounts)) },
                                     leadingIcon = {
                                         if (accountFilter == null) {
                                             Icon(Icons.Default.Check, contentDescription = null)
@@ -1380,13 +1386,14 @@ private fun moreFiltersLabel(
     categoryLabel: String?,
     selectedProfileName: String,
     hasCategoryFilter: Boolean,
-    hasProfileFilter: Boolean
+    hasProfileFilter: Boolean,
+    context: android.content.Context
 ): String {
     return when {
-        hasCategoryFilter && hasProfileFilter -> "2 Filters"
-        hasCategoryFilter -> categoryLabel ?: "Category"
+        hasCategoryFilter && hasProfileFilter -> context.getString(R.string.filter_n_filters, 2)
+        hasCategoryFilter -> categoryLabel ?: context.getString(R.string.filter_category_label)
         hasProfileFilter -> selectedProfileName
-        else -> "Filters"
+        else -> context.getString(R.string.filter_label)
     }
 }
 
@@ -1415,7 +1422,7 @@ private fun TransactionSearchBar(
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
-                contentDescription = "Search",
+                contentDescription = stringResource(R.string.common_search),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(Dimensions.Icon.medium)
             )
@@ -1431,9 +1438,13 @@ private fun TransactionSearchBar(
                 decorationBox = { innerTextField ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (query.isEmpty()) {
+                            val placeholder = if (categoryFilter != null) {
+                                stringResource(R.string.txn_search_in_category, categoryFilter)
+                            } else {
+                                stringResource(R.string.txn_search_placeholder)
+                            }
                             Text(
-                                text = if (categoryFilter != null) "Search in $categoryFilter..."
-                                else "Search transactions...",
+                                text = placeholder,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1448,7 +1459,7 @@ private fun TransactionSearchBar(
                 IconButton(onClick = { onQueryChange("") }) {
                     Icon(
                         imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search",
+                        contentDescription = stringResource(R.string.txn_clear_search),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -1466,16 +1477,16 @@ private fun EmptyTransactionsState(
     onAddClick: () -> Unit = {}
 ) {
     val headline = when {
-        searchQuery.isNotEmpty() -> "No results for \"$searchQuery\""
-        selectedPeriod != TimePeriod.ALL -> "Nothing for ${selectedPeriod.label.lowercase()}"
-        else -> "No transactions yet"
+        searchQuery.isNotEmpty() -> stringResource(R.string.txn_no_results, searchQuery)
+        selectedPeriod != TimePeriod.ALL -> stringResource(R.string.txn_nothing_for_period, stringResource(selectedPeriod.labelRes).lowercase())
+        else -> stringResource(R.string.txn_no_transactions_yet)
     }
     val description = when {
-        searchQuery.isNotEmpty() -> "Try a different search term or clear your filters"
-        selectedPeriod != TimePeriod.ALL -> "Try selecting a different time period"
-        else -> "Add your first transaction manually, or scan SMS from the home screen"
+        searchQuery.isNotEmpty() -> stringResource(R.string.txn_try_different_search)
+        selectedPeriod != TimePeriod.ALL -> stringResource(R.string.txn_try_different_period)
+        else -> stringResource(R.string.txn_empty_desc)
     }
-    val actionLabel = if (searchQuery.isEmpty() && selectedPeriod == TimePeriod.ALL) "Add Transaction" else null
+    val actionLabel = if (searchQuery.isEmpty() && selectedPeriod == TimePeriod.ALL) stringResource(R.string.txn_add_transaction) else null
     val onAction = if (actionLabel != null) onAddClick else null
 
     Box(

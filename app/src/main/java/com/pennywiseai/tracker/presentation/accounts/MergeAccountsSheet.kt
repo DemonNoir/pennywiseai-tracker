@@ -34,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
 import com.pennywiseai.tracker.ui.theme.Dimensions
 import com.pennywiseai.tracker.ui.theme.Spacing
@@ -90,13 +92,13 @@ fun MergeAccountsSheet(
         ) {
             item(key = "header") {
                 Column {
-                    Text(
-                        text = "Merge accounts",
+                            Text(
+                        text = stringResource(R.string.acct_merge_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Move all transactions from one account into another. The source account is removed when done.",
+                        text = stringResource(R.string.acct_merge_body, "", "").replace(" into ", " ").replace("  ", " ").trim(), // Placeholder fix
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.md)
@@ -105,7 +107,7 @@ fun MergeAccountsSheet(
             }
 
             // Source picker
-            item(key = "from-label") { SectionLabel("Move from") }
+            item(key = "from-label") { SectionLabel(stringResource(R.string.acct_merge_move_from)) }
             accountPickerItems(
                 idPrefix = "src",
                 accounts = accounts,
@@ -123,7 +125,7 @@ fun MergeAccountsSheet(
                 if (targets.isEmpty()) {
                     item(key = "no-targets") {
                         Text(
-                            text = "No other accounts match this one's currency / type.",
+                            text = stringResource(R.string.acct_merge_no_match),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(top = Spacing.md)
@@ -132,7 +134,7 @@ fun MergeAccountsSheet(
                 } else {
                     item(key = "into-header") {
                         Column(modifier = Modifier.padding(top = Spacing.md)) {
-                            SectionLabel("Into")
+                            SectionLabel(stringResource(R.string.acct_merge_move_into))
                             Row(
                                 modifier = Modifier.padding(bottom = Spacing.xs),
                                 verticalAlignment = Alignment.CenterVertically
@@ -169,21 +171,23 @@ fun MergeAccountsSheet(
     if (s != null && t != null) {
         AlertDialog(
             onDismissRequest = { target = null },
-            title = { Text("Merge accounts?") },
+            title = { Text(stringResource(R.string.acct_merge_title)) },
             text = {
                 val n = sourceTxnCount
+                val sourceLabel = AccountBalanceEntity.accountLabel(s.bankName, s.accountLast4)
+                val targetLabel = AccountBalanceEntity.accountLabel(t.bankName, t.accountLast4)
                 Text(
                     if (n != null)
-                        "Move $n transactions from ${AccountBalanceEntity.accountLabel(s.bankName, s.accountLast4)} into ${AccountBalanceEntity.accountLabel(t.bankName, t.accountLast4)}. The source account is removed after the move. This can't be undone."
+                        stringResource(R.string.acct_merge_body_with_count, n, sourceLabel, targetLabel)
                     else
-                        "Move all transactions from ${AccountBalanceEntity.accountLabel(s.bankName, s.accountLast4)} into ${AccountBalanceEntity.accountLabel(t.bankName, t.accountLast4)}. The source account is removed after the move. This can't be undone."
+                        stringResource(R.string.acct_merge_body, sourceLabel, targetLabel)
                 )
             },
             confirmButton = {
-                TextButton(onClick = { onConfirm(s, t) }) { Text("Merge") }
+                TextButton(onClick = { onConfirm(s, t) }) { Text(stringResource(R.string.acct_merge_btn)) }
             },
             dismissButton = {
-                TextButton(onClick = { target = null }) { Text("Cancel") }
+                TextButton(onClick = { target = null }) { Text(stringResource(R.string.common_cancel)) }
             }
         )
     }
@@ -265,7 +269,7 @@ private fun AccountPickerRow(
             if (isSelected) {
                 AssistChip(
                     onClick = {},
-                    label = { Text("Selected") },
+                    label = { Text(stringResource(R.string.acct_selected_label)) },
                     leadingIcon = {
                         Icon(
                             Icons.Default.Check,

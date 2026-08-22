@@ -19,6 +19,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.data.database.entity.CategoryEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.ui.theme.Dimensions
@@ -51,7 +53,7 @@ fun QuickCategoryPickerSheet(
         sheetState = sheetState
     ) {
         Text(
-            text = "Change category",
+            text = stringResource(R.string.cat_change_title),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(
                 start = Dimensions.Padding.content,

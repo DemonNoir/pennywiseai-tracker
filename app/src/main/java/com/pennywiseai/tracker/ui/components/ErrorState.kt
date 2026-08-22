@@ -14,6 +14,9 @@ import androidx.compose.ui.unit.dp
 import com.pennywiseai.tracker.ui.theme.Spacing
 import com.pennywiseai.tracker.ui.theme.Dimensions
 
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
+
 @Composable
 fun ErrorState(
     message: String,
@@ -42,7 +45,7 @@ fun ErrorState(
         if (onRetry != null) {
             Spacer(modifier = Modifier.height(Spacing.sm))
             TextButton(onClick = onRetry) {
-                Text("Retry")
+                Text(stringResource(R.string.common_retry))
             }
         }
     }

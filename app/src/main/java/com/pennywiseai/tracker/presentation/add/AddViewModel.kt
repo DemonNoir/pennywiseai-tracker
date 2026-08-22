@@ -15,6 +15,7 @@ import com.pennywiseai.tracker.data.repository.AccountBalanceRepository
 import com.pennywiseai.tracker.data.repository.BudgetGroupRepository
 import com.pennywiseai.tracker.data.repository.TagRepository
 import com.pennywiseai.tracker.data.repository.TransactionRepository
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.domain.usecase.AddTransactionUseCase
 import com.pennywiseai.tracker.domain.usecase.AddSubscriptionUseCase
 import com.pennywiseai.tracker.domain.usecase.GetCategoriesUseCase
@@ -317,11 +318,11 @@ class AddViewModel @Inject constructor(
             val to = state.toAccount
             when {
                 from == null || to == null ->
-                    _transactionUiState.update { it.copy(error = "Select both a From and To account") }
+                    _transactionUiState.update { it.copy(error = appContext.getString(R.string.error_transfer_select_both)) }
                 from.id == to.id ->
-                    _transactionUiState.update { it.copy(error = "From and To accounts must be different") }
+                    _transactionUiState.update { it.copy(error = appContext.getString(R.string.error_transfer_same_account)) }
                 from.currency != to.currency ->
-                    _transactionUiState.update { it.copy(error = "Both accounts must use the same currency") }
+                    _transactionUiState.update { it.copy(error = appContext.getString(R.string.error_transfer_currency_mismatch)) }
                 else -> saveTransferInternal(state, from, to, onSuccess)
             }
             return
@@ -360,7 +361,7 @@ class AddViewModel @Inject constructor(
                 _transactionUiState.update { currentState ->
                     currentState.copy(
                         isLoading = false,
-                        error = e.message ?: "Failed to save transaction"
+                        error = e.message ?: appContext.getString(R.string.error_save_transaction_failed)
                     )
                 }
             }
@@ -396,7 +397,7 @@ class AddViewModel @Inject constructor(
                 _transactionUiState.update { currentState ->
                     currentState.copy(
                         isLoading = false,
-                        error = e.message ?: "Failed to save transfer"
+                        error = e.message ?: appContext.getString(R.string.error_save_transfer_failed)
                     )
                 }
             }
@@ -408,7 +409,7 @@ class AddViewModel @Inject constructor(
         _subscriptionUiState.update { currentState ->
             currentState.copy(
                 serviceName = service,
-                serviceError = if (service.isBlank()) "Service name is required" else null
+                serviceError = if (service.isBlank()) appContext.getString(R.string.error_service_name_required) else null
             )
         }
     }
@@ -490,7 +491,7 @@ class AddViewModel @Inject constructor(
         Log.d("AddViewModel", "saveSubscription called with state: $state")
         
         // Validate all fields
-        val serviceError = if (state.serviceName.isBlank()) "Service name is required" else null
+        val serviceError = if (state.serviceName.isBlank()) appContext.getString(R.string.error_service_name_required) else null
         val amountError = validateAmount(state.amount)
         val categoryError = validateCategory(state.category)
         
@@ -541,7 +542,7 @@ class AddViewModel @Inject constructor(
                 _subscriptionUiState.update { currentState ->
                     currentState.copy(
                         isLoading = false,
-                        error = e.message ?: "Failed to save subscription"
+                        error = e.message ?: appContext.getString(R.string.error_save_subscription_failed)
                     )
                 }
             } finally {
@@ -554,24 +555,24 @@ class AddViewModel @Inject constructor(
     // Validation helpers
     private fun validateAmount(amount: String): String? {
         return when {
-            amount.isBlank() -> "Amount is required"
-            amount.toDoubleOrNull() == null -> "Invalid amount"
-            amount.toDouble() <= 0 -> "Amount must be greater than 0"
+            amount.isBlank() -> appContext.getString(R.string.error_amount_required)
+            amount.toDoubleOrNull() == null -> appContext.getString(R.string.error_invalid_amount)
+            amount.toDouble() <= 0 -> appContext.getString(R.string.error_amount_greater_than_zero)
             else -> null
         }
     }
     
     private fun validateMerchant(merchant: String): String? {
         return when {
-            merchant.isBlank() -> "Merchant/Description is required"
-            merchant.length < 2 -> "Too short"
+            merchant.isBlank() -> appContext.getString(R.string.error_merchant_required)
+            merchant.length < 2 -> appContext.getString(R.string.error_too_short)
             else -> null
         }
     }
     
     private fun validateCategory(category: String): String? {
         return when {
-            category.isBlank() -> "Category is required"
+            category.isBlank() -> appContext.getString(R.string.error_category_required)
             else -> null
         }
     }

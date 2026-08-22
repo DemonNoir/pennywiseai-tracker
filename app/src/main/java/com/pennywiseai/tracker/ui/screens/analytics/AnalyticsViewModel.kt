@@ -70,7 +70,7 @@ class AnalyticsViewModel @Inject constructor(
         viewModelScope.launch { userPreferencesRepository.updateSelectedProfileId(id) }
     }
     
-    private val _selectedPeriod = MutableStateFlow(TimePeriod.THIS_MONTH)
+    private val _selectedPeriod = MutableStateFlow(TimePeriod.THIS_CYCLE)
     val selectedPeriod: StateFlow<TimePeriod> = _selectedPeriod.asStateFlow()
     
     private val _transactionTypeFilter = MutableStateFlow(TransactionTypeFilter.EXPENSE)
@@ -147,15 +147,22 @@ class AnalyticsViewModel @Inject constructor(
     private val _availableCurrencies = MutableStateFlow<List<String>>(emptyList())
     val availableCurrencies: StateFlow<List<String>> = _availableCurrencies.asStateFlow()
 
-    // Reactive UI state that automatically updates when any filter changes
-    // Uses flatMapLatest to cancel previous data loads when filters change (prevents race conditions)
+    // Reactive UI state that automatically updates when any filter changes.
+    // budgetCycleStartDay is included in the pipeline so that changing the
+    // salary cutoff day in Settings immediately recomputes THIS_CYCLE / LAST_CYCLE.
     val uiState: StateFlow<AnalyticsUiState> = combine(
         _selectedPeriod,
         customDateRange,
         _transactionTypeFilter,
         _selectedCurrency,
-        combine(_isUnifiedMode, _categoryFilter, selectedProfileId, _accountFilter) { u, c, p, a ->
-            UnifiedCatProfileAccount(u, c, p, a)
+        combine(
+            _isUnifiedMode,
+            _categoryFilter,
+            selectedProfileId,
+            _accountFilter,
+            userPreferencesRepository.budgetCycleStartDay
+        ) { u, c, p, a, startDay ->
+            UnifiedCatProfileAccount(u, c, p, a, startDay)
         }
     ) { period, customRange, typeFilter, currency, extra ->
         FilterState(
@@ -166,7 +173,8 @@ class AnalyticsViewModel @Inject constructor(
             extra.isUnified,
             extra.categoryFilter,
             extra.profileId,
-            extra.accountFilter
+            extra.accountFilter,
+            extra.budgetCycleStartDay
         )
     }.combine(accountBalanceRepository.getAllLatestBalances()) { fs, balances ->
         fs to balances
@@ -176,26 +184,28 @@ class AnalyticsViewModel @Inject constructor(
         triple to tagMap
     }.flatMapLatest { (triple, tagMap) ->
         val (filterState, balances, categoryColorMap) = triple
-        // Determine date range based on selected period. THIS_MONTH is special:
-        // it follows the user's custom budget cycle (e.g. 25th → 24th) instead
-        // of the calendar month, so the analytics range lines up with the
-        // home/cycle everywhere else in the app.
-        val dateRange = if (filterState.period == TimePeriod.CUSTOM) {
-            val customRange = filterState.customRange
-            // Guard against invalid state: CUSTOM period must have a date range
-            if (customRange == null) {
-                android.util.Log.e("AnalyticsViewModel",
-                    "CUSTOM period selected but no date range set - falling back to THIS_MONTH")
-                // Auto-correct the invalid state
-                _selectedPeriod.value = TimePeriod.THIS_MONTH
-                getThisCycleRange()
-            } else {
-                customRange
+        // Determine date range. THIS_CYCLE and LAST_CYCLE follow the user's
+        // configured budget cycle start day (e.g. 25th → 24th) so the analytics
+        // range aligns with the cycle used on the Home screen.
+        val startDay = filterState.budgetCycleStartDay
+        val dateRange = when (filterState.period) {
+            TimePeriod.CUSTOM -> {
+                val customRange = filterState.customRange
+                if (customRange == null) {
+                    android.util.Log.e("AnalyticsViewModel",
+                        "CUSTOM period selected but no date range set - falling back to THIS_CYCLE")
+                    _selectedPeriod.value = TimePeriod.THIS_CYCLE
+                    BudgetCycle.currentCycle(LocalDate.now(), startDay)
+                } else {
+                    customRange
+                }
             }
-        } else if (filterState.period == TimePeriod.THIS_MONTH) {
-            getThisCycleRange()
-        } else {
-            getDateRangeForPeriod(filterState.period)
+            TimePeriod.THIS_CYCLE -> BudgetCycle.currentCycle(LocalDate.now(), startDay)
+            TimePeriod.LAST_CYCLE -> {
+                val current = BudgetCycle.currentCycle(LocalDate.now(), startDay)
+                BudgetCycle.previousCycle(current, startDay)
+            }
+            else -> getDateRangeForPeriod(filterState.period)
         }
 
         if (dateRange == null) {
@@ -586,27 +596,30 @@ class AnalyticsViewModel @Inject constructor(
     }
 
     /**
-     * Clears the custom date range and resets to THIS_MONTH period.
+     * Clears the custom date range and resets to THIS_CYCLE period.
      * Always safe to call - ensures we never have CUSTOM period with null dates.
      */
     fun clearCustomDateRange() {
         savedStateHandle["customDateRange"] = null
         // Always reset to a valid period to prevent CUSTOM with null dates
         if (_selectedPeriod.value == TimePeriod.CUSTOM) {
-            _selectedPeriod.value = TimePeriod.THIS_MONTH
+            _selectedPeriod.value = TimePeriod.THIS_CYCLE
         }
     }
 
     /**
-     * The "This Month" range for the Analytics tab. Honours the user's
+     * The "This Cycle" range for the Analytics tab. Honours the user's
      * configured budget cycle start day (e.g. 25th → 24th) instead of the
      * calendar month, so the chart and stats line up with the cycle used
      * everywhere else in the app.
+     *
+     * Note: prefer consuming [filterState.budgetCycleStartDay] inside the
+     * reactive pipeline; this suspend function is kept only for fallback use
+     * from the CUSTOM-period guard above.
      */
     private suspend fun getThisCycleRange(): Pair<LocalDate, LocalDate> {
         val startDay = userPreferencesRepository.getBudgetCycleStartDay()
-        val (start, end) = BudgetCycle.currentCycle(LocalDate.now(), startDay)
-        return start to end
+        return BudgetCycle.currentCycle(LocalDate.now(), startDay)
     }
 
     private suspend fun calculateSpendingTrend(
@@ -716,18 +729,21 @@ private data class FilterState(
     val isUnifiedMode: Boolean = false,
     val categoryFilter: String? = null,
     val profileId: Long? = null,
-    val accountFilter: String? = null
+    val accountFilter: String? = null,
+    val budgetCycleStartDay: Int = 1
 )
 
 /**
- * Helper tuple for combining the unified-mode, category, profile, and account
- * filter flows (Kotlin's [combine] caps at a small arity).
+ * Helper tuple for combining the unified-mode, category, profile, account
+ * filter flows, and budget cycle start day (Kotlin's [combine] caps at a
+ * small arity, so we group subsidiary flows into this tuple).
  */
 private data class UnifiedCatProfileAccount(
     val isUnified: Boolean,
     val categoryFilter: String?,
     val profileId: Long?,
-    val accountFilter: String?
+    val accountFilter: String?,
+    val budgetCycleStartDay: Int = 1
 )
 
 data class AnalyticsUiState(

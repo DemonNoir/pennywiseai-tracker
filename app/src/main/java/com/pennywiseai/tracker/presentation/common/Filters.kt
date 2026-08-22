@@ -1,41 +1,37 @@
 package com.pennywiseai.tracker.presentation.common
 
+import androidx.annotation.StringRes
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
 import com.pennywiseai.tracker.data.database.entity.ProfileEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import java.time.LocalDate
 import java.time.YearMonth
 
-enum class TimePeriod(val label: String) {
-    THIS_MONTH("This Month"),
-    LAST_MONTH("Last Month"),
-    CURRENT_FY("Current FY"),
-    ALL("All Time"),
-    CUSTOM("Custom Range")
+enum class TimePeriod(@StringRes val labelRes: Int) {
+    THIS_CYCLE(R.string.period_this_cycle),
+    LAST_CYCLE(R.string.period_last_cycle),
+    CURRENT_FY(R.string.period_current_fy),
+    ALL(R.string.period_all_time),
+    CUSTOM(R.string.period_custom)
 }
 
-enum class TransactionTypeFilter(val label: String) {
-    ALL("All"),
-    INCOME("Income"),
-    EXPENSE("Expense"),
-    CREDIT("Credit"),
-    TRANSFER("Transfer"),
-    INVESTMENT("Investment")
+enum class TransactionTypeFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.filter_type_all),
+    INCOME(R.string.filter_type_income),
+    EXPENSE(R.string.filter_type_expense),
+    CREDIT(R.string.filter_type_credit),
+    TRANSFER(R.string.filter_type_transfer),
+    INVESTMENT(R.string.filter_type_investment)
 }
 
 fun getDateRangeForPeriod(period: TimePeriod): Pair<LocalDate, LocalDate>? {
     val today = LocalDate.now()
     return when (period) {
-        TimePeriod.THIS_MONTH -> {
-            val start = YearMonth.now().atDay(1)
-            start to today
-        }
-        TimePeriod.LAST_MONTH -> {
-            val lastMonth = YearMonth.now().minusMonths(1)
-            val start = lastMonth.atDay(1)
-            val end = lastMonth.atEndOfMonth()
-            start to end
-        }
+        // THIS_CYCLE and LAST_CYCLE are resolved via BudgetCycle in each ViewModel
+        // (they require the user's configured budgetCycleStartDay from preferences).
+        TimePeriod.THIS_CYCLE -> null
+        TimePeriod.LAST_CYCLE -> null
         TimePeriod.CURRENT_FY -> {
             // Indian Financial Year: April 1 to March 31
             val currentYear = today.year

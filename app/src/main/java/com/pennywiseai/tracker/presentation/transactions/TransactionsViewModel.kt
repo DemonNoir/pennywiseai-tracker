@@ -21,6 +21,8 @@ import com.pennywiseai.tracker.presentation.common.accountOptions
 import com.pennywiseai.tracker.presentation.common.buildProfileAccountKeys
 import com.pennywiseai.tracker.presentation.common.filterTransactionsByAccount
 import com.pennywiseai.tracker.presentation.common.filterTransactionsByProfile
+import androidx.annotation.StringRes
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.core.Constants
 import com.pennywiseai.tracker.data.currency.CurrencyConversionService
 import com.pennywiseai.tracker.data.database.entity.ProfileEntity
@@ -70,7 +72,7 @@ class TransactionsViewModel @Inject constructor(
         tagRepository.observeTransactionTagNames()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
     
-    private val _selectedPeriod = MutableStateFlow(TimePeriod.THIS_MONTH)
+    private val _selectedPeriod = MutableStateFlow(TimePeriod.THIS_CYCLE)
     val selectedPeriod: StateFlow<TimePeriod> = _selectedPeriod.asStateFlow()
     
     private val _categoryFilter = MutableStateFlow<String?>(null)
@@ -156,8 +158,13 @@ class TransactionsViewModel @Inject constructor(
             val startDateTime = startDate.atStartOfDay()
             val endDateTime = endDate.atTime(23, 59, 59)
             transactionRepository.getCurrenciesForPeriod(startDateTime, endDateTime)
-        } else if (period == TimePeriod.THIS_MONTH) {
+        } else if (period == TimePeriod.THIS_CYCLE) {
             val (startDate, endDate) = getThisCycleRange()
+            val startDateTime = startDate.atStartOfDay()
+            val endDateTime = endDate.atTime(23, 59, 59)
+            transactionRepository.getCurrenciesForPeriod(startDateTime, endDateTime)
+        } else if (period == TimePeriod.LAST_CYCLE) {
+            val (startDate, endDate) = getLastCycleRange()
             val startDateTime = startDate.atStartOfDay()
             val endDateTime = endDate.atTime(23, 59, 59)
             transactionRepository.getCurrenciesForPeriod(startDateTime, endDateTime)
@@ -761,14 +768,12 @@ class TransactionsViewModel @Inject constructor(
             .transformLatest { _ ->
                 val period = selectedPeriod.value
                 val categories = categoriesFilter.value
-                // Always resolve a cycle range up-front; only THIS_MONTH consumes it
-                // today, but keeping a real Pair avoids nullable plumbing in the
-                // (non-suspend) filter helper.
-                val cycleRange = if (period == TimePeriod.THIS_MONTH) {
-                    getThisCycleRange()
-                } else {
-                    // Use a sentinel range — never read for non-THIS_MONTH branches.
-                    LocalDate.now() to LocalDate.now()
+                // Always resolve a cycle range up-front; THIS_CYCLE and LAST_CYCLE
+                // consume it, other periods ignore it.
+                val cycleRange = when (period) {
+                    TimePeriod.THIS_CYCLE -> getThisCycleRange()
+                    TimePeriod.LAST_CYCLE -> getLastCycleRange()
+                    else -> LocalDate.now() to LocalDate.now() // sentinel, never read
                 }
                 // Get all transactions without category filter applied
                 getFilteredTransactions("", period, null, categories, TransactionTypeFilter.ALL, cycleRange)
@@ -818,13 +823,13 @@ class TransactionsViewModel @Inject constructor(
                 val tag = _tagFilter.value
 
                 // Resolve the cycle window up-front so the inner (non-suspend)
-                // filter helper can reuse it for THIS_MONTH. Non-THIS_MONTH
-                // branches never read this — pass a sentinel pair to keep
+                // filter helper can reuse it for THIS_CYCLE / LAST_CYCLE. Other
+                // periods never read this — pass a sentinel pair to keep
                 // the helper signature non-nullable.
-                val cycleRange = if (period == TimePeriod.THIS_MONTH) {
-                    getThisCycleRange()
-                } else {
-                    LocalDate.now() to LocalDate.now()
+                val cycleRange = when (period) {
+                    TimePeriod.THIS_CYCLE -> getThisCycleRange()
+                    TimePeriod.LAST_CYCLE -> getLastCycleRange()
+                    else -> LocalDate.now() to LocalDate.now()
                 }
 
                 // Get filtered transactions (without currency filter first)
@@ -991,26 +996,35 @@ class TransactionsViewModel @Inject constructor(
     }
 
     /**
-     * Clears the custom date range and resets to THIS_MONTH period.
+     * Clears the custom date range and resets to THIS_CYCLE period.
      * Always safe to call - ensures we never have CUSTOM period with null dates.
      */
     fun clearCustomDateRange() {
         savedStateHandle["customDateRange"] = null
         // Always reset to a valid period to prevent CUSTOM with null dates
         if (_selectedPeriod.value == TimePeriod.CUSTOM) {
-            _selectedPeriod.value = TimePeriod.THIS_MONTH
+            _selectedPeriod.value = TimePeriod.THIS_CYCLE
         }
     }
 
     /**
-     * The "This Month" range for the Transactions tab. Honours the user's
+     * The "This Cycle" range for the Transactions tab. Honours the user's
      * configured budget cycle start day (e.g. 25th → 24th) so the transactions
      * list, totals, and analytics agree on the same window.
      */
     private suspend fun getThisCycleRange(): Pair<LocalDate, LocalDate> {
         val startDay = userPreferencesRepository.getBudgetCycleStartDay()
-        val (start, end) = BudgetCycle.currentCycle(LocalDate.now(), startDay)
-        return start to end
+        return BudgetCycle.currentCycle(LocalDate.now(), startDay)
+    }
+
+    /**
+     * The "Last Cycle" range for the Transactions tab — the period immediately
+     * before the current budget cycle, aligned to [budgetCycleStartDay].
+     */
+    private suspend fun getLastCycleRange(): Pair<LocalDate, LocalDate> {
+        val startDay = userPreferencesRepository.getBudgetCycleStartDay()
+        val current = BudgetCycle.currentCycle(LocalDate.now(), startDay)
+        return BudgetCycle.previousCycle(current, startDay)
     }
 
     fun deleteTransaction(transaction: TransactionEntity) {
@@ -1050,7 +1064,7 @@ class TransactionsViewModel @Inject constructor(
         clearCategoriesFilter()
         updateSearchQuery("")
         clearCustomDateRange()
-        selectPeriod(TimePeriod.THIS_MONTH)
+        selectPeriod(TimePeriod.THIS_CYCLE)
         setTransactionTypeFilter(TransactionTypeFilter.ALL)
         setAccountFilter(null)
         clearTagFilter()
@@ -1081,7 +1095,7 @@ class TransactionsViewModel @Inject constructor(
             // Only apply filters once, when first navigating to the screen
             clearCategoryFilter()
             updateSearchQuery("")
-            selectPeriod(TimePeriod.THIS_MONTH)
+            selectPeriod(TimePeriod.THIS_CYCLE)
             setTransactionTypeFilter(TransactionTypeFilter.ALL)
             setSortOption(SortOption.DATE_NEWEST)
 
@@ -1117,8 +1131,8 @@ class TransactionsViewModel @Inject constructor(
         endDateEpochDay: Long?
     ) {
         when (periodName) {
-            "THIS_MONTH" -> selectPeriod(TimePeriod.THIS_MONTH)
-            "LAST_MONTH" -> selectPeriod(TimePeriod.LAST_MONTH)
+            "THIS_CYCLE", "THIS_MONTH" -> selectPeriod(TimePeriod.THIS_CYCLE)
+            "LAST_CYCLE", "LAST_MONTH" -> selectPeriod(TimePeriod.LAST_CYCLE)
             "CURRENT_FY" -> selectPeriod(TimePeriod.CURRENT_FY)
             "ALL" -> selectPeriod(TimePeriod.ALL)
             "CUSTOM" -> if (startDateEpochDay != null && endDateEpochDay != null) {
@@ -1157,7 +1171,7 @@ class TransactionsViewModel @Inject constructor(
         // Reset filters for new navigation
         clearCategoryFilter()
         updateSearchQuery("")
-        selectPeriod(TimePeriod.THIS_MONTH)
+        selectPeriod(TimePeriod.THIS_CYCLE)
         setTransactionTypeFilter(TransactionTypeFilter.ALL)
         setSortOption(SortOption.DATE_NEWEST)
 
@@ -1317,9 +1331,9 @@ class TransactionsViewModel @Inject constructor(
                 // This should never happen due to clearCustomDateRange() logic, but be defensive
                 if (customRange == null) {
                     android.util.Log.e("TransactionsViewModel",
-                        "CUSTOM period selected but no date range set - falling back to THIS_MONTH")
+                        "CUSTOM period selected but no date range set - falling back to THIS_CYCLE")
                     // Auto-correct the invalid state
-                    _selectedPeriod.value = TimePeriod.THIS_MONTH
+                    _selectedPeriod.value = TimePeriod.THIS_CYCLE
                     val (startDate, endDate) = cycleRange
                     val startDateTime = startDate.atStartOfDay()
                     val endDateTime = endDate.atTime(23, 59, 59)
@@ -1336,7 +1350,15 @@ class TransactionsViewModel @Inject constructor(
                     }
                 }
             }
-            TimePeriod.THIS_MONTH -> {
+            TimePeriod.THIS_CYCLE -> {
+                val (startDate, endDate) = cycleRange
+                val startDateTime = startDate.atStartOfDay()
+                val endDateTime = endDate.atTime(23, 59, 59)
+                categoriesFilteredFlow.map { transactions ->
+                    transactions.filter { it.dateTime in startDateTime..endDateTime }
+                }
+            }
+            TimePeriod.LAST_CYCLE -> {
                 val (startDate, endDate) = cycleRange
                 val startDateTime = startDate.atStartOfDay()
                 val endDateTime = endDate.atTime(23, 59, 59)
@@ -1540,20 +1562,20 @@ data class FilterParams(
     val typeFilter: TransactionTypeFilter
 )
 
-enum class DateGroup(val label: String) {
-    TODAY("Today"),
-    YESTERDAY("Yesterday"),
-    THIS_WEEK("This Week"),
-    EARLIER("Earlier")
+enum class DateGroup(@StringRes val labelRes: Int) {
+    TODAY(R.string.date_group_today),
+    YESTERDAY(R.string.date_group_yesterday),
+    THIS_WEEK(R.string.date_group_this_week),
+    EARLIER(R.string.date_group_earlier)
 }
 
-enum class SortOption(val label: String) {
-    DATE_NEWEST("Newest First"),
-    DATE_OLDEST("Oldest First"),
-    AMOUNT_HIGHEST("Highest Amount"),
-    AMOUNT_LOWEST("Lowest Amount"),
-    MERCHANT_AZ("Merchant (A-Z)"),
-    MERCHANT_ZA("Merchant (Z-A)")
+enum class SortOption(@StringRes val labelRes: Int) {
+    DATE_NEWEST(R.string.sort_newest),
+    DATE_OLDEST(R.string.sort_oldest),
+    AMOUNT_HIGHEST(R.string.sort_highest),
+    AMOUNT_LOWEST(R.string.sort_lowest),
+    MERCHANT_AZ(R.string.sort_merchant_az),
+    MERCHANT_ZA(R.string.sort_merchant_za)
 }
 
 data class FilteredTotals(

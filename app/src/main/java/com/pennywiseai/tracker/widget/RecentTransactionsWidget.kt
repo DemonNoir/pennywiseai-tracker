@@ -72,13 +72,13 @@ class RecentTransactionsWidget : GlanceAppWidget() {
                 else
                     PennyWiseWidgetTheme.colors
             ) {
-                RecentTransactionsContent(data)
+                RecentTransactionsContent(context, data)
             }
         }
     }
 
     @Composable
-    private fun RecentTransactionsContent(data: RecentTransactionsWidgetData) {
+    private fun RecentTransactionsContent(context: Context, data: RecentTransactionsWidgetData) {
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
@@ -87,18 +87,18 @@ class RecentTransactionsWidget : GlanceAppWidget() {
             verticalAlignment = Alignment.Top,
             horizontalAlignment = Alignment.Start
         ) {
-            Header()
+            Header(context)
 
             Column(
                 modifier = GlanceModifier
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
-                Summary(totalSpent = data.totalSpent, currency = data.currency)
+                Summary(context, totalSpent = data.totalSpent, currency = data.currency)
 
                 Spacer(modifier = GlanceModifier.height(12.dp))
 
                 if (data.transactions.isEmpty()) {
-                    EmptyState()
+                    EmptyState(context)
                 } else {
                     TransactionList(data.transactions)
                 }
@@ -107,7 +107,7 @@ class RecentTransactionsWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun Header() {
+    private fun Header(context: Context) {
         Box(
             modifier = GlanceModifier
                 .fillMaxWidth()
@@ -115,7 +115,7 @@ class RecentTransactionsWidget : GlanceAppWidget() {
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Text(
-                text = "Recent Transactions",
+                text = context.getString(R.string.widget_recent_txns_title),
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 14.sp,
@@ -137,7 +137,7 @@ class RecentTransactionsWidget : GlanceAppWidget() {
                 ) {
                     Image(
                         provider = ImageProvider(R.drawable.ic_widget_add),
-                        contentDescription = "Add Transaction",
+                        contentDescription = context.getString(R.string.txn_add_title),
                         modifier = GlanceModifier.size(20.dp)
                     )
                 }
@@ -146,12 +146,12 @@ class RecentTransactionsWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun Summary(totalSpent: java.math.BigDecimal, currency: String) {
+    private fun Summary(context: Context, totalSpent: java.math.BigDecimal, currency: String) {
         Column(
             modifier = GlanceModifier.fillMaxWidth()
         ) {
             Text(
-                text = "Total spend this month",
+                text = context.getString(R.string.widget_total_spent_month),
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 13.sp
@@ -233,7 +233,7 @@ class RecentTransactionsWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun EmptyState() {
+    private fun EmptyState(context: Context) {
         Column(
             modifier = GlanceModifier
                 .fillMaxWidth()
@@ -242,7 +242,7 @@ class RecentTransactionsWidget : GlanceAppWidget() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "No transactions yet",
+                text = context.getString(R.string.widget_no_txns),
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 13.sp
@@ -250,7 +250,7 @@ class RecentTransactionsWidget : GlanceAppWidget() {
             )
             Spacer(modifier = GlanceModifier.height(2.dp))
             Text(
-                text = "Tap + to add manually",
+                text = context.getString(R.string.widget_add_manual_hint),
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 12.sp

@@ -10,6 +10,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
+
 @Composable
 fun PermissionDisclosureDialog(
     onDismissRequest: () -> Unit,
@@ -43,14 +46,14 @@ fun PermissionDisclosureDialog(
                     onDismissRequest()
                 }
             ) {
-                Text("Agree & Continue")
+                Text(stringResource(R.string.perm_disclosure_agree))
             }
         },
         dismissButton = {
             TextButton(
                 onClick = onDismissRequest
             ) {
-                Text("Not Now")
+                Text(stringResource(R.string.perm_disclosure_not_now))
             }
         }
     )

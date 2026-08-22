@@ -36,6 +36,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.data.contacts.LocalMerchantDisplay
@@ -120,7 +122,7 @@ fun AnalyticsScreen(
             availableCurrencies.size > 1 &&
             selectedCurrency.isNotBlank() &&
             !selectedCurrency.equals(primaryVisibleCurrency, ignoreCase = true)
-    val hasActiveAnalyticsFilter = selectedPeriod != TimePeriod.THIS_MONTH ||
+    val hasActiveAnalyticsFilter = selectedPeriod != TimePeriod.THIS_CYCLE ||
             customDateRange != null ||
             transactionTypeFilter != TransactionTypeFilter.EXPENSE ||
             categoryFilter != null ||
@@ -139,7 +141,7 @@ fun AnalyticsScreen(
             CustomTitleTopAppBar(
                 scrollBehaviorSmall = scrollBehaviorSmall,
                 scrollBehaviorLarge = scrollBehaviorLarge,
-                title = "Analytics",
+                title = stringResource(R.string.analytics_title),
                 hazeState = hazeState
             )
         }
@@ -227,7 +229,7 @@ fun AnalyticsScreen(
                     showAccountMenu = false
                 },
                 onResetFilters = {
-                    viewModel.selectPeriod(TimePeriod.THIS_MONTH)
+                    viewModel.selectPeriod(TimePeriod.THIS_CYCLE)
                     viewModel.setTransactionTypeFilter(TransactionTypeFilter.EXPENSE)
                     viewModel.clearCategoryFilter()
                     viewModel.setAccountFilter(null)
@@ -263,7 +265,7 @@ fun AnalyticsScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     SectionHeaderV2(
-                        title = "Trends",
+                        title = stringResource(R.string.analytics_trends_title),
                         action = {
                             Button(
                                 onClick = { showChartTypeSelector = !showChartTypeSelector },
@@ -285,9 +287,9 @@ fun AnalyticsScreen(
                                 Spacer(modifier = Modifier.width(Spacing.xs))
                                 Text(
                                     text = when (chartType) {
-                                        ChartType.LINE -> "Line"
-                                        ChartType.BAR -> "Bar"
-                                        ChartType.HEATMAP -> "Heatmap"
+                                        ChartType.LINE -> stringResource(R.string.analytics_chart_line)
+                                        ChartType.BAR -> stringResource(R.string.analytics_chart_bar)
+                                        ChartType.HEATMAP -> stringResource(R.string.analytics_chart_heatmap)
                                     },
                                     style = MaterialTheme.typography.labelMedium
                                 )
@@ -336,9 +338,9 @@ fun AnalyticsScreen(
                                         )
                                         Text(
                                             text = when (type) {
-                                                ChartType.LINE -> "Line Chart"
-                                                ChartType.BAR -> "Bar Chart"
-                                                ChartType.HEATMAP -> "Heatmap"
+                                                ChartType.LINE -> stringResource(R.string.analytics_chart_line_full)
+                                                ChartType.BAR -> stringResource(R.string.analytics_chart_bar_full)
+                                                ChartType.HEATMAP -> stringResource(R.string.analytics_chart_heatmap)
                                             },
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = if (chartType == type)
@@ -389,7 +391,7 @@ fun AnalyticsScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     SectionHeaderV2(
-                        title = "Top Categories",
+                        title = stringResource(R.string.analytics_top_categories_title),
                         action = {
                             IconButton(onClick = {
                                 categoryViewType = if (categoryViewType == CategoryViewType.CHART) {
@@ -451,7 +453,7 @@ fun AnalyticsScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     SectionHeaderV2(
-                        title = "Top Tags",
+                        title = stringResource(R.string.analytics_top_tags_title),
                         action = {
                             // View-toggle only makes sense once the breakdown is
                             // unlocked; free users get no toggle over the locked card.
@@ -523,7 +525,7 @@ fun AnalyticsScreen(
         if (uiState.topMerchants.isNotEmpty()) {
             item {
                 SectionHeaderV2(
-                    title = "Top Merchants"
+                    title = stringResource(R.string.analytics_top_merchants_title)
                 )
             }
 
@@ -550,7 +552,7 @@ fun AnalyticsScreen(
         if (uiState.accountBreakdown.isNotEmpty()) {
             item {
                 SectionHeaderV2(
-                    title = "By Account"
+                    title = stringResource(R.string.analytics_by_account_title)
                 )
             }
 
@@ -614,12 +616,12 @@ private fun TagBreakdownLockedCard(onClick: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
                 Text(
-                    text = "See your Top Tags with Pro",
+                    text = stringResource(R.string.analytics_tag_locked_title),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Unlock a spending breakdown across all your tags. Tagging and filtering stay free.",
+                    text = stringResource(R.string.analytics_tag_locked_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -684,7 +686,7 @@ private fun AnalyticsFilterBar(
             item {
                 AssistChip(
                     onClick = onResetFilters,
-                    label = { Text("Clear") },
+                    label = { Text(stringResource(R.string.common_clear)) },
                     leadingIcon = {
                         Icon(
                             Icons.Default.Close,
@@ -708,7 +710,7 @@ private fun AnalyticsFilterBar(
                         colors = analyticsFilterChipColors(),
                         border = analyticsFilterChipBorder(selected = selectedProfileId != null),
                         selected = selectedProfileId != null,
-                        text = selectedProfileLabel ?: "All Accounts",
+                        text = selectedProfileLabel ?: stringResource(R.string.common_all_accounts),
                         icon = profileFilterIcon(profiles, selectedProfileId),
                         onClick = onProfileClick
                     )
@@ -729,13 +731,13 @@ private fun AnalyticsFilterBar(
                 ExpressiveFilterChip(
                     colors = analyticsFilterChipColors(),
                     border = analyticsFilterChipBorder(
-                        selected = selectedPeriod != TimePeriod.THIS_MONTH || customRangeLabel != null
+                        selected = selectedPeriod != TimePeriod.THIS_CYCLE || customRangeLabel != null
                     ),
-                    selected = selectedPeriod != TimePeriod.THIS_MONTH || customRangeLabel != null,
+                    selected = selectedPeriod != TimePeriod.THIS_CYCLE || customRangeLabel != null,
                     text = if (selectedPeriod == TimePeriod.CUSTOM && customRangeLabel != null) {
                         customRangeLabel
                     } else {
-                        selectedPeriod.label
+                        stringResource(selectedPeriod.labelRes)
                     },
                     icon = Icons.Default.CalendarMonth,
                     onClick = onPeriodClick
@@ -748,7 +750,7 @@ private fun AnalyticsFilterBar(
                 ) {
                     timePeriods.forEach { period ->
                         DropdownMenuItem(
-                            text = { Text(period.label) },
+                            text = { Text(stringResource(period.labelRes)) },
                             leadingIcon = {
                                 if (selectedPeriod == period) {
                                     Icon(Icons.Default.Check, contentDescription = null)
@@ -781,7 +783,7 @@ private fun AnalyticsFilterBar(
                 ) {
                     TransactionTypeFilter.values().forEach { typeFilter ->
                         DropdownMenuItem(
-                            text = { Text(typeFilter.label) },
+                            text = { Text(stringResource(typeFilter.labelRes)) },
                             leadingIcon = {
                                 if (transactionTypeFilter == typeFilter) {
                                     Icon(Icons.Default.Check, contentDescription = null)
@@ -805,7 +807,7 @@ private fun AnalyticsFilterBar(
                             selected = selectedCurrency != availableCurrencies.firstOrNull()
                         ),
                         selected = selectedCurrency != availableCurrencies.firstOrNull(),
-                        text = selectedCurrency.ifBlank { "Currency" },
+                        text = selectedCurrency.ifBlank { stringResource(R.string.settings_currency) },
                         icon = Icons.Default.CurrencyExchange,
                         onClick = onCurrencyClick
                     )
@@ -838,7 +840,7 @@ private fun AnalyticsFilterBar(
                         colors = analyticsFilterChipColors(),
                         border = analyticsFilterChipBorder(selected = categoryFilter != null),
                         selected = categoryFilter != null,
-                        text = categoryFilter ?: "Category",
+                        text = categoryFilter ?: stringResource(R.string.txn_category_label),
                         icon = Icons.Default.Category,
                         onClick = onCategoryClick
                     )
@@ -849,7 +851,7 @@ private fun AnalyticsFilterBar(
                         shape = MaterialTheme.shapes.large
                     ) {
                         DropdownMenuItem(
-                            text = { Text("All categories") },
+                            text = { Text(stringResource(R.string.filter_all_categories)) },
                             leadingIcon = {
                                 if (categoryFilter == null) {
                                     Icon(Icons.Default.Check, contentDescription = null)
@@ -896,7 +898,7 @@ private fun AnalyticsFilterBar(
                         colors = analyticsFilterChipColors(),
                         border = analyticsFilterChipBorder(selected = accountFilter != null),
                         selected = accountFilter != null,
-                        text = selectedAccountLabel ?: "Account",
+                        text = selectedAccountLabel ?: stringResource(R.string.filter_account_label),
                         icon = Icons.Default.AccountBalanceWallet,
                         onClick = onAccountClick
                     )
@@ -907,7 +909,7 @@ private fun AnalyticsFilterBar(
                         shape = MaterialTheme.shapes.large
                     ) {
                         DropdownMenuItem(
-                            text = { Text("All accounts") },
+                            text = { Text(stringResource(R.string.common_all_accounts)) },
                             leadingIcon = {
                                 if (accountFilter == null) {
                                     Icon(Icons.Default.Check, contentDescription = null)
@@ -987,7 +989,7 @@ private fun CategoryListItem(
             }
         },
         title = category.name,
-        subtitle = "${category.transactionCount} transactions",
+        subtitle = stringResource(R.string.analytics_transactions_unit, category.transactionCount),
         amount = CurrencyFormatter.formatCurrency(category.amount, currency),
         trailingContent = {
             Text(
@@ -1005,11 +1007,13 @@ private fun MerchantListItem(
     currency: String,
     onClick: () -> Unit = {}
 ) {
+    val transactionUnit = stringResource(if (merchant.transactionCount == 1) R.string.analytics_transaction_unit else R.string.analytics_transactions_unit)
     val subtitle = buildString {
         append("${merchant.transactionCount} ")
-        append(if (merchant.transactionCount == 1) "transaction" else "transactions")
+        append(transactionUnit)
         if (merchant.isSubscription) {
-            append(" • Subscription")
+            append(" • ")
+            append(stringResource(R.string.analytics_subscription_tag))
         }
     }
 
@@ -1055,7 +1059,7 @@ private fun AccountBreakdownListItem(
         },
         title = account.label,
         subtitle = "${account.transactionCount} " +
-            if (account.transactionCount == 1) "transaction" else "transactions",
+            stringResource(if (account.transactionCount == 1) R.string.analytics_transaction_unit else R.string.analytics_transactions_unit),
         amount = CurrencyFormatter.formatCurrency(account.amount, currency),
         trailingContent = {
             Text(
@@ -1079,9 +1083,9 @@ private fun EmptyAnalyticsState(
     ) {
         PennyWiseEmptyState(
             icon = Icons.AutoMirrored.Filled.ShowChart,
-            headline = "Not enough data yet",
-            description = "Your spending insights will appear here after your first week of tracking",
-            actionLabel = "Scan SMS",
+            headline = stringResource(R.string.analytics_empty_title),
+            description = stringResource(R.string.analytics_empty_desc),
+            actionLabel = stringResource(R.string.analytics_scan_sms_btn),
             onAction = onScanSmsClick
         )
     }

@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.ui.components.buildHeatmapMonthLabels
 import com.pennywiseai.tracker.ui.theme.Dimensions
 import com.pennywiseai.tracker.ui.theme.Spacing
@@ -102,9 +104,9 @@ fun HeatmapWidget(
                         // Rows: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
                         for (d in 0 until 7) {
                             val label = when (d) {
-                                0 -> "M"
-                                2 -> "W"
-                                4 -> "F"
+                                0 -> stringResource(R.string.day_mon_short)
+                                2 -> stringResource(R.string.day_wed_short)
+                                4 -> stringResource(R.string.day_fri_short)
                                 else -> null
                             }
                             Box(

@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
 import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
@@ -52,12 +54,12 @@ fun AddAccountScreen(
             CustomTitleTopAppBar(
                 scrollBehaviorSmall = scrollBehaviorSmall,
                 scrollBehaviorLarge = scrollBehaviorLarge,
-                title = "Add Account",
+                title = stringResource(R.string.add_account_title),
                 hasBackButton = true,
                 hasActionButton = true,
                 navigationContent = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back_desc))
                     }
                 },
                 hazeState = hazeState
@@ -95,7 +97,7 @@ fun AddAccountScreen(
                         modifier = Modifier.size(Dimensions.Icon.medium)
                     )
                     Text(
-                        text = "Add accounts not tracked via SMS like cash, wallets, credit cards, or investment accounts.",
+                        text = stringResource(R.string.add_account_info),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -154,12 +156,10 @@ fun AddAccountScreen(
                 onExpandedChange = { showTypeDropdown = it }
             ) {
                 TextField(
-                    value = formState.accountType.name.lowercase().let { s ->
-                        if (s.isEmpty()) s else s.substring(0, 1).uppercase() + s.substring(1)
-                    },
+                    value = stringResource(accountTypeLabel(formState.accountType)),
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Account Type", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.add_account_type), fontWeight = FontWeight.SemiBold) },
                     trailingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -185,9 +185,7 @@ fun AddAccountScreen(
                     AccountType.values().forEach { type ->
                         DropdownMenuItem(
                             text = {
-                                Text(type.name.lowercase().let { s ->
-                                    if (s.isEmpty()) s else s.substring(0, 1).uppercase() + s.substring(1)
-                                })
+                                Text(stringResource(accountTypeLabel(type)))
                             },
                             onClick = {
                                 viewModel.updateAccountType(type)
@@ -217,7 +215,7 @@ fun AddAccountScreen(
                     value = "${formState.currency}  ${CurrencyFormatter.getCurrencySymbol(formState.currency)}",
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Currency", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.settings_currency), fontWeight = FontWeight.SemiBold) },
                     trailingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null) },
                     leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null) },
                     modifier = Modifier
@@ -251,7 +249,7 @@ fun AddAccountScreen(
                 TextField(
                     value = formState.bankName,
                     onValueChange = viewModel::updateBankName,
-                    label = { Text("Account Name *", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.add_account_name), fontWeight = FontWeight.SemiBold) },
                     leadingIcon = { Icon(Icons.Default.Business, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -265,7 +263,7 @@ fun AddAccountScreen(
                     onValueChange = viewModel::updateAccountLast4,
                     label = {
                         Text(
-                            if (formState.accountType == AccountType.CASH) "Identifier (Optional)" else "Last 4 Digits *",
+                            if (formState.accountType == AccountType.CASH) stringResource(R.string.add_account_identifier_optional) else stringResource(R.string.add_account_last4_required),
                             fontWeight = FontWeight.SemiBold
                         )
                     },
@@ -280,7 +278,7 @@ fun AddAccountScreen(
                 TextField(
                     value = formState.balance,
                     onValueChange = viewModel::updateBalance,
-                    label = { Text("Current Balance *", fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.add_current_balance), fontWeight = FontWeight.SemiBold) },
                     leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -294,9 +292,9 @@ fun AddAccountScreen(
                     TextField(
                         value = formState.creditLimit,
                         onValueChange = viewModel::updateCreditLimit,
-                        label = { Text("Credit Limit", fontWeight = FontWeight.SemiBold) },
+                        label = { Text(stringResource(R.string.add_credit_limit), fontWeight = FontWeight.SemiBold) },
                         leadingIcon = { Icon(Icons.Default.CreditScore, contentDescription = null) },
-                        supportingText = { Text("Optional: Set credit limit for utilization tracking") },
+                        supportingText = { Text(stringResource(R.string.add_credit_limit_desc)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -321,10 +319,17 @@ fun AddAccountScreen(
             ) {
                 Icon(Icons.Default.Done, contentDescription = null)
                 Spacer(Modifier.width(Spacing.sm))
-                Text("Save", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.common_save), style = MaterialTheme.typography.titleMedium)
             }
 
             Spacer(modifier = Modifier.height(Spacing.md))
         }
     }
+}
+
+private fun accountTypeLabel(type: AccountType): Int = when (type) {
+    AccountType.SAVINGS -> R.string.acct_type_savings
+    AccountType.CURRENT -> R.string.acct_type_current
+    AccountType.CREDIT -> R.string.acct_type_credit
+    AccountType.CASH -> R.string.acct_type_cash
 }

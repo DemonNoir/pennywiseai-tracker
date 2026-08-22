@@ -16,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.ui.components.CategoryIcon
 import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
 import com.pennywiseai.tracker.ui.icons.CategoryMapping
@@ -63,7 +65,7 @@ fun AnalyticsSummaryCard(
                 // Total Amount - bolder typography
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "TOTAL",
+                        text = stringResource(R.string.analytics_summary_total),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -106,7 +108,7 @@ fun AnalyticsSummaryCard(
                             tint = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                         Text(
-                            text = "$transactionCount TXNS",
+                            text = stringResource(R.string.analytics_summary_txns, transactionCount),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
@@ -131,7 +133,7 @@ fun AnalyticsSummaryCard(
                 // Average Amount with /day suffix
                 Column {
                     Text(
-                        text = "AVERAGE",
+                        text = stringResource(R.string.analytics_summary_average),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -149,7 +151,7 @@ fun AnalyticsSummaryCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = " /day",
+                            text = stringResource(R.string.analytics_summary_per_day),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 2.dp)
@@ -164,7 +166,7 @@ fun AnalyticsSummaryCard(
 
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            text = "${topCategoryPercentage.toInt()}% of total",
+                            text = stringResource(R.string.analytics_summary_percentage, topCategoryPercentage.toInt()),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 4.dp)

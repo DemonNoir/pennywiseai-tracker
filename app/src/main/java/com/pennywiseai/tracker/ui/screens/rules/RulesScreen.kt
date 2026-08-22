@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -106,8 +108,8 @@ fun RulesScreen(
         if (showResetDialog) {
             AlertDialog(
                 onDismissRequest = { showResetDialog = false },
-                title = { Text("Reset Rules") },
-                text = { Text("Reset all rules to default settings? Your custom settings will be lost.") },
+                title = { Text(stringResource(R.string.rule_reset_title)) },
+                text = { Text(stringResource(R.string.rule_reset_body)) },
                 confirmButton = {
                     TextButton(
                         onClick = {
@@ -115,12 +117,12 @@ fun RulesScreen(
                             showResetDialog = false
                         }
                     ) {
-                        Text("Reset")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showResetDialog = false }) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.common_cancel))
                     }
                 }
             )
@@ -393,7 +395,7 @@ private fun RuleCard(
                         ) {
                             // Edit rule
                             DropdownMenuItem(
-                                text = { Text("Edit Rule") },
+                                text = { Text(stringResource(R.string.rule_edit_menu)) },
                                 leadingIcon = {
                                     Icon(Icons.Default.Edit, contentDescription = null)
                                 },
@@ -405,7 +407,7 @@ private fun RuleCard(
 
                             // Duplicate rule (opens the editor prefilled as a new rule)
                             DropdownMenuItem(
-                                text = { Text("Duplicate Rule") },
+                                text = { Text(stringResource(R.string.rule_duplicate_menu)) },
                                 leadingIcon = {
                                     Icon(Icons.Default.ContentCopy, contentDescription = null)
                                 },
@@ -417,7 +419,7 @@ private fun RuleCard(
 
                             // Apply to past transactions
                             DropdownMenuItem(
-                                text = { Text("Apply to Past Transactions") },
+                                text = { Text(stringResource(R.string.rule_apply_past_menu)) },
                                 leadingIcon = {
                                     Icon(Icons.Default.History, contentDescription = null)
                                 },
@@ -430,7 +432,7 @@ private fun RuleCard(
                             // Only show delete for custom rules
                             if (!rule.isSystemTemplate) {
                                 DropdownMenuItem(
-                                    text = { Text("Delete Rule") },
+                                    text = { Text(stringResource(R.string.rule_delete_menu)) },
                                     leadingIcon = {
                                         Icon(
                                             Icons.Default.Delete,
@@ -459,8 +461,8 @@ private fun RuleCard(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Rule") },
-            text = { Text("Delete \"${rule.name}\"? This action cannot be undone.") },
+            title = { Text(stringResource(R.string.rule_delete_menu)) },
+            text = { Text(stringResource(R.string.rule_delete_body, rule.name)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -471,12 +473,12 @@ private fun RuleCard(
                         contentColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("Delete")
+                    Text(stringResource(R.string.common_delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )

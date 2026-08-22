@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.ui.theme.Dimensions
 import com.pennywiseai.tracker.ui.theme.Spacing
 import com.pennywiseai.tracker.utils.CurrencyFormatter
@@ -64,7 +66,7 @@ fun SplitEditor(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Split Categories",
+                    text = stringResource(R.string.txn_split_header),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -75,7 +77,7 @@ fun SplitEditor(
                         contentColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("Remove Splits")
+                    Text(stringResource(R.string.txn_split_remove_all))
                 }
             }
 
@@ -125,7 +127,7 @@ fun SplitEditor(
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(Dimensions.Icon.small))
                 Spacer(modifier = Modifier.width(Spacing.xs))
-                Text("Add Split")
+                Text(stringResource(R.string.txn_split_add))
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.xs))
@@ -156,7 +158,7 @@ fun SplitEditor(
                         )
                     }
                     Text(
-                        text = "Total:",
+                        text = stringResource(R.string.txn_split_total),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
@@ -176,9 +178,9 @@ fun SplitEditor(
                     if (!isBalanced) {
                         Text(
                             text = if (remaining > BigDecimal.ZERO) {
-                                "${CurrencyFormatter.formatCurrency(remaining, currency)} remaining"
+                                stringResource(R.string.txn_split_remaining, CurrencyFormatter.formatCurrency(remaining, currency))
                             } else {
-                                "${CurrencyFormatter.formatCurrency(remaining.abs(), currency)} over"
+                                stringResource(R.string.txn_split_over, CurrencyFormatter.formatCurrency(remaining.abs(), currency))
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
@@ -301,7 +303,7 @@ private fun SplitRow(
         ) {
             Icon(
                 Icons.Default.Close,
-                contentDescription = "Remove split",
+                contentDescription = stringResource(R.string.common_delete),
                 tint = if (canRemove) {
                     MaterialTheme.colorScheme.error
                 } else {
@@ -333,7 +335,7 @@ fun SplitBreakdownCard(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             Text(
-                text = "Category Breakdown",
+                text = stringResource(R.string.txn_split_breakdown_header),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
