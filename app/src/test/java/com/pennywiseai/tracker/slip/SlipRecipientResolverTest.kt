@@ -138,6 +138,35 @@ class SlipRecipientResolverTest {
         assertEquals("ร้านถุงเงิน (ต่อพลาสติก)", candidates.first().merchantName)
     }
 
+    @Test
+    fun `sender with OCR prefix is never suggested as merchant candidate`() {
+        val rawText = """
+            โอนเงินสําเร็จ
+            28 ส.ค. 69 17:46 น.
+            wie ปฐวิกรณ์ a
+            ธ.กสิกรไทย
+            XXX-X-X9937-x
+            นาย วีรพล ปัดธุลี
+            XXX-XXX-1234
+            จำนวน: 20.00 บาท
+        """.trimIndent()
+
+        val candidates = SlipRecipientResolver.resolve(
+            ocrName = "นาย วีรพล ปัดธุลี",
+            rawText = rawText,
+            bankName = "KBank",
+            corrections = listOf(
+                correction(original = "wie ปฐวิกรณ์", corrected = "wie ปฐวิกรณ์", bankName = "KBank")
+            ),
+            transactionHistory = listOf(
+                transaction("wie ปฐวิกรณ์", bankName = "KBank")
+            )
+        )
+
+        // "wie ปฐวิกรณ์" is the sender and must NEVER be suggested as the merchant/payee
+        assertTrue(candidates.none { it.merchantName.contains("ปฐวิกรณ์") })
+    }
+
     private fun correction(
         original: String,
         corrected: String,

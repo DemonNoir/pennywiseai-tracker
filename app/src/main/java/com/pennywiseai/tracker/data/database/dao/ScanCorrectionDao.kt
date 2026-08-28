@@ -13,6 +13,9 @@ interface ScanCorrectionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCorrection(correction: ScanCorrectionEntity)
 
+    @Query("DELETE FROM scan_corrections")
+    suspend fun clearAllCorrections()
+
     @Query("SELECT * FROM scan_corrections WHERE bankName = :bankName AND fieldName = :fieldName ORDER BY createdAt DESC")
     fun getCorrections(bankName: String, fieldName: String): Flow<List<ScanCorrectionEntity>>
 

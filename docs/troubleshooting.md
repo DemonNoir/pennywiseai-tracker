@@ -32,3 +32,16 @@ Symbolic link the missing tools from a full JDK (like Eclipse Temurin or JetBrai
 **Alternative Fix:**
 Configure the IDE's Gradle settings to use a full JDK path instead of the default/embedded JRE.
 In Android Studio: `Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK`.
+
+### Function invocation 'context(...)' expected in `SettingsScreen.kt`
+**Error:**
+```
+e: file:///.../SettingsScreen.kt:253:40 Function invocation 'context(...)' expected.
+```
+
+**Cause:**
+The `context` variable (from `LocalContext.current`) was referenced in a `Toast.makeText` call inside a dialog's `onClick` handler before its declaration line. Because `context` is a reserved keyword for Kotlin Context Receivers, the compiler misidentified it as a context receiver invocation. Additionally, `action_confirm` and `action_cancel` string resources were missing.
+
+**Resolution:**
+1.  Moved `val context = LocalContext.current` to the top of the `SettingsScreen` Composable to ensure it's in scope for all handlers.
+2.  Updated the missing string resource references to use the existing `common_confirm` and `common_cancel`.

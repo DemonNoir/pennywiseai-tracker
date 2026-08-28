@@ -113,7 +113,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            
+            signingConfig = signingConfigs.getByName("debug")
+
             // Only apply signing config to standard flavor
             for (flavor in productFlavors) {
                 if (flavor.name == "standard") {

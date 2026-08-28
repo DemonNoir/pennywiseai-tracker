@@ -453,5 +453,95 @@ class SlipParserTest {
         val parsed = SlipParser.parse(rawOcrText)
         assertEquals(SlipConfidence.CONFIRMED, parsed.confidence)
     }
+
+    @Test
+    fun testKBankPromptPaySlipWithOcrPrefixes() {
+        val rawOcrText = """
+            โอนเงินสําเร็จ
+
+            28 ส.ค. 69 17:49 น. จ
+
+            wie ปฐวิกรณ์ a
+
+            ธ.กสิกรไทย
+
+            XXX-X-X9937-x
+
+            น.ส.สมบูรณ์ พรมเมธ
+
+            รหัสพร้อมเพย์
+
+            XXX-XXX-0196
+
+            เลขที่รายการ:
+
+            016240174952BP
+
+            จํานวน:
+
+            50.00 บาท
+
+            ค่าธรรมเนียม:
+
+            0.00 บาท สแกนตรวจสอบสลิป
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+
+        assertEquals("KBank", parsed.bankName)
+        assertEquals(SlipDirection.OUTGOING, parsed.direction)
+        assertEquals("ปฐวิกรณ์", parsed.senderName)
+        assertEquals("XXX-X-X9937-x", parsed.senderAccount)
+        assertEquals("น.ส.สมบูรณ์ พรมเมธ", parsed.receiverName)
+        assertEquals("XXX-XXX-0196", parsed.receiverAccount)
+        assertEquals(BigDecimal("50.00"), parsed.amountBigDecimal)
+        assertEquals("016240174952BP", parsed.refNo)
+        assertEquals(SlipConfidence.CONFIRMED, parsed.confidence)
+    }
+
+    @Test
+    fun testOutgoingWithoutReceiverIsNotConfirmed() {
+        val rawOcrText = """
+            โอนเงินสำเร็จ
+            28 ส.ค. 69 17:49 น.
+            ธ.กสิกรไทย
+            เลขที่รายการ: 016240174952BP
+            จำนวนเงิน: 50.00 บาท
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+        // Outgoing transfer without receiver should not be CONFIRMED
+        assertNotEquals(SlipConfidence.CONFIRMED, parsed.confidence)
+    }
+
+    @Test
+    fun testScbPromptPayTopUpWithAdditionalInfo() {
+        val rawOcrText = """
+            SCB
+            i                 *
+            08 ส.ค. 2569 - 11:55
+            รหัสอ้างอิง: 202608082JLb3RYN2WRAnPByF
+            จาก                       @ uns ปฐวีกรณ์ อบฟัง
+            XXX-XXX994-3
+            ไปยัง เต็มเงินพร้อมเพย์
+            004999109017292
+            จํานวนเงิน                               200.00
+            ข้อมูลเพิ่มเติมจากผู้ให้บริการ
+            wa. นิจจารีย์  (K Plus W)
+            ฟูรับเงินสามารถสแกนคิวอาร์โค้ดน่เพือ
+            ตรวจสอบสถานะการเติมเงิน
+        """.trimIndent()
+
+        val parsed = SlipParser.parse(rawOcrText)
+
+        assertEquals("SCB", parsed.bankName)
+        assertEquals("ปฐวีกรณ์ อบฟัง", parsed.senderName)
+        assertEquals("XXX-XXX994-3", parsed.senderAccount)
+        assertEquals("นิจจารีย์ (K Plus W)", parsed.receiverName)
+        assertEquals("004999109017292", parsed.receiverAccount)
+        assertEquals(BigDecimal("200.00"), parsed.amountBigDecimal)
+        assertEquals("202608082JLb3RYN2WRAnPByF", parsed.refNo)
+    }
 }
+
 

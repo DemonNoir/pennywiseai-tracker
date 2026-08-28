@@ -158,6 +158,8 @@ fun SettingsScreen(
     var showMainAccountDropdown by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showCleanUpDuplicatesDialog by remember { mutableStateOf(false) }
+    var showClearMerchantsDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val permissionUiState by permissionViewModel.uiState.collectAsStateWithLifecycle()
     val hasNotificationAccess = permissionUiState.hasNotificationAccess
 
@@ -239,7 +241,57 @@ fun SettingsScreen(
         )
     }
 
-    val context = LocalContext.current
+    var showRestoreMerchantsDialog by remember { mutableStateOf(false) }
+
+    if (showRestoreMerchantsDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestoreMerchantsDialog = false },
+            title = { Text("กู้คืนชื่อผู้รับจากสลิป (Restore Slip Payee Names)") },
+            text = { Text("ระบบจะอ่านชื่อผู้รับเงินจากข้อความสลิปเดิมของทุกรายการให้ใหม่โดยอัตโนมัติ โดยหมวดหมู่ ยอดเงิน และวันที่ที่คุณจัดไว้จะคงเดิมทั้งหมด") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRestoreMerchantsDialog = false
+                        settingsViewModel.restoreSlipMerchants { count ->
+                            Toast.makeText(context, "กู้คืนชื่อผู้รับสำเร็จ $count รายการ", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.common_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreMerchantsDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    if (showClearMerchantsDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearMerchantsDialog = false },
+            title = { Text("Reset Learned Merchants") },
+            text = { Text("This will permanently delete all learned merchant name corrections (from slip scans). Are you sure you want to reset this history?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        settingsViewModel.clearLearnedMerchants()
+                        showClearMerchantsDialog = false
+                        Toast.makeText(context, "Learned merchants reset successfully", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text(stringResource(R.string.common_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearMerchantsDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
     val notificationAccessLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
@@ -713,6 +765,24 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_export_data_title),
                     subtitle = stringResource(R.string.settings_export_data_subtitle),
                     onClick = { settingsViewModel.exportBackup() },
+                    position = ListItemPosition.Middle
+                )
+                SettingsNavItem(
+                    icon = Icons.Default.DeleteSweep,
+                    iconBgColor = red_light,
+                    iconTint = red_dark,
+                    title = "Reset Learned Merchants",
+                    subtitle = "Clear all auto-correction history for merchant names",
+                    onClick = { showClearMerchantsDialog = true },
+                    position = ListItemPosition.Middle
+                )
+                SettingsNavItem(
+                    icon = Icons.Default.Refresh,
+                    iconBgColor = blue_light,
+                    iconTint = blue_dark,
+                    title = "กู้คืนชื่อผู้รับจากสลิป (Restore Slip Payee Names)",
+                    subtitle = "อ่านชื่อผู้รับเงินจากข้อความสลิปเดิมของทุกรายการใหม่ โดยไม่กระทบหมวดหมู่",
+                    onClick = { showRestoreMerchantsDialog = true },
                     position = ListItemPosition.Middle
                 )
                 SettingsSwitchRow(

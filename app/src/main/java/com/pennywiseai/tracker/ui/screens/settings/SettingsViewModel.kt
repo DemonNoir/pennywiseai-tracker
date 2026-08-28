@@ -66,6 +66,7 @@ class SettingsViewModel @Inject constructor(
     private val folderBackupWriter: FolderBackupWriter,
     private val scheduledFolderBackupScheduler: ScheduledFolderBackupScheduler,
     private val contactsResolver: com.pennywiseai.tracker.data.contacts.ContactsResolver,
+    private val scanCorrectionDao: com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao,
     entitlementGate: EntitlementGate,
 ) : ViewModel() {
 
@@ -482,6 +483,42 @@ class SettingsViewModel @Inject constructor(
             userPreferencesRepository.setDisplayCurrency(currency)
             com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
             com.pennywiseai.tracker.widget.RecentTransactionsWidgetDataStore.clear(context)
+        }
+    }
+
+
+
+    fun clearLearnedMerchants() {
+        viewModelScope.launch {
+            scanCorrectionDao.clearAllCorrections()
+            // Using a flow to show a toast message might require a UI event system,
+            // but for simplicity, we can let the UI trigger the success message directly.
+        }
+    }
+
+    fun restoreSlipMerchants(onComplete: (Int) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            scanCorrectionDao.clearAllCorrections()
+            val slipTransactions = transactionRepository.getAllTransactionsList()
+                .filter { it.smsSender == "SLIP_SCAN" && !it.smsBody.isNullOrBlank() }
+
+            var restoredCount = 0
+            for (txn in slipTransactions) {
+                val parsed = com.pennywiseai.tracker.slip.parser.SlipParser.parse(txn.smsBody.orEmpty())
+                val realReceiver = parsed.receiverName
+                if (!realReceiver.isNullOrBlank() && realReceiver != txn.merchantName) {
+                    transactionRepository.updateTransaction(
+                        txn.copy(
+                            merchantName = realReceiver,
+                            updatedAt = java.time.LocalDateTime.now()
+                        )
+                    )
+                    restoredCount++
+                }
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onComplete(restoredCount)
+            }
         }
     }
 

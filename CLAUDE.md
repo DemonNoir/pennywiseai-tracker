@@ -59,7 +59,8 @@ verify.
 ## Architecture at a glance
 - **Stack:** Kotlin · Jetpack Compose + Material 3 · MVVM + Clean Architecture ·
   StateFlow (unidirectional data flow) · Hilt DI · Room · WorkManager (background
-  SMS scanning) · MediaPipe LLM (Qwen 2.5) for on-device AI.
+  SMS scanning) · Slip Parsing (Tesseract/PaddleOCR) · MediaPipe LLM (Qwen 2.5)
+  for on-device AI.
 - **Modules:** `app` (Android) · `parser-core` (pure-Kotlin bank SMS parsers, no
   Android deps) · `shared` (KMP) · `iosApp` · `pennywise-web`.
 - **UI:** Material You dynamic color (Android 12+), full light/dark with semantic
@@ -81,6 +82,7 @@ verify.
 | DB migrations | `docs/database-migrations.md` | Room schema changes |
 | Supported banks | `docs/BANK_SUPPORT.md`, `docs/supported-banks.json` | Which banks/patterns are covered (139 banks, 23 countries) |
 | Roadmap / requirements | `docs/planned-features.md`, `docs/prd-unified-currency.md` | Feature scope / intent |
+| Slip Scanning | `SLIP_SCANNING_REVIEW.md` | Logic and status of bank slip parsing |
 | Troubleshooting | `docs/troubleshooting.md` | Resolving build or environment issues |
 
 **Subagents:** `backup-maintainer` (backup-serialized changes) ·

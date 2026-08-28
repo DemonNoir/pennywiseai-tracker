@@ -150,10 +150,15 @@ class TransactionDetailViewModel @Inject constructor(
                     "ธนาคาร", "กสิกร", "ไทยพาณิชย์", "กรุงไทย", "กรุงเทพ", "กรุงศรี", "ออมสิน"
                 )
 
-                // Filter out transactions where the merchant name is essentially a bank name
+                val parsedSlip = rawText?.let { SlipParser.parse(it) }
+                val detectedSender = parsedSlip?.senderName
+                val excludedList = listOfNotNull(detectedSender, parsedSlip?.senderAccount)
+
+                // Filter out transactions where the merchant name is essentially a bank name or matches sender
                 val filteredHistory = transactions.filter { txn ->
                     val lowerName = txn.merchantName.lowercase()
-                    bankBlacklist.none { lowerName.contains(it) }
+                    bankBlacklist.none { lowerName.contains(it) } &&
+                        excludedList.none { SlipRecipientResolver.looksLikeSameParty(txn.merchantName, it) }
                 }
 
                 SlipRecipientResolver.resolve(
@@ -162,12 +167,14 @@ class TransactionDetailViewModel @Inject constructor(
                     bankName = bankName,
                     corrections = corrections,
                     transactionHistory = filteredHistory,
+                    excludedNames = excludedList,
                     limit = 1
                 ).firstOrNull()
                     ?.takeIf { candidate ->
                         val lowerCandidate = candidate.merchantName.lowercase()
                         !candidate.merchantName.equals(editable?.merchantName, ignoreCase = true) &&
-                            bankBlacklist.none { lowerCandidate.contains(it) }
+                            bankBlacklist.none { lowerCandidate.contains(it) } &&
+                            excludedList.none { SlipRecipientResolver.looksLikeSameParty(candidate.merchantName, it) }
                     }
                     ?.merchantName
             }
@@ -425,7 +432,22 @@ class TransactionDetailViewModel @Inject constructor(
     }
 
     fun enterEditMode() {
-        _editableTransaction.value = _transaction.value?.copy()
+        val currentTxn = _transaction.value
+        var initialEditable = currentTxn?.copy()
+
+        // 🚀 In-Memory Clean Re-Parse
+        // When entering edit mode for a slip transaction, silently extract the real receiver
+        // from cached raw text (smsBody) using SlipParser so the input field is always clean and updated.
+        if (currentTxn?.smsSender == "SLIP_SCAN" && !currentTxn.smsBody.isNullOrBlank()) {
+            val rawText = currentTxn.smsBody
+            val parsed = com.pennywiseai.tracker.slip.parser.SlipParser.parse(rawText)
+            val realReceiver = parsed.receiverName
+            if (!realReceiver.isNullOrBlank()) {
+                initialEditable = initialEditable?.copy(merchantName = realReceiver)
+            }
+        }
+
+        _editableTransaction.value = initialEditable
         _isEditMode.value = true
         _errorMessage.value = null
         _pendingReceiptUri.value = null

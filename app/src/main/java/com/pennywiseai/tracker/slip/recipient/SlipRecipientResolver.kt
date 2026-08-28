@@ -43,9 +43,19 @@ object SlipRecipientResolver {
         val normalizedOcr = normalize(ocrName)
         val normalizedRaw = normalize(rawText)
         if (normalizedOcr.length < 3 && normalizedRaw.length < 6) return emptyList()
-        val excluded = excludedNames
+        val detectedSender = if (!rawText.isNullOrBlank()) {
+            try {
+                val parsed = com.pennywiseai.tracker.slip.parser.SlipParser.parse(rawText)
+                if (!parsed.senderName.isNullOrBlank() && !parsed.receiverName.isNullOrBlank()) {
+                    parsed.senderName
+                } else null
+            } catch (_: Exception) { null }
+        } else null
+
+        val allExcluded = (excludedNames + listOfNotNull(detectedSender))
             .mapNotNull { it?.takeIf(String::isNotBlank) }
             .map { normalize(it) }
+            .filter { it.isNotBlank() && !isSamePartyName(it, normalizedOcr) }
 
         // Domain guard: slip OCR often reads the sender clearly and the recipient
         // poorly. Never let the sender/self name become a merchant candidate,
@@ -54,7 +64,7 @@ object SlipRecipientResolver {
             .asSequence()
             .filter { it.fieldName == "merchantName" }
             .filter { bankName == null || it.bankName.equals(bankName, ignoreCase = true) || it.bankName == "unknown" }
-            .filterNot { correction -> excluded.any { isSamePartyName(correction.correctedValue, it) } }
+            .filterNot { correction -> allExcluded.any { isSamePartyName(correction.correctedValue, it) || isSamePartyName(correction.originalValue, it) } }
             .mapNotNull { correctionCandidate(it, normalizedOcr, normalizedRaw) }
 
         val historyCandidates = transactionHistory
@@ -64,7 +74,7 @@ object SlipRecipientResolver {
             // them here pollutes merchant matching with the user's own name.
             .filter { it.transactionType != TransactionType.TRANSFER }
             .filter { it.smsSender != "SLIP_SCAN" || it.description?.contains(TransactionEntity.REVIEW_TAG) != true }
-            .filterNot { transaction -> excluded.any { isSamePartyName(transaction.merchantName, it) } }
+            .filterNot { transaction -> allExcluded.any { isSamePartyName(transaction.merchantName, it) } }
             .mapNotNull { historyCandidate(it, normalizedOcr, normalizedRaw, bankName) }
 
         return (correctionCandidates + historyCandidates)
@@ -74,6 +84,7 @@ object SlipRecipientResolver {
             .onEach { candidate -> 
                 android.util.Log.d("SlipResolver", "Candidate: ${candidate.merchantName}, Score: ${candidate.score}, Source: ${candidate.source}")
             }
+            .filterNot { candidate -> allExcluded.any { isSamePartyName(candidate.merchantName, it) } }
             .filter { it.canSuggest && !sameDisplayName(it.merchantName, ocrName) }
             .sortedWith(compareByDescending<SlipRecipientCandidate> { it.score }.thenBy { it.merchantName })
             .take(limit)
