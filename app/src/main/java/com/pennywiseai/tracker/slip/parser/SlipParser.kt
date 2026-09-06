@@ -427,7 +427,7 @@ object SlipParser {
             .replace(Regex("""(\d+),(\d{2})(?!\d)"""), "$1.$2")           // "13,00" -> "13.00"
             .replace(Regex("""(\d+[\.])\s+(\d{2})"""), "$1$2")            // "299. 00" -> "299.00"
             .replace(Regex("""(\d{1,3})\s+(\d{2})(?!\d)(?=\s*(?:บาท|THB))""", RegexOption.IGNORE_CASE), "$1.$2") // "13 00 บาท" -> "13.00 บาท"
-            .replace(Regex("""(?<!\.)(?<!\d )\b([\d,]+)(\d{2})(?=\s*(?:บาท|THB))""", RegexOption.IGNORE_CASE), "$1.$2") // "1700 บาท" -> "17.00 บาท" (จุดทศนิยมหาย)
+            .replace(Regex("""(?<![,\.\d])(\d{2})(\d{2})(?=\s*(?:บาท|THB))""", RegexOption.IGNORE_CASE), "$1.$2") // "1700 บาท" (4 หลัก ไม่มีจุด ไม่มี comma) -> "17.00 บาท" — ป้องกัน OCR อ่านจุดตก; ไม่ตัด "1,500" หรือ "500" หรือ "100" บาท
             .replace(Regex("""(?<=\d)\s+(?=\d)"""), "")                    // เหลือ space ระหว่างเลข ("1 300" -> "1300")
         val matches = mutableListOf<MatchResult>()
         amountWithLabelRegex.findAll(amountText).forEach { matches.add(it) }
@@ -605,7 +605,9 @@ object SlipParser {
     private fun detectTransactionType(text: String): String? {
         return when {
             text.contains("จายบล") || text.contains("ชาระเงน") || text.contains("ชาระสนคา") ||
-                text.contains("บลเลอร") || text.contains("Biller", ignoreCase = true) -> "จ่ายบิลสำเร็จ"
+                text.contains("บลเลอร") || text.contains("Biller", ignoreCase = true) ||
+                text.contains("สแกนจาย") || text.contains("สแกนจ่าย") ||
+                text.contains("QR Payment", ignoreCase = true) || text.contains("Thai QR", ignoreCase = true) -> "จ่ายบิลสำเร็จ"
             text.contains("โอนเงนเสรจ") || text.contains("โอนเสรจ") || text.contains("โอนเงินสำเร็จ") ||
                 text.contains("โอนสำเร็จ") -> "โอนเงินสำเร็จ"
             text.contains("รบเงน") || text.contains("เงนเขา") || text.contains("รับเงินสำเร็จ") ||
@@ -617,16 +619,30 @@ object SlipParser {
 
     private fun detectDirection(text: String): SlipDirection {
         val t = text
+        // True INCOMING: สลิปเงินเข้า เช่น "รับเงินสำเร็จ", "เงินเข้า", "โอนเงินเข้า", "รับโอน", "Received"
+        val hasIncomingSignal = t.contains("รบเงนสาเรจ") || t.contains("รับเงินสำเร็จ") ||
+            t.contains("เงนเขา") || t.contains("เงินเข้า") ||
+            t.contains("โอนเงนเขา") || t.contains("โอนเงินเข้า") ||
+            t.contains("รับโอน") || t.contains("Received", ignoreCase = true)
+
+        // OUTGOING: สลิปโอนเงินออก หรือ เติมเงิน (โดยต้องไม่ใช่สลิปเงินเข้า)
+        val hasOutgoingSignal = (t.contains("โอนเงน") || t.contains("โอนเงิน") ||
+            t.contains("โอนเสรจ") || t.contains("โอนสเรจ") ||
+            t.contains("โอนสำเร็จ") || t.contains("Transfer Success", ignoreCase = true) ||
+            t.contains("เตมเงน") || t.contains("เติมเงิน") || t.contains("เติมเงินสำเร็จ") ||
+            t.contains("Top up", ignoreCase = true) || t.contains("Top-up", ignoreCase = true) ||
+            t.contains("Topup", ignoreCase = true)) && !hasIncomingSignal
+
         return when {
             t.contains("จายบล") || t.contains("ง่ายบล") || t.contains("จ่ายบิล") ||
                 t.contains("ชาระเงน") || t.contains("ชำระเงิน") || t.contains("ชาระสนคา") ||
                 t.contains("ชำระสินค้า") || t.contains("Biller", ignoreCase = true) ||
-                t.contains("Bill Payment", ignoreCase = true) -> SlipDirection.BILL_PAYMENT
-            t.contains("รบเงน") || t.contains("รับเงิน") || t.contains("เงนเขา") || t.contains("เงินเข้า") ||
-                t.contains("โอนเงนเขา") || t.contains("โอนเงินเข้า") || t.contains("รับโอน") ||
-                t.contains("Received", ignoreCase = true) -> SlipDirection.INCOMING
-            t.contains("โอนเงน") || t.contains("โอนเงิน") || t.contains("โอนเสรจ") || t.contains("โอนสเรจ") ||
-                t.contains("โอนสำเร็จ") || t.contains("Transfer Success", ignoreCase = true) -> SlipDirection.OUTGOING
+                t.contains("Bill Payment", ignoreCase = true) ||
+                t.contains("สแกนจาย") || t.contains("สแกนจ่าย") ||
+                t.contains("QR Payment", ignoreCase = true) || t.contains("Thai QR", ignoreCase = true) ||
+                t.contains("PromptPay QR", ignoreCase = true) -> SlipDirection.BILL_PAYMENT
+            hasIncomingSignal -> SlipDirection.INCOMING
+            hasOutgoingSignal -> SlipDirection.OUTGOING
             else -> SlipDirection.UNKNOWN
         }
     }

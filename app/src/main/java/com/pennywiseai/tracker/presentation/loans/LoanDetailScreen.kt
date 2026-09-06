@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.data.database.entity.LoanDirection
@@ -83,24 +85,24 @@ fun LoanDetailScreen(
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                             if (loan.status == LoanStatus.ACTIVE) {
                                 DropdownMenuItem(
-                                    text = { Text("Set expected return") },
+                                    text = { Text(stringResource(R.string.loans_set_expected_return)) },
                                     onClick = { showMenu = false; viewModel.showEditAmountDialog() },
                                     leadingIcon = { Icon(Icons.Default.Edit, null) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Settle") },
+                                    text = { Text(stringResource(R.string.loans_settle_loan)) },
                                     onClick = { showMenu = false; viewModel.showSettleDialog() },
                                     leadingIcon = { Icon(Icons.Default.CheckCircle, null) }
                                 )
                             } else {
                                 DropdownMenuItem(
-                                    text = { Text("Reopen") },
+                                    text = { Text(stringResource(R.string.common_undo)) },
                                     onClick = { showMenu = false; viewModel.reopenLoan() },
                                     leadingIcon = { Icon(Icons.Default.Refresh, null) }
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                text = { Text(stringResource(R.string.loans_delete_loan), color = MaterialTheme.colorScheme.error) },
                                 onClick = { showMenu = false; viewModel.showDeleteDialog() },
                                 leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
                             )
@@ -267,16 +269,16 @@ fun LoanDetailScreen(
     if (uiState.showSettleDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.hideSettleDialog() },
-            title = { Text("Settle Loan") },
-            text = { Text("Mark this loan as settled? Any remaining balance will be forgiven.") },
+            title = { Text(stringResource(R.string.loans_settle_loan)) },
+            text = { Text(stringResource(R.string.loans_settle_confirm_desc)) },
             confirmButton = {
                 TextButton(onClick = { viewModel.settleLoan() }) {
-                    Text("Settle")
+                    Text(stringResource(R.string.loans_settle_loan))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.hideSettleDialog() }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -287,7 +289,7 @@ fun LoanDetailScreen(
         var editAmount by remember { mutableStateOf(loan.originalAmount.toPlainString()) }
         AlertDialog(
             onDismissRequest = { viewModel.hideEditAmountDialog() },
-            title = { Text("Expected Return") },
+            title = { Text(stringResource(R.string.loans_expected_return)) },
             text = {
                 TextField(
                     value = editAmount,
@@ -296,7 +298,7 @@ fun LoanDetailScreen(
                             editAmount = value
                         }
                     },
-                    label = { Text("Amount expected back") },
+                    label = { Text(stringResource(R.string.loans_amount_expected_back)) },
                     prefix = { Text(CurrencyFormatter.getCurrencySymbol(loan.currency)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -316,12 +318,12 @@ fun LoanDetailScreen(
                     },
                     enabled = editAmount.toBigDecimalOrNull()?.let { it > java.math.BigDecimal.ZERO } == true
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.common_save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.hideEditAmountDialog() }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -331,16 +333,16 @@ fun LoanDetailScreen(
     if (uiState.showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.hideDeleteDialog() },
-            title = { Text("Delete Loan") },
-            text = { Text("Delete this loan? Linked transactions will be unlinked but not deleted.") },
+            title = { Text(stringResource(R.string.loans_delete_loan)) },
+            text = { Text(stringResource(R.string.loans_delete_confirm_desc)) },
             confirmButton = {
                 TextButton(onClick = { viewModel.deleteLoan() }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.hideDeleteDialog() }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )

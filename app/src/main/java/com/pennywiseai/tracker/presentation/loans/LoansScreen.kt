@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.data.database.entity.LoanDirection
@@ -173,7 +175,7 @@ private fun LoanSummaryCard(
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Owed to you", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.loans_owed_to_you), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     CurrencyFormatter.formatCurrency(totalLent, currency),
                     style = MaterialTheme.typography.titleMedium,
@@ -182,7 +184,7 @@ private fun LoanSummaryCard(
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("You owe", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.loans_you_owe), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     CurrencyFormatter.formatCurrency(totalBorrowed, currency),
                     style = MaterialTheme.typography.titleMedium,

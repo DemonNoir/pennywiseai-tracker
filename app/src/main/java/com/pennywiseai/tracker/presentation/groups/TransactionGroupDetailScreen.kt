@@ -21,6 +21,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
@@ -81,19 +83,19 @@ fun TransactionGroupDetailScreen(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Edit") },
+                                text = { Text(stringResource(R.string.common_edit)) },
                                 onClick = { showMenu = false; viewModel.showEditDialog() },
                                 leadingIcon = { Icon(Icons.Default.Edit, null) }
                             )
                             if (uiState.linkedTransactions.isNotEmpty()) {
                                 DropdownMenuItem(
-                                    text = { Text("Export CSV") },
+                                    text = { Text(stringResource(R.string.common_export_csv)) },
                                     onClick = { showMenu = false; showExportDialog = true },
                                     leadingIcon = { Icon(Icons.Default.FileDownload, null) }
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                text = { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) },
                                 onClick = { showMenu = false; viewModel.showDeleteDialog() },
                                 leadingIcon = {
                                     Icon(
@@ -303,16 +305,16 @@ fun TransactionGroupDetailScreen(
     if (uiState.showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.hideDeleteDialog() },
-            title = { Text("Delete Group") },
-            text = { Text("Delete this group? Linked transactions will be ungrouped but not deleted.") },
+            title = { Text(stringResource(R.string.groups_delete_group)) },
+            text = { Text(stringResource(R.string.groups_delete_confirm_desc)) },
             confirmButton = {
                 TextButton(onClick = { viewModel.deleteGroup() }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.hideDeleteDialog() }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -532,13 +534,13 @@ private fun EditGroupDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Group") },
+        title = { Text(stringResource(R.string.groups_edit_group)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 TextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Group name") },
+                    label = { Text(stringResource(R.string.groups_name_label)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     shape = RoundedCornerShape(16.dp),
@@ -551,7 +553,7 @@ private fun EditGroupDialog(
                 TextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("Note (optional)") },
+                    label = { Text(stringResource(R.string.txn_desc_label)) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     colors = TextFieldDefaults.colors(
@@ -567,12 +569,12 @@ private fun EditGroupDialog(
                 onClick = { onSave(name, note.ifBlank { null }) },
                 enabled = name.isNotBlank()
             ) {
-                Text("Save")
+                Text(stringResource(R.string.common_save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )

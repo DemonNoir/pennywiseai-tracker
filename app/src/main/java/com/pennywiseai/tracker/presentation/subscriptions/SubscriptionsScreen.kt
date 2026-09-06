@@ -44,6 +44,8 @@ import com.pennywiseai.tracker.ui.components.*
 import com.pennywiseai.tracker.ui.components.cards.SectionHeaderV2
 import com.pennywiseai.tracker.ui.components.cards.SummaryCardV2
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.ui.theme.*
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import dev.chrisbanes.haze.HazeState
@@ -391,9 +393,9 @@ private fun EndedSubscriptionItem(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete subscription?") },
+            title = { Text(stringResource(R.string.sub_delete_title)) },
             text = {
-                Text("Permanently delete '${subscription.merchantName}'? This cannot be undone.")
+                Text("${stringResource(R.string.sub_delete_permanent)} '${subscription.merchantName}'?")
             },
             confirmButton = {
                 TextButton(
@@ -402,11 +404,13 @@ private fun EndedSubscriptionItem(
                         onDelete()
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
             }
         )
     }
@@ -697,7 +701,7 @@ private fun SwipeableSubscriptionItem(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Mark as paid") },
+                                    text = { Text(stringResource(R.string.sub_mark_as_paid)) },
                                     leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
                                     onClick = {
                                         showMenu = false
@@ -706,7 +710,7 @@ private fun SwipeableSubscriptionItem(
                                 )
                                 if (!subscription.smsBody.isNullOrBlank()) {
                                     DropdownMenuItem(
-                                        text = { Text("View source") },
+                                        text = { Text(stringResource(R.string.sub_view_source)) },
                                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null) },
                                         onClick = {
                                             showMenu = false
@@ -715,7 +719,7 @@ private fun SwipeableSubscriptionItem(
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text("Edit") },
+                                    text = { Text(stringResource(R.string.common_edit)) },
                                     leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                                     onClick = {
                                         showMenu = false
@@ -723,7 +727,7 @@ private fun SwipeableSubscriptionItem(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("End subscription") },
+                                    text = { Text(stringResource(R.string.sub_end_subscription)) },
                                     leadingIcon = { Icon(Icons.Default.Cancel, contentDescription = null) },
                                     onClick = {
                                         showMenu = false
@@ -731,7 +735,7 @@ private fun SwipeableSubscriptionItem(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    text = { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) },
                                     leadingIcon = {
                                         Icon(
                                             Icons.Default.Delete,
@@ -883,7 +887,7 @@ private fun EditSubscriptionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit subscription") },
+        title = { Text(stringResource(R.string.sub_edit_title)) },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm)
@@ -891,14 +895,14 @@ private fun EditSubscriptionDialog(
                 OutlinedTextField(
                     value = merchantName,
                     onValueChange = { merchantName = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.sub_name_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("Amount (${subscription.currency})") },
+                    label = { Text("${stringResource(R.string.txn_amount_label)} (${subscription.currency})") },
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
@@ -910,7 +914,7 @@ private fun EditSubscriptionDialog(
                     value = nextDate?.format(DateTimeFormatter.ofPattern("d MMM yyyy")) ?: "Tap to set",
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Next payment date") },
+                    label = { Text(stringResource(R.string.sub_next_payment_date)) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { showDatePicker = true },
@@ -924,7 +928,7 @@ private fun EditSubscriptionDialog(
                 OutlinedTextField(
                     value = category,
                     onValueChange = { category = it },
-                    label = { Text("Category (optional)") },
+                    label = { Text("${stringResource(R.string.txn_category_label)} (${stringResource(R.string.txn_desc_label)})") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -933,10 +937,10 @@ private fun EditSubscriptionDialog(
                 // the chosen account's balance; "No account" keeps it unlinked.
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
-                        value = selectedAccount?.displayLabel ?: "No account",
+                        value = selectedAccount?.displayLabel ?: stringResource(R.string.common_clear),
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Paid from") },
+                        label = { Text(stringResource(R.string.sub_paid_from)) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { showAccountMenu = true },
@@ -1007,10 +1011,10 @@ private fun EditSubscriptionDialog(
                         onSave(merchantName, amt, nextDate, category, selectedAccount, accountChanged)
                     }
                 }
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         }
     )
 
@@ -1026,10 +1030,10 @@ private fun EditSubscriptionDialog(
                         nextDate = LocalDate.ofEpochDay(millis / 86_400_000)
                     }
                     showDatePicker = false
-                }) { Text("OK") }
+                }) { Text(stringResource(R.string.common_ok)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+                TextButton(onClick = { showDatePicker = false }) { Text(stringResource(R.string.common_cancel)) }
             }
         ) {
             DatePicker(state = datePickerState)

@@ -49,10 +49,21 @@ class SlipMediaObserver @Inject constructor(
             "SCB EASY",
             "Krungthai",
             "KMA",
+            "Krungsri",
             "ttb touch",
             "GSB",
             "BAAC",
-            "ธ.ก.ส."
+            "ธ.ก.ส.",
+            "Bangkok Bank",
+            "Bualuang",
+            "BBL",
+            "UOB",
+            "TMRW",
+            "CIMB",
+            "LH Bank",
+            "Dime",
+            "Kept",
+            "TrueMoney"
         )
     }
 
@@ -128,7 +139,22 @@ class SlipMediaObserver @Inject constructor(
         super.onChange(selfChange, uri)
         if (!hasStoragePermission()) return
 
-        val targetUri = uri ?: getLatestImageUri() ?: return
+        val incomingId = uri?.let { extractImageId(it) }
+        if (incomingId != null && processedImageIds.contains(incomingId)) {
+            return
+        }
+
+        val targetUri = if (uri != null && incomingId != null) {
+            if (!isBankFolderImage(uri)) {
+                // Ignore images not in bank folders (e.g. Screenshots, Camera, Downloads)
+                processedImageIds.add(incomingId)
+                return
+            }
+            uri
+        } else {
+            getLatestImageUri() ?: return
+        }
+
         if (targetUri == lastProcessedUri) return
         lastProcessedUri = targetUri
 
@@ -195,6 +221,40 @@ class SlipMediaObserver @Inject constructor(
         }
     }
 
+    private fun isBankFolderImage(uri: Uri): Boolean {
+        val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Images.Media.RELATIVE_PATH
+        } else {
+            MediaStore.Images.Media.DATA
+        }
+        val projection = arrayOf(
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+            pathColumn
+        )
+
+        return try {
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val bucketIndex = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                    val bucketName = if (bucketIndex >= 0) cursor.getString(bucketIndex) else null
+
+                    val pathIndex = cursor.getColumnIndex(pathColumn)
+                    val pathName = if (pathIndex >= 0) cursor.getString(pathIndex) else null
+
+                    THAI_BANK_FOLDERS.any { folder ->
+                        (bucketName != null && bucketName.contains(folder, ignoreCase = true)) ||
+                        (pathName != null && pathName.contains(folder, ignoreCase = true))
+                    }
+                } else {
+                    false
+                }
+            } ?: false
+        } catch (e: Exception) {
+            Log.w("SlipMediaObserver", "Error checking if uri is in bank folder: ${e.message}")
+            false
+        }
+    }
+
     private fun extractImageId(uri: Uri): Long? {
         return try {
             uri.lastPathSegment?.toLongOrNull()
@@ -208,12 +268,18 @@ class SlipMediaObserver @Inject constructor(
         val projection = arrayOf(MediaStore.Images.Media._ID)
         val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
         
+        val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Images.Media.RELATIVE_PATH
+        } else {
+            MediaStore.Images.Media.DATA
+        }
+
         val selection = StringBuilder("(")
         val selectionArgs = mutableListOf<String>()
         THAI_BANK_FOLDERS.forEachIndexed { index, folder ->
             if (index > 0) selection.append(" OR ")
             selection.append("${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} LIKE ?")
-            selection.append(" OR ${MediaStore.Images.Media.DATA} LIKE ?")
+            selection.append(" OR $pathColumn LIKE ?")
             selectionArgs.add("%$folder%")
             selectionArgs.add("%$folder%")
         }

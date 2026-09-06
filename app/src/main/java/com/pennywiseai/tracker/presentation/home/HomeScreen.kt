@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -598,11 +599,11 @@ fun HomeScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
                         ) {
                             SectionHeaderV2(
-                                title = "Budgets",
+                                title = stringResource(R.string.home_section_budgets),
                                 modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                 action = {
                                     TextButton(onClick = onNavigateToBudgets) {
-                                        Text("View All")
+                                        Text(stringResource(R.string.common_view_all))
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                             contentDescription = null,
@@ -640,11 +641,11 @@ fun HomeScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
                         ) {
                             SectionHeaderV2(
-                                title = "Loans",
+                                title = stringResource(R.string.home_section_loans),
                                 modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                 action = {
                                     TextButton(onClick = onNavigateToLoans) {
-                                        Text("View All")
+                                        Text(stringResource(R.string.common_view_all))
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                             contentDescription = null,
@@ -689,11 +690,11 @@ fun HomeScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
                         ) {
                             SectionHeaderV2(
-                                title = "Groups",
+                                title = stringResource(R.string.home_section_groups),
                                 modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                 action = {
                                     TextButton(onClick = onNavigateToTransactionGroups) {
-                                        Text("View All")
+                                        Text(stringResource(R.string.common_view_all))
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                             contentDescription = null,
@@ -733,7 +734,7 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.padding(horizontal = Dimensions.Padding.content)) {
                         SectionHeaderV2(
-                            title = "Recent Transactions",
+                            title = stringResource(R.string.home_section_recent_transactions),
                             action = {
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -746,14 +747,14 @@ fun HomeScreen(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Search,
-                                            contentDescription = "Search transactions",
+                                            contentDescription = stringResource(R.string.txn_search_placeholder),
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
 
                                     // View All button
                                     TextButton(onClick = onNavigateToTransactions) {
-                                        Text("View All")
+                                        Text(stringResource(R.string.common_view_all))
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                             contentDescription = null,
@@ -925,11 +926,11 @@ fun HomeScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
                         ) {
                             SectionHeaderV2(
-                                title = "Upcoming Subscriptions",
+                                title = stringResource(R.string.home_section_upcoming_subscriptions),
                                 modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                 action = {
                                     TextButton(onClick = onNavigateToSubscriptions) {
-                                        Text("View All")
+                                        Text(stringResource(R.string.common_view_all))
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                             contentDescription = null,
@@ -1086,16 +1087,10 @@ fun HomeScreen(
                     )
                 },
                 title = {
-                    Text("Full Resync")
+                    Text(stringResource(R.string.common_full_resync))
                 },
                 text = {
-                    Text(
-                        "This will reprocess all SMS messages from scratch. " +
-                        "Use this to fix issues caused by updated bank parsers.\n\n" +
-                        "Your loans, grouped transactions, and merchant mappings " +
-                        "are preserved.\n\n" +
-                        "This may take a few seconds depending on your message history."
-                    )
+                    Text(stringResource(R.string.home_full_resync_desc))
                 },
                 confirmButton = {
                     Button(
@@ -1104,14 +1099,14 @@ fun HomeScreen(
                             viewModel.scanSmsMessages(forceResync = true)
                         }
                     ) {
-                        Text("Resync All")
+                        Text(stringResource(R.string.common_resync_all))
                     }
                 },
                 dismissButton = {
                     TextButton(
                         onClick = { showFullResyncDialog = false }
                     ) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.common_cancel))
                     }
                 }
             )

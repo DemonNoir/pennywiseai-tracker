@@ -45,6 +45,8 @@ import com.pennywiseai.tracker.data.repository.BudgetGroupSpending
 import com.pennywiseai.tracker.data.repository.BudgetOverallSummary
 import com.pennywiseai.tracker.ui.components.CategoryIcon
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
 import com.pennywiseai.tracker.ui.icons.CategoryMapping
 import com.pennywiseai.tracker.ui.theme.*
@@ -208,14 +210,14 @@ private fun EmptyBudgetState(
                 ) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(Dimensions.Icon.small))
                     Spacer(modifier = Modifier.width(Spacing.sm))
-                    Text("Use Smart Defaults")
+                    Text(stringResource(R.string.budget_use_smart_defaults))
                 }
 
                 OutlinedButton(
                     onClick = onCreateNew,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Create Custom Budget")
+                    Text(stringResource(R.string.budget_create_custom))
                 }
             }
         }
@@ -536,7 +538,7 @@ private fun BudgetCard(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("View this period history") },
+                                text = { Text(stringResource(R.string.budget_period_history)) },
                                 onClick = {
                                     showMenu = false
                                     onViewHistory()
@@ -546,7 +548,7 @@ private fun BudgetCard(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Move up") },
+                                text = { Text(stringResource(R.string.common_move_up)) },
                                 onClick = {
                                     showMenu = false
                                     onMoveUp()
@@ -557,7 +559,7 @@ private fun BudgetCard(
                                 enabled = !isFirst
                             )
                             DropdownMenuItem(
-                                text = { Text("Move down") },
+                                text = { Text(stringResource(R.string.common_move_down)) },
                                 onClick = {
                                     showMenu = false
                                     onMoveDown()

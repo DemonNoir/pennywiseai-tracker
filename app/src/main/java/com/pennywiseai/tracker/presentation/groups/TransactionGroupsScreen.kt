@@ -22,6 +22,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
@@ -219,13 +221,13 @@ private fun CreateGroupDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Group") },
+        title = { Text(stringResource(R.string.groups_new_group)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 TextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Group name") },
+                    label = { Text(stringResource(R.string.groups_name_label)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     shape = RoundedCornerShape(16.dp),
@@ -238,7 +240,7 @@ private fun CreateGroupDialog(
                 TextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("Note (optional)") },
+                    label = { Text(stringResource(R.string.txn_desc_label)) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     colors = TextFieldDefaults.colors(
@@ -254,12 +256,12 @@ private fun CreateGroupDialog(
                 onClick = { onCreate(name, note.ifBlank { null }) },
                 enabled = name.isNotBlank()
             ) {
-                Text("Create")
+                Text(stringResource(R.string.txn_create_btn))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
