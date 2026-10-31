@@ -838,4 +838,15 @@
     <string name="home_section_recent_transactions">รายการล่าสุด</string>
     <string name="home_section_upcoming_subscriptions">บริการสมาชิกที่กำลังจะมาถึง</string>
     <string name="home_full_resync_desc">ระบบจะทำการประมวลผลข้อความ SMS ทั้งหมดใหม่อีกครั้ง ใช้สำหรับแก้ไขปัญหาที่เกิดจากตัวอ่าน SMS ของธนาคารที่มีการอัปเดต\n\nรายการเงินกู้, กลุ่มรายการ และการจับคู่ร้านค้าของคุณจะยังคงอยู่ครบถ้วน\n\nอาจใช้เวลาสักครู่ขึ้นอยู่กับประวัติข้อความของคุณ</string>
+
+    <!-- Upstream Strings -->
+    <string name="ai_session_tile">PennyWise AI</string>
+    <string name="duplicate_accounts_title">พบบัญชีที่อาจซ้ำกัน</string>
+    <string name="duplicate_accounts_message">รูปแบบ SMS ธนาคารหรือการอ่านข้อมูลก่อนหน้าอาจทำให้เกิดบัญชีซ้ำกันระหว่างเลข 3 หลักและ 4 หลัก หาก %1$s และ %2$s เป็นบัญชีเดียวกัน ต้องการรวมบัญชีหรือไม่? รายการธุรกรรมจะย้ายไปยังบัญชีเลข 4 หลัก ประวัติยอดคงเหลือจะถูกเก็บไว้ และ SMS ในอนาคตจะใช้บัญชีนี้โดยอัตโนมัติ</string>
+    <string name="duplicate_accounts_merge">รวมบัญชีและจดจำ</string>
+    <string name="duplicate_accounts_keep">แยกบัญชีไว้</string>
+    <string name="shortcut_add_transaction_long">เพิ่มรายการธุรกรรม</string>
+    <string name="shortcut_add_transaction_short">เพิ่ม</string>
+    <string name="tile_add_transaction">เพิ่มรายการธุรกรรม</string>
+    <string name="widget_name_summary">สรุปการใช้จ่าย</string>
 </resources>

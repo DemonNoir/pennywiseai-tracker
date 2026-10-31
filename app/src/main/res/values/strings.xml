@@ -821,4 +821,15 @@
     <string name="home_section_recent_transactions">Recent Transactions</string>
     <string name="home_section_upcoming_subscriptions">Upcoming Subscriptions</string>
     <string name="home_full_resync_desc">This will reprocess all SMS messages from scratch. Use this to fix issues caused by updated bank parsers.\n\nYour loans, grouped transactions, and merchant mappings are preserved.\n\nThis may take a few seconds depending on your message history.</string>
+
+    <!-- Upstream Strings -->
+    <string name="ai_session_tile">PennyWise AI</string>
+    <string name="duplicate_accounts_title">Possible duplicate accounts</string>
+    <string name="duplicate_accounts_message">Differences in bank SMS formats or earlier parsing may have created duplicate accounts with three and four digits. If %1$s and %2$s are the same account, merge them? Transactions will move to the four-digit account, its balance history will be kept, and future SMS will use it automatically.</string>
+    <string name="duplicate_accounts_merge">Merge and remember</string>
+    <string name="duplicate_accounts_keep">Keep separate</string>
+    <string name="shortcut_add_transaction_long">Add transaction</string>
+    <string name="shortcut_add_transaction_short">Add</string>
+    <string name="tile_add_transaction">Add Transaction</string>
+    <string name="widget_name_summary">Spending Summary</string>
 </resources>
