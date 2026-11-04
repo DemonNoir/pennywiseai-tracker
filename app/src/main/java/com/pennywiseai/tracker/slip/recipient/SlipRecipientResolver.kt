@@ -73,7 +73,7 @@ object SlipRecipientResolver {
             // Transfers/self-transfers are account movement, not shops. Including
             // them here pollutes merchant matching with the user's own name.
             .filter { it.transactionType != TransactionType.TRANSFER }
-            .filter { it.smsSender != "SLIP_SCAN" || it.description?.contains(TransactionEntity.REVIEW_TAG) != true }
+            .filter { it.smsSender != "SLIP_SCAN" || it.description?.contains("[รอตรวจสอบ]") != true }
             .filterNot { transaction -> allExcluded.any { isSamePartyName(transaction.merchantName, it) } }
             .mapNotNull { historyCandidate(it, normalizedOcr, normalizedRaw, bankName) }
 
@@ -106,7 +106,7 @@ object SlipRecipientResolver {
         return Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
             .replace(Regex("[\u0E31\u0E33-\u0E3A\u0E47-\u0E4E]"), "")
-            .replace(Regex("[^\\p{IsThai}A-Za-z0-9 ]"), "")
+            .replace(Regex("[^\u0E01-\u0E3A\u0E40-\u0E5BA-Za-z0-9 ]"), "")
             .lowercase()
             .replace(Regex("\\s+"), " ")
             .trim()

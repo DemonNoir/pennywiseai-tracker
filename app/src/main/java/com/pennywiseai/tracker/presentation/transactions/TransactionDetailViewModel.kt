@@ -384,6 +384,9 @@ class TransactionDetailViewModel @Inject constructor(
                     ?: categoryRepository.getVisibleCategories().first().balanceAdjustmentDefaultCategory(type)
                 transactionRepository.insertTransaction(balanceAdjustment(tx, d, name, category))
                 _balanceDiscrepancy.value = detectBalanceDiscrepancy.execute(tx)
+                if (_balanceDiscrepancy.value == null) {
+                    com.pennywiseai.tracker.receiver.SmsBroadcastReceiver.cancelBalanceDiscrepancyNotification(context, tx)
+                }
             } catch (e: Exception) {
                 _errorMessage.value = UiText.Res(R.string.txn_detail_error_add_adjustment, listOf(e.message.toString()))
             } finally {
@@ -1420,7 +1423,7 @@ internal fun balanceAdjustment(
         transactionType = balanceAdjustmentType(d),
         dateTime = at,
         description = "Untracked amount so the app matches the bank's reported balance of " +
-            CurrencyFormatter.formatCurrency(d.reported, d.currency),
+            CurrencyFormatter.formatCurrency(d.reported, d.currency, maskIfHidden = false), // stored text
         smsBody = null,
         bankName = tx.bankName,
         smsSender = null,

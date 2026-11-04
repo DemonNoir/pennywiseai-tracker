@@ -56,6 +56,10 @@
     <string name="settings_security_section">ความปลอดภัย</string>
     <string name="settings_app_lock_title">ล็อกแอป</string>
     <string name="settings_app_lock_subtitle">ปกป้องข้อมูลของคุณด้วยการยืนยันตัวตนทางชีวมิติ</string>
+    <string name="settings_shake_to_hide_title">เขย่าเพื่อซ่อนจำนวนเงิน</string>
+    <string name="settings_shake_to_hide_subtitle">เขย่าโทรศัพท์เพื่อซ่อนหรือแสดงจำนวนเงินในทุกหน้าจอ</string>
+    <string name="shake_to_hide_first_hidden">ซ่อนจำนวนเงินแล้ว เขย่าอีกครั้งเพื่อแสดง</string>
+    <string name="shake_to_hide_first_shown">แสดงจำนวนเงินแล้ว เขย่าอีกครั้งเพื่อซ่อน</string>
     <string name="settings_lock_timeout_title">เวลาหมดอายุล็อก</string>
     <string name="settings_lock_timeout_immediately_subtitle">ล็อกทันที</string>
     <plurals name="settings_lock_timeout_after_minutes">
@@ -192,6 +196,16 @@
     <string name="settings_notification_access_disabled">แตะเพื่อเปิดการแจ้งเตือนจากแอปธนาคาร</string>
     <string name="settings_notification_access_on">เปิด</string>
     <string name="settings_notification_access_off">ปิด</string>
+    <!-- #994 step 4: pick apps whose notifications become suggested transactions -->
+    <string name="settings_tracked_apps_title">ติดตามแอปอื่น</string>
+    <string name="settings_tracked_apps_subtitle_none">แนะนำธุรกรรมจากการแจ้งเตือนของแอปอื่น</string>
+    <plurals name="settings_tracked_apps_subtitle_count">
+        <item quantity="other">กำลังติดตาม %d แอป</item>
+    </plurals>
+    <string name="settings_tracked_apps_body">เลือกแอปที่แจ้งเตือนการชำระเงิน การแจ้งเตือนจะแสดงเป็นรายการแนะนำในหน้า SMS ที่ไม่รู้จัก แอปจะบันทึกธุรกรรมเมื่อคุณแตะเพิ่มเท่านั้น แอปธนาคารที่รองรับจะถูกอ่านอยู่แล้ว จึงไม่แสดงในรายการนี้</string>
+    <string name="settings_tracked_apps_enable_access">เปิดสิทธิ์เข้าถึงการแจ้งเตือนก่อน</string>
+    <string name="settings_tracked_apps_search">ค้นหาแอป</string>
+    <string name="settings_tracked_apps_done">เสร็จสิ้น</string>
     <string name="settings_daily_summary_title">สรุปรายวัน</string>
     <string name="settings_daily_summary_subtitle">สรุปการใช้จ่ายของวันนี้ตอน 21:00 น.</string>
     <string name="settings_daily_summary_needs_permission">อนุญาตการแจ้งเตือนสำหรับ PennyWise เพื่อรับสรุปรายวัน</string>

@@ -58,6 +58,10 @@
     <string name="settings_security_section">Sicherheit</string>
     <string name="settings_app_lock_title">App-Sperre</string>
     <string name="settings_app_lock_subtitle">Schützen Sie Ihre Daten mit biometrischer Authentifizierung</string>
+    <string name="settings_shake_to_hide_title">Schütteln, um Beträge auszublenden</string>
+    <string name="settings_shake_to_hide_subtitle">Schüttle dein Handy, um Beträge auf allen Bildschirmen aus- oder einzublenden</string>
+    <string name="shake_to_hide_first_hidden">Beträge ausgeblendet. Erneut schütteln, um sie anzuzeigen.</string>
+    <string name="shake_to_hide_first_shown">Beträge angezeigt. Erneut schütteln, um sie auszublenden.</string>
     <string name="settings_lock_timeout_title">Sperr-Timeout</string>
     <string name="settings_lock_timeout_immediately_subtitle">Sofort sperren</string>
     <plurals name="settings_lock_timeout_after_minutes">
@@ -203,6 +207,7 @@
     <string name="settings_notification_access_disabled">Tippen, um Bank-App-Benachrichtigungen zu aktivieren</string>
     <string name="settings_notification_access_on">An</string>
     <string name="settings_notification_access_off">Aus</string>
+    <!-- #994 step 4: pick apps whose notifications become suggested transactions -->
     <string name="settings_daily_summary_title">Tägliche Zusammenfassung</string>
     <string name="settings_daily_summary_subtitle">Ein Rückblick auf die heutigen Ausgaben um 21:00 Uhr</string>
     <string name="settings_daily_summary_needs_permission">Erlauben Sie Benachrichtigungen für PennyWise, um die tägliche Zusammenfassung zu erhalten.</string>

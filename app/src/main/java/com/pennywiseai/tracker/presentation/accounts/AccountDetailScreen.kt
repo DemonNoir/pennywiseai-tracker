@@ -36,7 +36,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
@@ -75,7 +75,7 @@ fun AccountDetailScreen(
                 title = AccountBalanceEntity.accountLabel(uiState.bankName, uiState.accountLast4),
                 hasBackButton = true,
                 navigationContent = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onNavigateBack, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accounts_back))
                     }
                 },
@@ -506,6 +506,7 @@ private fun DateRangeFilter(
         items(DateRange.values().toList()) { range ->
             FilterChip(
                 selected = selectedRange == range,
+                shapes = FilterChipDefaults.shapes(),
                 onClick = { onRangeSelected(range) },
                 label = { Text(stringResource(range.labelRes)) },
                 colors = FilterChipDefaults.filterChipColors(

@@ -29,7 +29,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.data.repository.ModelState
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
@@ -46,7 +46,7 @@ import java.util.Date
 import java.util.Locale
 import com.pennywiseai.tracker.ui.icons.categoryLabel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChatScreen(
     modifier: Modifier = Modifier,
@@ -143,15 +143,11 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 if (isDownloading) {
-                                    LinearProgressIndicator(
+                                    LinearWavyProgressIndicator(
                                         progress = { downloadProgress / 100f },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(Spacing.sm)
-                                            .clip(RoundedCornerShape(Spacing.xs)),
-                                        drawStopIndicator = {}
+                                        modifier = Modifier.fillMaxWidth()
                                     )
-                                    OutlinedButton(onClick = { viewModel.cancelDownload() }) {
+                                    OutlinedButton(onClick = { viewModel.cancelDownload() }, shapes = ButtonDefaults.shapes()) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = null,
@@ -161,7 +157,7 @@ fun ChatScreen(
                                         Text(stringResource(R.string.chat_cancel))
                                     }
                                 } else {
-                                    Button(onClick = { viewModel.startModelDownload() }) {
+                                    Button(onClick = { viewModel.startModelDownload() }, shapes = ButtonDefaults.shapes()) {
                                         Icon(
                                             Icons.Default.Download,
                                             contentDescription = null,
@@ -171,7 +167,7 @@ fun ChatScreen(
                                         Text(stringResource(R.string.chat_download_with_size, totalMB))
                                     }
                                 }
-                                TextButton(onClick = onNavigateToSettings) {
+                                TextButton(onClick = onNavigateToSettings, shapes = ButtonDefaults.shapes()) {
                                     Text(stringResource(R.string.chat_settings))
                                 }
                             }
@@ -230,18 +226,15 @@ fun ChatScreen(
                                     }
                                     OutlinedButton(
                                         onClick = { viewModel.cancelDownload() },
-                                        modifier = Modifier.padding(start = Spacing.sm)
+                                        modifier = Modifier.padding(start = Spacing.sm),
+                                        shapes = ButtonDefaults.shapes()
                                     ) {
                                         Text(stringResource(R.string.chat_cancel))
                                     }
                                 }
-                                LinearProgressIndicator(
+                                LinearWavyProgressIndicator(
                                     progress = { downloadProgress / 100f },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(Spacing.sm)
-                                        .clip(CircleShape),
-                                    drawStopIndicator = {}
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         } else {
@@ -267,7 +260,8 @@ fun ChatScreen(
                                 }
                                 Button(
                                     onClick = { viewModel.startModelDownload() },
-                                    modifier = Modifier.padding(start = Spacing.sm)
+                                    modifier = Modifier.padding(start = Spacing.sm),
+                                    shapes = ButtonDefaults.shapes()
                                 ) {
                                     Icon(
                                         Icons.Default.Download,
@@ -295,7 +289,7 @@ fun ChatScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(Spacing.md)
                         ) {
-                            CircularProgressIndicator()
+                            LoadingIndicator()
                             Text(
                                 text = stringResource(R.string.chat_initializing_model),
                                 style = MaterialTheme.typography.bodyLarge
@@ -356,7 +350,8 @@ fun ChatScreen(
                                         onClick = { viewModel.clearChat() },
                                         colors = ButtonDefaults.textButtonColors(
                                             contentColor = MaterialTheme.colorScheme.error
-                                        )
+                                        ),
+                                        shapes = ButtonDefaults.shapes()
                                     ) {
                                         Icon(
                                             Icons.Default.Delete,
@@ -464,7 +459,7 @@ fun ChatScreen(
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    IconButton(onClick = { viewModel.clearError() }) {
+                                    IconButton(onClick = { viewModel.clearError() }, shapes = IconButtonDefaults.shapes()) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = stringResource(R.string.chat_dismiss),
@@ -509,7 +504,8 @@ fun ChatScreen(
                                         focusRequester.requestFocus()
                                     },
                                     enabled = inputText.isNotBlank() && !uiState.isLoading,
-                                    modifier = Modifier.size(48.dp)
+                                    modifier = Modifier.size(48.dp),
+                                    shapes = IconButtonDefaults.shapes()
                                 ) {
                                     if (uiState.isLoading) {
                                         CircularProgressIndicator(
@@ -598,7 +594,8 @@ fun TokenLimitWarning(
                     onClick = onClearChat,
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = contentColor
-                    )
+                    ),
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Text(stringResource(R.string.chat_clear), fontWeight = FontWeight.Bold)
                 }
@@ -833,7 +830,8 @@ fun ChatMessageItem(
             )
         ) {
             Text(
-                text = message.message,
+                // Amounts are baked into the stored text; mask them on screen only.
+                text = com.pennywiseai.tracker.utils.CurrencyFormatter.maskAmountsIn(message.message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (message.isUser)
                     MaterialTheme.colorScheme.onPrimaryContainer
@@ -987,12 +985,13 @@ private fun PendingActionCard(
             Text(text = headline, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = fg)
             Text(text = detail, style = MaterialTheme.typography.bodySmall, color = fg)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                OutlinedButton(onClick = onDismiss, enabled = enabled, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.chat_cancel)) }
+                OutlinedButton(onClick = onDismiss, enabled = enabled, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.chat_cancel)) }
                 Button(
                     onClick = onConfirm,
                     enabled = enabled,
                     modifier = Modifier.weight(1f),
-                    colors = if (isDelete) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors()
+                    colors = if (isDelete) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),
+                    shapes = ButtonDefaults.shapes()
                 ) { Text(button) }
             }
         }

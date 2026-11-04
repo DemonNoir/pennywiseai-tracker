@@ -94,7 +94,10 @@ class StringPlaceholderParityTest {
             .orEmpty()
             .sortedBy { it.name }
             .forEach { localeDir ->
-                localeDir.listFiles { f -> f.name.startsWith("strings") && f.name.endsWith(".xml") }
+                localeDir.listFiles { f ->
+                    f.name.endsWith(".xml") &&
+                        (f.name.startsWith("strings") || f.name == "custom_strings.xml")
+                }
                     .orEmpty().sortedBy { it.name }
                     .forEach { file ->
                         val source = english[file.name] ?: return@forEach

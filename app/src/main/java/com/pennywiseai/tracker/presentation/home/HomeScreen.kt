@@ -14,13 +14,6 @@ import androidx.activity.ComponentActivity
 import androidx.work.WorkInfo
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
@@ -46,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Tune
@@ -62,28 +56,33 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.pennywiseai.tracker.data.share.SharePeriod
 import com.pennywiseai.tracker.presentation.share.ShareCardSheet
+import com.pennywiseai.tracker.ui.components.DockNavAction
+import com.pennywiseai.tracker.ui.components.LocalNavDock
+import com.pennywiseai.tracker.ui.components.NavDockAction
 import com.pennywiseai.tracker.ui.components.ShareMonthBanner
+import com.pennywiseai.tracker.ui.components.PaydaySuggestionCard
+import com.pennywiseai.tracker.ui.components.RecurringSuggestionsCard
 import com.pennywiseai.tracker.ui.components.ProHomeCard
-import androidx.navigation.NavController
 import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.core.Constants
 import com.pennywiseai.tracker.data.database.entity.SubscriptionEntity
@@ -109,19 +108,19 @@ import com.pennywiseai.tracker.ui.components.ProfileFilterDropdown
 import com.pennywiseai.tracker.ui.components.profileFilterIcon
 import com.pennywiseai.tracker.ui.components.CoverGradientBanner
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
+import com.pennywiseai.tracker.ui.components.SlipScanBottomSheet
 import com.pennywiseai.tracker.ui.components.GreetingCard
 import com.pennywiseai.tracker.ui.effects.overScrollVertical
 import com.pennywiseai.tracker.ui.effects.rememberOverscrollFlingBehavior
 import com.pennywiseai.tracker.ui.theme.*
 import com.pennywiseai.tracker.utils.CurrencyFormatter
-import dev.chrisbanes.haze.HazeDefaults
-import dev.chrisbanes.haze.HazeEffectScope
+import com.pennywiseai.tracker.ui.effects.frostedBlur
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 /** Distance each card travels on the first-composition entrance animation. */
 private val ENTRANCE_SLIDE_DISTANCE = Spacing.lg
@@ -136,11 +135,11 @@ private val STACKED_AVATAR_STEP = Spacing.lg - Spacing.xs
 /** The surface-coloured ring that separates one stacked avatar from the next. */
 private val STACKED_AVATAR_RING = Spacing.xxs
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
-    navController: NavController,
+    onAccountClick: (bankName: String, accountLast4: String) -> Unit,
     coverStyle: CoverStyle = CoverStyle.AURORA,
     blurEffects: Boolean = false,
     onNavigateToSettings: () -> Unit = {},
@@ -165,11 +164,14 @@ fun HomeScreen(
     var showUpgradeSheet by rememberSaveable { mutableStateOf(false) }
     val deletedTransaction by viewModel.deletedTransaction.collectAsState()
     val smsScanWorkInfo by viewModel.smsScanWorkInfo.collectAsState()
+    val slipScanProgress by viewModel.slipScanProgress.collectAsStateWithLifecycle()
     val groupSummaries by viewModel.groupSummaries.collectAsState()
     val goals by viewModel.goals.collectAsStateWithLifecycle()
     val homeSectionLayout by viewModel.homeSectionLayout.collectAsStateWithLifecycle()
     val showSharePrompt by viewModel.showSharePrompt.collectAsState()
     val showProHomeCard by viewModel.showProHomeCard.collectAsStateWithLifecycle()
+    val paydaySuggestion by viewModel.paydaySuggestion.collectAsStateWithLifecycle()
+    val recurringSuggestions by viewModel.recurringSuggestions.collectAsStateWithLifecycle()
     val safeToSpend by viewModel.safeToSpend.collectAsStateWithLifecycle()
     var showSafeToSpendSheet by rememberSaveable { mutableStateOf(false) }
     val activity = LocalActivity.current
@@ -182,12 +184,13 @@ fun HomeScreen(
 
     // Bottom sheet menu state
     var showMenuSheet by remember { mutableStateOf(false) }
+    var showSlipScanSheet by rememberSaveable { mutableStateOf(false) }
     var showShareSheet by remember { mutableStateOf(false) }
     var showEditWidgetsSheet by remember { mutableStateOf(false) }
     // Period the sheet should open on. The monthly banner points it at the finished
     // month; opening from the overflow menu uses whatever the user saved.
     var sharePromptPeriod by remember { mutableStateOf<SharePeriod?>(null) }
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberBottomSheetState(SheetValue.Hidden)
 
     // Profile filter dropdown state
     var showProfileFilterMenu by remember { mutableStateOf(false) }
@@ -197,6 +200,10 @@ fun HomeScreen(
 
     // Haptic feedback
     val view = LocalView.current
+
+    // Set while the floating nav bar is up: Sync docks beside it, and Add
+    // moves to the header so no FAB stack floats over the content.
+    val navDock = LocalNavDock.current
 
     // Haptic on successful SMS scan completion
     LaunchedEffect(smsScanWorkInfo?.state) {
@@ -224,6 +231,7 @@ fun HomeScreen(
     var hasAnimated by rememberSaveable { mutableStateOf(false) }
     val density = LocalDensity.current
     val slideOffsetPx = with(density) { ENTRANCE_SLIDE_DISTANCE.roundToPx() }
+    val motion = MaterialTheme.motionScheme
 
     // Mark entrance animation as complete after all stagger delays have fired
     LaunchedEffect(Unit) {
@@ -384,6 +392,30 @@ fun HomeScreen(
                                 onDismiss = { showProfileFilterMenu = false }
                             )
                         }
+                        if (navDock != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(Dimensions.Component.iconButton)
+                                    .clip(CircleShape)
+                                    .background(
+                                        color = if (blurEffects) containerColor.copy(0.5f) else containerColor,
+                                        shape = CircleShape
+                                    )
+                                    .clickable(
+                                        onClick = onNavigateToAddScreen,
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = stringResource(R.string.home_fab_add),
+                                    tint = MaterialTheme.colorScheme.inverseSurface,
+                                    modifier = Modifier.size(Dimensions.Icon.medium)
+                                )
+                            }
+                        }
                         // More options button
                         Box(
                             modifier = Modifier
@@ -416,6 +448,7 @@ fun HomeScreen(
                         profileBackgroundColor = uiState.profileBackgroundColor,
                         onAvatarClick = onNavigateToSettings,
                         onMenuClick = { showMenuSheet = true },
+                        onAddClick = onNavigateToAddScreen.takeIf { navDock != null },
                         profiles = uiState.profiles,
                         selectedProfileId = uiState.selectedProfileId,
                         onProfileSelected = { viewModel.updateSelectedProfile(it) },
@@ -463,9 +496,9 @@ fun HomeScreen(
                 }
                 AnimatedVisibility(
                     visible = visible.value,
-                    enter = fadeIn(tween(300)) + slideInVertically(
+                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                         initialOffsetY = { slideOffsetPx },
-                        animationSpec = tween(300)
+                        animationSpec = motion.defaultSpatialSpec()
                     )
                 ) {
                     if (!uiState.isBalanceReady) {
@@ -495,88 +528,74 @@ fun HomeScreen(
                             isApproximate = uiState.isApproximateBalance,
                             isBalanceHidden = uiState.isBalanceHidden,
                             onToggleBalanceVisibility = { viewModel.toggleBalanceVisibility() },
-                            onCurrencyClick = {
-                                // Cycle through currencies when tapped
-                                val currencies = uiState.availableCurrencies
-                                if (currencies.size > 1) {
-                                    val currentIdx = currencies.indexOf(uiState.selectedCurrency)
-                                    val nextIdx = (currentIdx + 1) % currencies.size
-                                    viewModel.selectCurrency(currencies[nextIdx])
-                                }
-                            },
+                            onCurrencySelected = { viewModel.selectCurrency(it) },
                             onShowBreakdown = { viewModel.showBreakdownDialog() },
                             accountBalances = uiState.accountBalances,
                             creditCards = uiState.creditCards,
                             totalAvailableCredit = uiState.totalAvailableCredit,
                             forecast = uiState.spendForecast,
-                            onAccountClick = { bankName, accountLast4 ->
-                                navController.navigate(
-                                    com.pennywiseai.tracker.navigation.AccountDetail(
-                                        bankName = bankName,
-                                        accountLast4 = accountLast4
-                                    )
-                                ) { launchSingleTop = true }
-                            }
+                            onAccountClick = onAccountClick
                         )
                     }
                 }
             }
 
-            // 1.2. Monthly share prompt. Offers the user something ("your month, summed
-            // up") rather than asking a favour, and only appears when the finished month
-            // actually has enough in it to be worth sending.
-            if (showSharePrompt) {
-                item {
-                    ShareMonthBanner(
-                        onOpen = {
-                            viewModel.markSharePromptHandled()
-                            sharePromptPeriod = SharePeriod.LAST_MONTH
-                            showShareSheet = true
-                        },
-                        onDismiss = { viewModel.markSharePromptHandled() },
-                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
-                    )
-                }
-            } else if (showProHomeCard) {
-                // 1.3. One-time Pro card (#945). Shares the share banner's slot and
-                // never stacks with it (the eligibility check also excludes it).
-                item {
-                    ProHomeCard(
-                        onSeePro = {
-                            viewModel.markProHomeCardHandled()
-                            showUpgradeSheet = true
-                        },
-                        onDismiss = { viewModel.markProHomeCardHandled() },
-                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
-                    )
-                }
-            }
-
-            // 1.5. Cash-flow card (25ms delay) — hides itself on dormant months.
-            item {
-                val visible = remember { mutableStateOf(hasAnimated) }
-                LaunchedEffect(Unit) {
-                    if (!visible.value) { delay(25); visible.value = true }
-                }
-                AnimatedVisibility(
-                    visible = visible.value,
-                    enter = fadeIn(tween(300)) + slideInVertically(
-                        initialOffsetY = { slideOffsetPx },
-                        animationSpec = tween(300)
-                    )
-                ) {
-                    CashFlowCard(
-                        currency = uiState.selectedCurrency,
-                        // When card spend counts as expense (#705) it's already in
-                        // "Spent this month", so drop it from this "outside cash flow"
-                        // card (a zero channel is filtered out) to avoid double-showing.
-                        creditCardSpend = if (uiState.countCreditCardAsExpense) BigDecimal.ZERO else uiState.currentMonthCreditCard,
-                        investments = uiState.currentMonthInvestment,
-                        transfers = uiState.currentMonthTransfer,
-                        isBalanceHidden = uiState.isBalanceHidden,
-                        onToggleBalanceVisibility = { viewModel.toggleBalanceVisibility() },
-                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
-                    )
+            // Share / one-time Pro card: below the first section that actually shows
+            // (Safe to spend by default), so the decision card stays first and the
+            // prompt still sits high enough to be seen and dismissed.
+            val promoSlot: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+                val payday = paydaySuggestion
+                val recurring = recurringSuggestions
+                // Monthly share prompt. Offers the user something ("your month, summed
+                // up") rather than asking a favour, and only appears when the finished month
+                // actually has enough in it to be worth sending.
+                if (showSharePrompt) {
+                    item {
+                        ShareMonthBanner(
+                            onOpen = {
+                                viewModel.markSharePromptHandled()
+                                sharePromptPeriod = SharePeriod.LAST_MONTH
+                                showShareSheet = true
+                            },
+                            onDismiss = { viewModel.markSharePromptHandled() },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
+                } else if (payday != null) {
+                    // One-time "start budgets on payday?" suggestion. Ahead of the Pro card:
+                    // it's about the user's own money, not an upsell.
+                    item {
+                        PaydaySuggestionCard(
+                            day = payday,
+                            onAccept = { viewModel.acceptPaydaySuggestion(payday) },
+                            onDismiss = { viewModel.dismissPaydaySuggestion() },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
+                } else if (recurring != null) {
+                    // Untracked repeating payments: a compact entry to Subscriptions →
+                    // Suggested, where each one is reviewed.
+                    item {
+                        RecurringSuggestionsCard(
+                            merchantNames = recurring.map { it.merchantName },
+                            onReview = onNavigateToSubscriptions,
+                            onDismiss = { viewModel.dismissRecurringSuggestions(recurring) },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
+                } else if (showProHomeCard) {
+                    // One-time Pro card (#945). Shares the share banner's slot and
+                    // never stacks with it (the eligibility check also excludes it).
+                    item {
+                        ProHomeCard(
+                            onSeePro = {
+                                viewModel.markProHomeCardHandled()
+                                showUpgradeSheet = true
+                            },
+                            onDismiss = { viewModel.markProHomeCardHandled() },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
                 }
             }
 
@@ -584,6 +603,21 @@ fun HomeScreen(
             // list entirely; the entrance stagger follows the *displayed* position so
             // it survives reordering. Each branch keeps its own data guard.
             val visibleSections = homeSectionLayout.filter { it.second }.map { it.first }
+            // Mirrors each branch's own data guard below, so an empty section first in
+            // line doesn't drag the promo up under the balance card.
+            val promoAfter = visibleSections.firstOrNull { section ->
+                when (section) {
+                    HomeSection.SAFE_TO_SPEND -> safeToSpend != null
+                    HomeSection.BUDGETS -> uiState.budgetSummary != null
+                    HomeSection.GOALS -> goals.isNotEmpty()
+                    HomeSection.LOANS -> uiState.loanSummary != null
+                    HomeSection.GROUPS -> groupSummaries.isNotEmpty()
+                    HomeSection.ACCOUNTS -> uiState.creditCards.isNotEmpty() || uiState.accountBalances.isNotEmpty()
+                    HomeSection.SUBSCRIPTIONS -> uiState.upcomingSubscriptions.isNotEmpty()
+                    HomeSection.MONEY_IN_MOTION -> false // ponytail: secondary card, never the promo's anchor
+                    HomeSection.RECENT_TRANSACTIONS, HomeSection.ACTIVITY -> true
+                }
+            }
             for ((index, section) in visibleSections.withIndex()) {
                 val delayMs = 50L * (index + 1)
                 when (section) {
@@ -597,9 +631,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     SafeToSpendCard(
@@ -623,9 +657,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     Column(
@@ -635,7 +669,7 @@ fun HomeScreen(
                                             title = stringResource(R.string.home_section_budgets),
                                             modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                             action = {
-                                                TextButton(onClick = onNavigateToBudgets) {
+                                                TextButton(onClick = onNavigateToBudgets, shapes = ButtonDefaults.shapes()) {
                                                     Text(stringResource(R.string.home_view_all))
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -666,9 +700,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     Column(
@@ -678,7 +712,7 @@ fun HomeScreen(
                                             title = stringResource(R.string.home_section_goals),
                                             modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                             action = {
-                                                TextButton(onClick = onNavigateToBudgets) {
+                                                TextButton(onClick = onNavigateToBudgets, shapes = ButtonDefaults.shapes()) {
                                                     Text(stringResource(R.string.home_view_all))
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -708,9 +742,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     Column(
@@ -720,7 +754,7 @@ fun HomeScreen(
                                             title = stringResource(R.string.home_section_loans),
                                             modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                             action = {
-                                                TextButton(onClick = onNavigateToLoans) {
+                                                TextButton(onClick = onNavigateToLoans, shapes = ButtonDefaults.shapes()) {
                                                     Text(stringResource(R.string.home_view_all))
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -758,9 +792,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     Column(
@@ -770,7 +804,7 @@ fun HomeScreen(
                                             title = stringResource(R.string.home_section_groups),
                                             modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                             action = {
-                                                TextButton(onClick = onNavigateToTransactionGroups) {
+                                                TextButton(onClick = onNavigateToTransactionGroups, shapes = ButtonDefaults.shapes()) {
                                                     Text(stringResource(R.string.home_view_all))
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -805,9 +839,9 @@ fun HomeScreen(
                             }
                             AnimatedVisibility(
                                 visible = visible.value,
-                                enter = fadeIn(tween(300)) + slideInVertically(
+                                enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                     initialOffsetY = { slideOffsetPx },
-                                    animationSpec = tween(300)
+                                    animationSpec = motion.defaultSpatialSpec()
                                 )
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = Dimensions.Padding.content)) {
@@ -821,7 +855,8 @@ fun HomeScreen(
                                                 // Search button
                                                 IconButton(
                                                     onClick = onNavigateToTransactionsWithSearch,
-                                                    modifier = Modifier.size(Dimensions.Component.iconButton)
+                                                    modifier = Modifier.size(Dimensions.Component.iconButton),
+                                                    shapes = IconButtonDefaults.shapes()
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Search,
@@ -831,7 +866,7 @@ fun HomeScreen(
                                                 }
 
                                                 // View All button
-                                                TextButton(onClick = onNavigateToTransactions) {
+                                                TextButton(onClick = onNavigateToTransactions, shapes = ButtonDefaults.shapes()) {
                                                     Text(stringResource(R.string.home_view_all))
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -865,9 +900,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     PennyWiseEmptyState(
@@ -897,9 +932,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     Column(
@@ -943,9 +978,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     Column(
@@ -955,7 +990,7 @@ fun HomeScreen(
                                             title = stringResource(R.string.home_section_accounts),
                                             modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                             action = {
-                                                TextButton(onClick = onNavigateToManageAccounts) {
+                                                TextButton(onClick = onNavigateToManageAccounts, shapes = ButtonDefaults.shapes()) {
                                                     Text(stringResource(R.string.home_manage))
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -969,18 +1004,13 @@ fun HomeScreen(
                                             modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                             bankAccounts = uiState.accountBalances,
                                             creditCards = uiState.creditCards,
-                                            onAccountClick = { bankName, accountLast4 ->
-                                                navController.navigate(
-                                                    com.pennywiseai.tracker.navigation.AccountDetail(
-                                                        bankName = bankName,
-                                                        accountLast4 = accountLast4
-                                                    )
-                                                ) { launchSingleTop = true }
-                                            },
+                                            onAccountClick = onAccountClick,
                                             isUnifiedMode = uiState.isUnifiedMode,
                                             selectedCurrency = uiState.selectedCurrency,
                                             blurEffects = blurEffects,
-                                            hazeState = hazeStateBanner
+                                            hazeState = hazeStateBanner,
+                                            isAmountHidden = uiState.isBalanceHidden,
+                                            onToggleAmountsHidden = { viewModel.toggleBalanceVisibility() }
                                         )
                                     }
                                 }
@@ -997,9 +1027,9 @@ fun HomeScreen(
                                 }
                                 AnimatedVisibility(
                                     visible = visible.value,
-                                    enter = fadeIn(tween(300)) + slideInVertically(
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                         initialOffsetY = { slideOffsetPx },
-                                        animationSpec = tween(300)
+                                        animationSpec = motion.defaultSpatialSpec()
                                     )
                                 ) {
                                     Column(
@@ -1009,7 +1039,7 @@ fun HomeScreen(
                                             title = stringResource(R.string.home_section_subscriptions),
                                             modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
                                             action = {
-                                                TextButton(onClick = onNavigateToSubscriptions) {
+                                                TextButton(onClick = onNavigateToSubscriptions, shapes = ButtonDefaults.shapes()) {
                                                     Text(stringResource(R.string.home_view_all))
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -1024,6 +1054,7 @@ fun HomeScreen(
                                                 subscriptions = uiState.upcomingSubscriptions,
                                                 totalAmount = uiState.upcomingSubscriptionsTotal,
                                                 totalByCurrency = uiState.upcomingSubscriptionsByCurrency,
+                                                nextDue = uiState.nextDueSubscription,
                                                 isUnified = uiState.isUnifiedMode,
                                                 currency = uiState.selectedCurrency,
                                                 onClick = onNavigateToSubscriptions,
@@ -1036,6 +1067,37 @@ fun HomeScreen(
                             }
                         }
                     }
+                    HomeSection.MONEY_IN_MOTION -> {
+                        // Credit / invested / transferred: money outside net cash flow.
+                        // Reference detail, so a late, hideable section rather than a fixed
+                        // card above the decision cards. Hides itself on dormant months.
+                    item(key = section.name) {
+                        val visible = remember { mutableStateOf(hasAnimated) }
+                        LaunchedEffect(Unit) {
+                            if (!visible.value) { delay(delayMs); visible.value = true }
+                        }
+                        AnimatedVisibility(
+                            visible = visible.value,
+                            enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                initialOffsetY = { slideOffsetPx },
+                                animationSpec = motion.defaultSpatialSpec()
+                            )
+                        ) {
+                            CashFlowCard(
+                                currency = uiState.selectedCurrency,
+                                // When card spend counts as expense (#705) it's already in
+                                // "Spent this month", so drop it from this "outside cash flow"
+                                // card (a zero channel is filtered out) to avoid double-showing.
+                                creditCardSpend = if (uiState.countCreditCardAsExpense) BigDecimal.ZERO else uiState.currentMonthCreditCard,
+                                investments = uiState.currentMonthInvestment,
+                                transfers = uiState.currentMonthTransfer,
+                                isBalanceHidden = uiState.isBalanceHidden,
+                                onToggleBalanceVisibility = { viewModel.toggleBalanceVisibility() },
+                                modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
+                            )
+                        }
+                    }
+                    }
                     HomeSection.ACTIVITY -> {
                         // 6. Heatmap Widget
                         item(key = section.name) {
@@ -1045,9 +1107,9 @@ fun HomeScreen(
                             }
                             AnimatedVisibility(
                                 visible = visible.value,
-                                enter = fadeIn(tween(300)) + slideInVertically(
+                                enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
                                     initialOffsetY = { slideOffsetPx },
-                                    animationSpec = tween(300)
+                                    animationSpec = motion.defaultSpatialSpec()
                                 )
                             ) {
                                 Column(
@@ -1068,97 +1130,126 @@ fun HomeScreen(
                         }
                     }
                 }
+                if (section == promoAfter) promoSlot()
             }
+            // Nothing shown to anchor on: the promo still gets a slot.
+            if (promoAfter == null) promoSlot()
         }
         
-        // Scan FAB rotation animation
-        val infiniteTransition = rememberInfiniteTransition(label = "scan_rotation")
-        val rotationAngle by animateFloatAsState(
-            targetValue = if (uiState.isScanning) 1f else 0f,
-            animationSpec = tween(300),
-            label = "scan_trigger"
-        )
-        val continuousRotation by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "scan_rotation"
-        )
-        val scanRotation = if (uiState.isScanning) continuousRotation else 0f
 
-        // FABs - Direct access (no speed dial)
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(
-                    end = Dimensions.Padding.content,
-                    bottom = Dimensions.Component.fabBottomInset
-                ),
-            verticalArrangement = Arrangement.spacedBy(Spacing.smd),
-            horizontalAlignment = Alignment.End
-        ) {
-            // Add FAB (top, small)
-            SmallFloatingActionButton(
-                onClick = onNavigateToAddScreen,
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = stringResource(R.string.home_fab_add)
+        slipScanProgress?.takeIf { it.isScanning && it.total > 0 }?.let { progress ->
+            LinearProgressIndicator(
+                progress = { progress.current.toFloat() / progress.total },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = paddingValues.calculateTopPadding())
+                    .semantics {
+                        contentDescription = context.getString(R.string.slip_scan_processing)
+                    }
+            )
+        }
+
+        if (navDock != null) {
+            // Sync docks beside the floating nav bar; Add lives in the header.
+            val syncLabel = stringResource(R.string.home_fab_sync)
+            val fullResyncLabel = stringResource(R.string.home_resync_title)
+            DockNavAction(
+                NavDockAction(
+                    icon = Icons.Default.Sync,
+                    contentDescription = syncLabel,
+                    onClick = { viewModel.scanSmsMessages() },
+                    onLongClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        showFullResyncDialog = true
+                    },
+                    onLongClickLabel = fullResyncLabel,
+                    loading = uiState.isScanning,
+                    onPositioned = onFabPositioned
                 )
-            }
-            
-            // Sync FAB (bottom, primary)
-            // Single tap: incremental scan, Long press: full resync
+            )
+        } else {
+            // FABs - Direct access (no speed dial)
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = Dimensions.Padding.content,
+                        bottom = Dimensions.Component.fabBottomInset
+                    ),
+                verticalArrangement = Arrangement.spacedBy(Spacing.smd),
+                horizontalAlignment = Alignment.End
             ) {
-                Surface(
-                    modifier = Modifier
-                        .spotlightTarget(onFabPositioned)
-                        .size(Dimensions.Component.fab)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { viewModel.scanSmsMessages() },
-                                onLongPress = {
-                                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                                    showFullResyncDialog = true
-                                }
-                            )
-                        },
-                    shape = FloatingActionButtonDefaults.shape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shadowElevation = Dimensions.Elevation.fab,
-                    tonalElevation = Dimensions.Elevation.fab,
+                // Add FAB (top, small)
+                SmallFloatingActionButton(
+                    onClick = onNavigateToAddScreen,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                 ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.home_fab_add)
+                    )
+                }
+            
+                // Sync FAB (bottom, primary)
+                // Single tap: incremental scan, Long press: full resync
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .spotlightTarget(onFabPositioned)
+                            .size(Dimensions.Component.fab)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { viewModel.scanSmsMessages() },
+                                    onLongPress = {
+                                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                        showFullResyncDialog = true
+                                    }
+                                )
+                            },
+                        shape = FloatingActionButtonDefaults.shape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shadowElevation = Dimensions.Elevation.fab,
+                        tonalElevation = Dimensions.Elevation.fab,
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = stringResource(R.string.home_fab_sync),
-                            modifier = if (uiState.isScanning) Modifier.rotate(scanRotation) else Modifier,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // M3 Expressive: the shape-morphing loading indicator
+                            // takes the icon's place while a scan runs.
+                            if (uiState.isScanning) {
+                                LoadingIndicator(
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.semantics {
+                                        contentDescription = context.getString(R.string.home_fab_sync)
+                                    }
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = stringResource(R.string.home_fab_sync),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                    // Hint for long-press functionality - only show for new users (no transactions yet)
+                    if (uiState.recentItems.isEmpty() && !uiState.isLoading) {
+                        Text(
+                            text = stringResource(R.string.home_fab_sync_hint),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-                // Hint for long-press functionality - only show for new users (no transactions yet)
-                if (uiState.recentItems.isEmpty() && !uiState.isLoading) {
-                    Text(
-                        text = stringResource(R.string.home_fab_sync_hint),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
-        
+
         // Full Resync Confirmation Dialog
         if (showFullResyncDialog) {
             AlertDialog(
@@ -1197,7 +1288,8 @@ fun HomeScreen(
                 },
                 confirmButton = {
                     TextButton(
-                        onClick = { showFullResyncDialog = false }
+                        onClick = { showFullResyncDialog = false },
+                        shapes = ButtonDefaults.shapes()
                     ) {
                         Text(stringResource(R.string.home_cancel))
                     }
@@ -1233,6 +1325,16 @@ fun HomeScreen(
         ShareCardSheet(
             initialPeriod = sharePromptPeriod,
             onDismiss = { showShareSheet = false; sharePromptPeriod = null },
+        )
+    }
+
+    if (showSlipScanSheet) {
+        SlipScanBottomSheet(
+            onDismissRequest = { showSlipScanSheet = false },
+            onSaveTransaction = { slip ->
+                viewModel.saveParsedSlipTransaction(slip)
+                showSlipScanSheet = false
+            }
         )
     }
 
@@ -1275,6 +1377,16 @@ fun HomeScreen(
                     }
                 )
 
+                MenuListItem(
+                    headline = stringResource(R.string.slip_scan_header),
+                    icon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) },
+                    position = ListItemPosition.Middle,
+                    onClick = {
+                        showMenuSheet = false
+                        showSlipScanSheet = true
+                    }
+                )
+
                 // Settings (Middle)
                 MenuListItem(
                     headline = stringResource(R.string.home_menu_settings),
@@ -1294,6 +1406,18 @@ fun HomeScreen(
                     onClick = {
                         showMenuSheet = false
                         showEditWidgetsSheet = true
+                    }
+                )
+
+                // Read messages again (Middle) — the full resync otherwise
+                // hides behind a long-press on Sync.
+                MenuListItem(
+                    headline = stringResource(R.string.home_resync_title),
+                    icon = { Icon(Icons.Default.Sync, contentDescription = null) },
+                    position = ListItemPosition.Middle,
+                    onClick = {
+                        showMenuSheet = false
+                        showFullResyncDialog = true
                     }
                 )
 
@@ -1368,7 +1492,7 @@ fun HomeScreen(
     if (showEditWidgetsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showEditWidgetsSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded)),
             containerColor = MaterialTheme.colorScheme.surface,
             dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
@@ -1410,11 +1534,13 @@ fun HomeScreen(
                         )
                         IconButton(
                             enabled = i > 0,
-                            onClick = { viewModel.moveHomeSection(section, -1) }
+                            onClick = { viewModel.moveHomeSection(section, -1) },
+                            shapes = IconButtonDefaults.shapes()
                         ) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = stringResource(R.string.home_edit_move_up, sectionLabel)) }
                         IconButton(
                             enabled = i < homeSectionLayout.lastIndex,
-                            onClick = { viewModel.moveHomeSection(section, +1) }
+                            onClick = { viewModel.moveHomeSection(section, +1) },
+                            shapes = IconButtonDefaults.shapes()
                         ) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = stringResource(R.string.home_edit_move_down, sectionLabel)) }
                         Switch(
                             checked = isVisible,
@@ -1444,7 +1570,7 @@ private fun BreakdownDialog(
     lastMonthIncome: BigDecimal,
     lastMonthExpenses: BigDecimal,
     lastMonthTotal: BigDecimal,
-    currency: String = "INR",
+    currency: String,
     onDismiss: () -> Unit
 ) {
     val now = LocalDate.now()
@@ -1509,7 +1635,8 @@ private fun BreakdownDialog(
 
                 TextButton(
                     onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End)
+                    modifier = Modifier.align(Alignment.End),
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Text(stringResource(R.string.home_close))
                 }
@@ -1552,7 +1679,7 @@ private fun BreakdownRow(
     amount: BigDecimal,
     isIncome: Boolean,
     isBold: Boolean = false,
-    currency: String = "INR"
+    currency: String
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1582,8 +1709,9 @@ private fun UpcomingSubscriptionsCard(
     subscriptions: List<SubscriptionEntity>,
     totalAmount: BigDecimal,
     totalByCurrency: Map<String, com.pennywiseai.tracker.utils.Money> = emptyMap(),
+    nextDue: SubscriptionEntity? = null,
     isUnified: Boolean = false,
-    currency: String = "INR",
+    currency: String,
     onClick: () -> Unit = {},
     blurEffects: Boolean = false,
     hazeState: HazeState? = null
@@ -1598,18 +1726,7 @@ private fun UpcomingSubscriptionsCard(
             .then(
                 if (blurEffects && hazeState != null) Modifier
                     .clip(RoundedCornerShape(Dimensions.CornerRadius.large))
-                    .hazeEffect(
-                        state = hazeState,
-                        block = fun HazeEffectScope.() {
-                            style = HazeDefaults.style(
-                                backgroundColor = Color.Transparent,
-                                tint = HazeDefaults.tint(containerColor),
-                                blurRadius = 20.dp,
-                                noiseFactor = -1f,
-                            )
-                            blurredEdgeTreatment = BlurredEdgeTreatment.Unbounded
-                        }
-                    )
+                    .frostedBlur(hazeState, tint = containerColor)
                 else Modifier
             ),
         onClick = onClick,
@@ -1717,6 +1834,24 @@ private fun UpcomingSubscriptionsCard(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = Dimensions.Alpha.subtitle)
                     )
+                    val nextDate = nextDue?.nextPaymentDate
+                    if (nextDue != null && nextDate != null) {
+                        val days = ChronoUnit.DAYS.between(LocalDate.now(), nextDate).toInt()
+                        val due = when {
+                            days < 0 -> stringResource(R.string.home_subscriptions_due_overdue)
+                            days == 0 -> stringResource(R.string.home_subscriptions_due_today)
+                            days == 1 -> stringResource(R.string.home_subscriptions_due_tomorrow)
+                            else -> pluralStringResource(R.plurals.home_subscriptions_due_in_days, days, days)
+                        }
+                        Text(
+                            text = stringResource(R.string.home_subscriptions_next_due, nextDue.merchantName, due),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (days < 0) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = Dimensions.Alpha.subtitle),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             Text(
@@ -1762,19 +1897,23 @@ private fun ActiveLoansSummaryCard(
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium
                 )
-                val subtitle = when {
-                    totalLentRemaining > java.math.BigDecimal.ZERO && totalBorrowedRemaining > java.math.BigDecimal.ZERO ->
-                        stringResource(R.string.home_loans_owed_to_you, CurrencyFormatter.formatCurrency(totalLentRemaining, currency))
-                    totalLentRemaining > java.math.BigDecimal.ZERO ->
-                        stringResource(R.string.home_loans_owed_to_you, CurrencyFormatter.formatCurrency(totalLentRemaining, currency))
-                    else ->
-                        stringResource(R.string.home_loans_you_owe, CurrencyFormatter.formatCurrency(totalBorrowedRemaining, currency))
+                // Both directions, what you owe first — a lender who also borrows
+                // used to see only "owed to you". Nothing in this currency → no line.
+                val subtitle = listOfNotNull(
+                    totalBorrowedRemaining.takeIf { it > java.math.BigDecimal.ZERO }?.let {
+                        stringResource(R.string.home_loans_you_owe, CurrencyFormatter.formatCurrency(it, currency))
+                    },
+                    totalLentRemaining.takeIf { it > java.math.BigDecimal.ZERO }?.let {
+                        stringResource(R.string.home_loans_owed_to_you, CurrencyFormatter.formatCurrency(it, currency))
+                    },
+                ).joinToString(" · ")
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
             Text(
                 text = stringResource(R.string.home_view),
@@ -1825,6 +1964,7 @@ private fun HomeSection.titleRes(): Int = when (this) {
     HomeSection.RECENT_TRANSACTIONS -> R.string.home_section_recent_transactions
     HomeSection.ACCOUNTS -> R.string.home_section_accounts
     HomeSection.SUBSCRIPTIONS -> R.string.home_section_subscriptions
+    HomeSection.MONEY_IN_MOTION -> R.string.home_section_money_in_motion
     HomeSection.ACTIVITY -> R.string.home_section_activity
 }
 

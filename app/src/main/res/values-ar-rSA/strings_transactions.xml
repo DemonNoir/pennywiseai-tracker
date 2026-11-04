@@ -294,7 +294,6 @@
     <string name="add_field_reference">الرقم المرجعي (اختياري)</string>
     <string name="add_field_category">الفئة</string>
     <string name="add_clear">مسح</string>
-    <string name="add_selected">المحدد</string>
     <string name="add_save">حفظ</string>
     <string name="add_ok">موافق</string>
     <string name="add_cancel">إلغاء</string>
@@ -444,6 +443,11 @@
     <string name="share_banner_dismiss">تجاهل</string>
     <!-- Shared transaction components -->
     <string name="quick_category_title">تغيير الفئة</string>
+    <string name="quick_category_not_expense">ليس مصروفاً</string>
+    <string name="quick_category_not_income">ليس دخلاً</string>
+    <!-- Walking the recap's unsorted rows: "2 of 3" -->
+    <string name="quick_category_progress">%1$d من %2$d</string>
+    <string name="quick_category_save_failed">تعذّر الحفظ. حاول مرة أخرى.</string>
     <!-- Quick cash add sheet (the widgets' + and the evening recap) -->
     <string name="quick_add_title">صرف نقدي</string>
     <string name="quick_add_more_details">تفاصيل أكثر</string>

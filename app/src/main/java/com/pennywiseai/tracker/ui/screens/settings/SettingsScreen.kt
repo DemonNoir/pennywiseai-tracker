@@ -47,11 +47,12 @@ import androidx.compose.ui.text.AnnotatedString
 import com.pennywiseai.tracker.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.core.Constants
 import com.pennywiseai.tracker.ui.UiText
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
+import com.pennywiseai.tracker.ui.components.rememberSlipScanAccess
 import com.pennywiseai.tracker.ui.components.SupportDevelopmentDialog
 import com.pennywiseai.tracker.ui.components.cards.GroupedColumn
 import com.pennywiseai.tracker.domain.loan.UpiRequest
@@ -118,10 +119,12 @@ fun SettingsScreen(
     onNavigateToAiAccess: () -> Unit = {},
     settingsViewModel: SettingsViewModel = hiltViewModel(),
     appLockViewModel: com.pennywiseai.tracker.ui.viewmodel.AppLockViewModel = hiltViewModel(),
+    shakeToHideViewModel: com.pennywiseai.tracker.ui.ShakeToHideViewModel = hiltViewModel(),
     permissionViewModel: com.pennywiseai.tracker.ui.viewmodel.PermissionViewModel = hiltViewModel()
 ) {
     val themeUiState by themeViewModel.themeUiState.collectAsStateWithLifecycle()
     val appLockUiState by appLockViewModel.uiState.collectAsStateWithLifecycle()
+    val shakeToHideEnabled by shakeToHideViewModel.enabled.collectAsStateWithLifecycle()
     val downloadState by settingsViewModel.downloadState.collectAsStateWithLifecycle()
     val downloadProgress by settingsViewModel.downloadProgress.collectAsStateWithLifecycle()
     val downloadedMB by settingsViewModel.downloadedMB.collectAsStateWithLifecycle()
@@ -184,6 +187,7 @@ fun SettingsScreen(
     var showMainAccountDropdown by remember { mutableStateOf(false) }
     val permissionUiState by permissionViewModel.uiState.collectAsStateWithLifecycle()
     val hasNotificationAccess = permissionUiState.hasNotificationAccess
+    val (hasSlipAccess, requestSlipAccess) = rememberSlipScanAccess()
     val context = LocalContext.current
     val notificationAccessLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -403,8 +407,9 @@ fun SettingsScreen(
                     onExpandedChange = { showCurrencyDropdown = it },
                     position = ListItemPosition.Middle
                 ) {
-                    availableCurrencies.forEach { currency ->
-                        DropdownMenuItem(
+                    availableCurrencies.forEachIndexed { index, currency ->
+                        SelectableDropdownMenuItem(
+                            selected = currency == baseCurrency,
                             text = {
                                 Text("${CurrencyFormatter.getCurrencySymbol(currency)} $currency")
                             },
@@ -412,15 +417,9 @@ fun SettingsScreen(
                                 settingsViewModel.updateBaseCurrency(currency)
                                 showCurrencyDropdown = false
                             },
-                            leadingIcon = if (currency == baseCurrency) {
-                                {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            } else null
+                            shapes = MenuDefaults.itemShape(index, availableCurrencies.size),
+                            colors = MenuDefaults.selectableItemColors(containerColor = Color.Transparent),
+                            selectedLeadingIcon = { Icon(Icons.Default.Check, contentDescription = null) }
                         )
                     }
                 }
@@ -444,25 +443,20 @@ fun SettingsScreen(
                         onExpandedChange = { showMainAccountDropdown = it },
                         position = ListItemPosition.Middle
                     ) {
-                        accounts.forEach { account ->
+                        accounts.forEachIndexed { index, account ->
                             val name = account.alias?.takeIf { it.isNotBlank() } ?: account.bankName
                             val label = AccountBalanceEntity.accountLabel(name, account.accountLast4)
                             val key = "${account.bankName}_${account.accountLast4}"
-                            DropdownMenuItem(
+                            SelectableDropdownMenuItem(
+                                selected = key == mainAccountKey,
                                 text = { Text(label) },
                                 onClick = {
                                     settingsViewModel.setMainAccount(account)
                                     showMainAccountDropdown = false
                                 },
-                                leadingIcon = if (key == mainAccountKey) {
-                                    {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                } else null
+                                shapes = MenuDefaults.itemShape(index, accounts.size),
+                                colors = MenuDefaults.selectableItemColors(containerColor = Color.Transparent),
+                                selectedLeadingIcon = { Icon(Icons.Default.Check, contentDescription = null) }
                             )
                         }
                     }
@@ -554,6 +548,16 @@ fun SettingsScreen(
             SectionHeaderV2(title = stringResource(R.string.settings_security_section))
             SettingsGroup {
                 SettingsSwitchRow(
+                    icon = Icons.Default.Vibration,
+                    iconBgColor = teal_light,
+                    iconTint = teal_dark,
+                    title = stringResource(R.string.settings_shake_to_hide_title),
+                    subtitle = stringResource(R.string.settings_shake_to_hide_subtitle),
+                    checked = shakeToHideEnabled,
+                    onCheckedChange = { shakeToHideViewModel.setEnabled(it) },
+                    position = ListItemPosition.Top
+                )
+                SettingsSwitchRow(
                     icon = Icons.Default.Lock,
                     iconBgColor = red_light,
                     iconTint = red_dark,
@@ -567,7 +571,7 @@ fun SettingsScreen(
                     onCheckedChange = { appLockViewModel.setAppLockEnabled(it) },
                     // Turning it off always works, even after the screen lock was removed.
                     enabled = appLockUiState.canUseBiometric || appLockUiState.isLockEnabled,
-                    position = if (appLockUiState.isLockEnabled) ListItemPosition.Top else ListItemPosition.Single
+                    position = if (appLockUiState.isLockEnabled) ListItemPosition.Middle else ListItemPosition.Bottom
                 )
                 AnimatedVisibility(visible = appLockUiState.isLockEnabled) {
                     SettingsNavItem(
@@ -823,6 +827,17 @@ fun SettingsScreen(
                     position = ListItemPosition.Top,
                     trailingText = if (hasNotificationAccess) stringResource(R.string.settings_notification_access_on) else stringResource(R.string.settings_notification_access_off)
                 )
+                if (!hasSlipAccess) {
+                    SettingsNavItem(
+                        icon = Icons.Default.Receipt,
+                        iconBgColor = indigo_light,
+                        iconTint = indigo_dark,
+                        title = stringResource(R.string.permission_slip_title),
+                        subtitle = stringResource(R.string.slip_scan_permission_required),
+                        onClick = requestSlipAccess,
+                        position = ListItemPosition.Middle
+                    )
+                }
                 SettingsNavItem(
                     icon = Icons.Default.Apps,
                     iconBgColor = indigo_light,
@@ -1013,7 +1028,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showDisplayCurrencyDialog = false }) {
+                TextButton(onClick = { showDisplayCurrencyDialog = false }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
             }
@@ -1056,7 +1071,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showDateFormatDialog = false }) {
+                TextButton(onClick = { showDateFormatDialog = false }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
             }
@@ -1108,7 +1123,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showNumberFormatDialog = false }) {
+                TextButton(onClick = { showNumberFormatDialog = false }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
             }
@@ -1177,7 +1192,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showBudgetCycleDialog = false }) {
+                TextButton(onClick = { showBudgetCycleDialog = false }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
             }
@@ -1271,7 +1286,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showSmsScanDialog = false }) {
+                TextButton(onClick = { showSmsScanDialog = false }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
             }
@@ -1314,13 +1329,14 @@ fun SettingsScreen(
                             settingsViewModel.updateSmsScanCustomDate(millis)
                         }
                         showSmsScanDatePicker = false
-                    }
+                    },
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Text(stringResource(R.string.settings_action_ok))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { reopenScanDialog() }) {
+                TextButton(onClick = { reopenScanDialog() }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
             }
@@ -1376,7 +1392,8 @@ fun SettingsScreen(
                     enabled = confirmed && !isDeletingAllTransactions,
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
-                    )
+                    ),
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Text(if (isDeletingAllTransactions) stringResource(R.string.settings_delete_all_dialog_deleting) else stringResource(R.string.settings_delete_all_dialog_confirm))
                 }
@@ -1384,7 +1401,8 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(
                     onClick = { settingsViewModel.cancelDeleteAllTransactions() },
-                    enabled = !isDeletingAllTransactions
+                    enabled = !isDeletingAllTransactions,
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
@@ -1398,7 +1416,7 @@ fun SettingsScreen(
             title = { Text(stringResource(R.string.settings_delete_all_result_title)) },
             text = { Text(sentences.map { it.asString() }.joinToString(" ")) },
             confirmButton = {
-                TextButton(onClick = { settingsViewModel.clearDeleteAllTransactionsResult() }) {
+                TextButton(onClick = { settingsViewModel.clearDeleteAllTransactionsResult() }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_ok))
                 }
             }
@@ -1420,7 +1438,7 @@ fun SettingsScreen(
                 title = { Text(stringResource(R.string.settings_backup_status_title)) },
                 text = { Text(message.asString()) },
                 confirmButton = {
-                    TextButton(onClick = { settingsViewModel.clearImportExportMessage() }) {
+                    TextButton(onClick = { settingsViewModel.clearImportExportMessage() }, shapes = ButtonDefaults.shapes()) {
                         Text(stringResource(R.string.settings_action_ok))
                     }
                 }
@@ -1455,7 +1473,8 @@ fun SettingsScreen(
                             exportSaveLauncher.launch(fileName)
                             showExportOptionsDialog = false
                             settingsViewModel.clearImportExportMessage()
-                        }
+                        },
+                        shapes = ButtonDefaults.shapes()
                     ) {
                         Icon(Icons.Default.SaveAlt, contentDescription = null)
                         Spacer(modifier = Modifier.width(Spacing.xs))
@@ -1467,7 +1486,8 @@ fun SettingsScreen(
                             settingsViewModel.shareBackup()
                             showExportOptionsDialog = false
                             settingsViewModel.clearImportExportMessage()
-                        }
+                        },
+                        shapes = ButtonDefaults.shapes()
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null)
                         Spacer(modifier = Modifier.width(Spacing.xs))
@@ -1480,7 +1500,8 @@ fun SettingsScreen(
                     onClick = {
                         showExportOptionsDialog = false
                         settingsViewModel.clearImportExportMessage()
-                    }
+                    },
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Text(stringResource(R.string.settings_action_cancel))
                 }
@@ -1538,7 +1559,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showTimeoutDialog = false }) {
+                TextButton(onClick = { showTimeoutDialog = false }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.settings_action_done))
                 }
             }
@@ -1673,7 +1694,7 @@ private fun SettingsDropdownItem(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                 shape = MaterialTheme.shapes.large,
                 colors = TextFieldDefaults.colors(
                     // A field nested inside an already-tonal row needs a step
@@ -1732,7 +1753,7 @@ private fun AiChatSettingsItem(
 
             when (downloadState) {
                 DownloadState.NOT_DOWNLOADED -> {
-                    Button(onClick = onDownload) {
+                    Button(onClick = onDownload, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Default.Download, contentDescription = null)
                         Spacer(modifier = Modifier.width(Spacing.xs))
                         Text(stringResource(R.string.settings_ai_download))
@@ -1747,7 +1768,7 @@ private fun AiChatSettingsItem(
                     )
                 }
                 DownloadState.PAUSED -> {
-                    Button(onClick = onDownload) {
+                    Button(onClick = onDownload, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Default.Download, contentDescription = null)
                         Spacer(modifier = Modifier.width(Spacing.xs))
                         Text(stringResource(R.string.settings_ai_retry))
@@ -1764,7 +1785,7 @@ private fun AiChatSettingsItem(
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(Dimensions.Icon.medium)
                         )
-                        TextButton(onClick = onDelete) {
+                        TextButton(onClick = onDelete, shapes = ButtonDefaults.shapes()) {
                             Text(stringResource(R.string.settings_ai_delete))
                         }
                     }
@@ -1774,7 +1795,8 @@ private fun AiChatSettingsItem(
                         onClick = onDownload,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
-                        )
+                        ),
+                        shapes = ButtonDefaults.shapes()
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Spacer(modifier = Modifier.width(Spacing.xs))
@@ -1802,7 +1824,7 @@ private fun AiChatSettingsItem(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm)
             ) {
-                LinearProgressIndicator(
+                LinearWavyProgressIndicator(
                     progress = { downloadProgress / 100f },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1816,7 +1838,8 @@ private fun AiChatSettingsItem(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
-                    )
+                    ),
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Icon(Icons.Default.Cancel, contentDescription = null)
                     Spacer(modifier = Modifier.width(Spacing.xs))
@@ -1856,7 +1879,8 @@ private fun SettingsNavigationContent(onNavigateBack: () -> Unit) {
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 contentColor = MaterialTheme.colorScheme.onBackground
-            )
+            ),
+            shapes = IconButtonDefaults.shapes()
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,

@@ -58,6 +58,10 @@
     <string name="settings_security_section">الأمان</string>
     <string name="settings_app_lock_title">قفل التطبيق</string>
     <string name="settings_app_lock_subtitle">حافظ على بياناتك باستخدام المصادقة البيومترية</string>
+    <string name="settings_shake_to_hide_title">هزّ الجهاز لإخفاء المبالغ</string>
+    <string name="settings_shake_to_hide_subtitle">هزّ هاتفك لإخفاء المبالغ أو إظهارها في كل الشاشات</string>
+    <string name="shake_to_hide_first_hidden">تم إخفاء المبالغ. هزّ الجهاز مرة أخرى لإظهارها.</string>
+    <string name="shake_to_hide_first_shown">تم إظهار المبالغ. هزّ الجهاز مرة أخرى لإخفائها.</string>
     <string name="settings_lock_timeout_title">مهلة القفل</string>
     <string name="settings_lock_timeout_immediately_subtitle">قفل على الفور</string>
     <plurals name="settings_lock_timeout_after_minutes">
@@ -239,6 +243,21 @@
     <string name="settings_notification_access_disabled">انقر لتفعيل إشعارات التطبيقات المصرفية</string>
     <string name="settings_notification_access_on">تشغيل</string>
     <string name="settings_notification_access_off">متوقف</string>
+    <!-- #994 step 4: pick apps whose notifications become suggested transactions -->
+    <string name="settings_tracked_apps_title">تتبّع تطبيقات أخرى</string>
+    <string name="settings_tracked_apps_subtitle_none">اقترح معاملات من إشعارات أي تطبيق</string>
+    <plurals name="settings_tracked_apps_subtitle_count">
+        <item quantity="zero">لا تطبيقات متتبَّعة</item>
+        <item quantity="one">%d تطبيق متتبَّع</item>
+        <item quantity="two">تطبيقان متتبَّعان</item>
+        <item quantity="few">%d تطبيقات متتبَّعة</item>
+        <item quantity="many">%d تطبيقًا متتبَّعًا</item>
+        <item quantity="other">%d تطبيق متتبَّع</item>
+    </plurals>
+    <string name="settings_tracked_apps_body">اختر التطبيقات التي تُعلمك بالدفعات. تظهر إشعاراتها كاقتراحات في الرسائل غير المعروفة، ولا يُضاف شيء حتى تضغط إضافة. تطبيقات البنوك المدعومة تُقرأ مسبقًا ولا تظهر هنا.</string>
+    <string name="settings_tracked_apps_enable_access">فعّل الوصول إلى الإشعارات أولًا</string>
+    <string name="settings_tracked_apps_search">ابحث في التطبيقات</string>
+    <string name="settings_tracked_apps_done">تم</string>
     <string name="settings_daily_summary_title">الملخص اليومي</string>
     <string name="settings_daily_summary_subtitle">ملخص لمصاريف اليوم الساعة 9\u00A0مساءً</string>
     <string name="settings_daily_summary_needs_permission">اسمح بإشعارات PennyWise لتصلك الخلاصة اليومية.</string>
@@ -267,6 +286,7 @@
     <string name="settings_developer_section">المطور</string>
     <string name="settings_developer_mode_title">وضع المطور</string>
     <string name="settings_developer_mode_subtitle">عرض المعلومات التقنية في الدردشة</string>
+    <string name="settings_webhooks_title">خطافات الويب (Webhooks)</string>
     <string name="settings_webhooks_subtitle">إرسال البيانات المختارة إلى نقطة النهاية الخاصة بك</string>
     <string name="settings_webhooks_subtitle_pro">Pro · إرسال البيانات المختارة إلى نقطة النهاية الخاصة بك</string>
     <!-- Support & Community -->
@@ -314,6 +334,7 @@
     <string name="appearance_font_default_subtitle">النظام</string>
     <string name="appearance_font_sn_pro_subtitle">وحيد حديث</string>
     <!-- ══ Webhooks screen ══ -->
+    <string name="webhooks_title">خطافات الويب</string>
     <string name="webhooks_title_add">إضافة Webhook</string>
     <string name="webhooks_title_edit">تعديل Webhook</string>
     <string name="webhooks_title_history">سجل الإرسال</string>

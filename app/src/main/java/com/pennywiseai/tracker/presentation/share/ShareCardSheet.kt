@@ -14,14 +14,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,7 +40,7 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.data.share.ShareHero
 import com.pennywiseai.tracker.data.share.SharePeriod
@@ -63,7 +66,7 @@ fun ShareCardSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded))
 
     val config by viewModel.config.collectAsStateWithLifecycle()
     val loadedData by viewModel.data.collectAsStateWithLifecycle()
@@ -124,12 +127,13 @@ fun ShareCardSheet(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
+                shapes = ButtonDefaults.shapes(),
             ) {
                 Icon(Icons.Default.Share, contentDescription = null)
                 Text(stringResource(R.string.share_sheet_share), modifier = Modifier.padding(start = Spacing.sm))
             }
 
-            TextButton(onClick = { showCustomise = !showCustomise }) {
+            TextButton(onClick = { showCustomise = !showCustomise }, shapes = ButtonDefaults.shapes()) {
                 Text(if (showCustomise) stringResource(R.string.share_sheet_done) else stringResource(R.string.share_sheet_customise))
             }
 
@@ -153,6 +157,8 @@ fun ShareCardSheet(
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         FilterChip(
                             selected = effectiveHero == ShareHero.TRANSACTIONS,
+                            shapes = FilterChipDefaults.shapes(),
+                            colors = FilterChipDefaults.filterChipColors(),
                             onClick = {
                                 viewModel.updateConfig { it.copy(hero = ShareHero.TRANSACTIONS) }
                             },
@@ -160,6 +166,8 @@ fun ShareCardSheet(
                         )
                         FilterChip(
                             selected = effectiveHero == ShareHero.SUBSCRIPTIONS,
+                            shapes = FilterChipDefaults.shapes(),
+                            colors = FilterChipDefaults.filterChipColors(),
                             // Disabled rather than silently ignored: tapping a chip and
                             // seeing nothing happen reads as a bug, not as a choice the
                             // data can't support.
@@ -187,6 +195,8 @@ fun ShareCardSheet(
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         FilterChip(
                             selected = config.period == SharePeriod.THIS_MONTH,
+                            shapes = FilterChipDefaults.shapes(),
+                            colors = FilterChipDefaults.filterChipColors(),
                             onClick = {
                                 viewModel.updateConfig { it.copy(period = SharePeriod.THIS_MONTH) }
                             },
@@ -194,6 +204,8 @@ fun ShareCardSheet(
                         )
                         FilterChip(
                             selected = config.period == SharePeriod.LAST_MONTH,
+                            shapes = FilterChipDefaults.shapes(),
+                            colors = FilterChipDefaults.filterChipColors(),
                             onClick = {
                                 viewModel.updateConfig { it.copy(period = SharePeriod.LAST_MONTH) }
                             },
@@ -201,6 +213,8 @@ fun ShareCardSheet(
                         )
                         FilterChip(
                             selected = config.period == SharePeriod.ALL_TIME,
+                            shapes = FilterChipDefaults.shapes(),
+                            colors = FilterChipDefaults.filterChipColors(),
                             onClick = {
                                 viewModel.updateConfig { it.copy(period = SharePeriod.ALL_TIME) }
                             },

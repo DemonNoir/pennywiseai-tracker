@@ -7,7 +7,6 @@ import com.pennywiseai.tracker.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,7 +30,12 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.MenuDefaults
+import androidx.compose.material3.SelectableDropdownMenuItem
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,7 +49,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
@@ -56,10 +59,8 @@ import androidx.compose.ui.unit.dp
 import android.view.HapticFeedbackConstants
 import com.pennywiseai.tracker.ui.theme.Dimensions
 import com.pennywiseai.tracker.ui.theme.PennyWiseText
-import dev.chrisbanes.haze.HazeDefaults
-import dev.chrisbanes.haze.HazeEffectScope
+import com.pennywiseai.tracker.ui.effects.frostedBlur
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
 import com.pennywiseai.tracker.ui.theme.Spacing
 import com.pennywiseai.tracker.ui.theme.income_dark
 import com.pennywiseai.tracker.ui.theme.income_light
@@ -93,7 +94,7 @@ fun BalanceCard(
     availableCurrencies: List<String>,
     isUnifiedMode: Boolean = false,
     isApproximate: Boolean = false,
-    onCurrencyClick: () -> Unit,
+    onCurrencySelected: (String) -> Unit,
     onShowBreakdown: () -> Unit,
     isBalanceHidden: Boolean = false,
     onToggleBalanceVisibility: () -> Unit = {},
@@ -111,7 +112,7 @@ fun BalanceCard(
 
     val chevronRotation by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
-        animationSpec = tween(Dimensions.Animation.medium),
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
         label = "chevronRotation"
     )
 
@@ -131,8 +132,8 @@ fun BalanceCard(
     val changeText = monthlyChangePercent?.let { percent ->
         when {
             isBalanceHidden -> "••••"
-            isPositive -> stringResource(R.string.balance_card_change_more, kotlin.math.abs(percent))
-            else -> stringResource(R.string.balance_card_change_less, kotlin.math.abs(percent))
+            isPositive -> stringResource(R.string.balance_card_change_more_same_point, kotlin.math.abs(percent))
+            else -> stringResource(R.string.balance_card_change_less_same_point, kotlin.math.abs(percent))
         }
     }
 
@@ -141,23 +142,12 @@ fun BalanceCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .animateContentSize(
-                    animationSpec = tween(Dimensions.Animation.medium)
+                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
                 )
                 .then(
                     if (blurEffects) Modifier
                         .clip(RoundedCornerShape(Dimensions.CornerRadius.large))
-                        .hazeEffect(
-                            state = hazeState,
-                            block = fun HazeEffectScope.() {
-                                style = HazeDefaults.style(
-                                    backgroundColor = Color.Transparent,
-                                    tint = HazeDefaults.tint(containerColor),
-                                    blurRadius = 20.dp,
-                                    noiseFactor = -1f,
-                                )
-                                blurredEdgeTreatment = BlurredEdgeTreatment.Unbounded
-                            }
-                        )
+                        .frostedBlur(hazeState, tint = containerColor)
                     else Modifier
                 ),
             onClick = {
@@ -194,7 +184,8 @@ fun BalanceCard(
                         SpendingMetaRow(
                             currency = currency,
                             showCurrencyChip = availableCurrencies.size > 1 && !isUnifiedMode,
-                            onCurrencyClick = onCurrencyClick,
+                            currencies = availableCurrencies,
+                            onCurrencySelected = onCurrencySelected,
                             changeText = changeText,
                             changeColor = changeColor
                         )
@@ -247,7 +238,8 @@ fun BalanceCard(
                         SpendingMetaRow(
                             currency = currency,
                             showCurrencyChip = availableCurrencies.size > 1 && !isUnifiedMode,
-                            onCurrencyClick = onCurrencyClick,
+                            currencies = availableCurrencies,
+                            onCurrencySelected = onCurrencySelected,
                             changeText = changeText,
                             changeColor = changeColor
                         )
@@ -485,7 +477,7 @@ fun BalanceCard(
                             if (isApproximate) {
                                 Spacer(modifier = Modifier.height(Spacing.xs))
                                 Text(
-                                    text = stringResource(R.string.balance_card_approximate_note),
+                                    text = stringResource(R.string.balance_card_other_currency_note),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.fillMaxWidth()
@@ -538,7 +530,8 @@ private fun SpendingAmountHeader(
         )
         IconButton(
             onClick = onToggleBalanceVisibility,
-            modifier = Modifier.size(Dimensions.Component.minTouchTarget)
+            modifier = Modifier.size(Dimensions.Component.minTouchTarget),
+            shapes = IconButtonDefaults.shapes()
         ) {
             Icon(
                 imageVector = if (isBalanceHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
@@ -561,7 +554,8 @@ private fun SpendingAmountHeader(
 private fun SpendingMetaRow(
     currency: String,
     showCurrencyChip: Boolean,
-    onCurrencyClick: () -> Unit,
+    currencies: List<String>,
+    onCurrencySelected: (String) -> Unit,
     changeText: String?,
     changeColor: Color
 ) {
@@ -570,11 +564,27 @@ private fun SpendingMetaRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
     ) {
-        if (showCurrencyChip) {
+        if (showCurrencyChip) Box {
+            var showMenu by remember { mutableStateOf(false) }
             CurrencyChip(
                 currency = currency,
-                onClick = onCurrencyClick
+                onClick = { showMenu = true }
             )
+            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                currencies.forEachIndexed { index, code ->
+                    SelectableDropdownMenuItem(
+                        selected = code == currency,
+                        text = { Text(code) },
+                        onClick = {
+                            if (code != currency) onCurrencySelected(code)
+                            showMenu = false
+                        },
+                        shapes = MenuDefaults.itemShape(index, currencies.size),
+                        colors = MenuDefaults.selectableItemColors(containerColor = Color.Transparent),
+                        selectedLeadingIcon = { Icon(Icons.Default.Check, contentDescription = null) }
+                    )
+                }
+            }
         }
         if (changeText != null) Surface(
             shape = RoundedCornerShape(Dimensions.CornerRadius.medium),

@@ -6,7 +6,7 @@ import com.pennywiseai.tracker.data.database.entity.builtinKey
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import androidx.room.withTransaction
+import com.pennywiseai.tracker.data.database.withTransaction
 import com.pennywiseai.tracker.data.database.PennyWiseDatabase
 import com.pennywiseai.tracker.data.database.entity.*
 import com.pennywiseai.tracker.billing.license.LicenseManager
@@ -844,11 +844,13 @@ class BackupImporter @Inject constructor(
         val existingBudgetNames = database.budgetDao().getAllBudgets().first().map { it.name }.toSet()
 
         budgets.insertEachCounting(onSkip) { budget ->
-            if (!existingBudgetNames.contains(budget.name)) {
+            // One savepoint per budget: a failing category rolls back the whole
+            // budget instead of committing it with only some of its categories.
+            if (!existingBudgetNames.contains(budget.name)) database.withTransaction {
                 // Use the return value from insertBudget to get the new ID directly
                 // instead of querying (which would miss inactive budgets)
                 val newBudgetId = database.budgetDao().insertBudget(budget.copy(id = 0))
-                
+
                 // Import categories for this budget using the returned ID
                 budgetCategories.filter { it.budgetId == budget.id }.forEach { category ->
                     val updatedCategory = category.copy(id = 0, budgetId = newBudgetId)
@@ -1011,6 +1013,9 @@ class BackupImporter @Inject constructor(
         preferences.app.lastReviewPromptTime?.let {
             userPreferencesRepository.updateLastReviewPromptTime(it)
         }
+        // Additive, like ignored accounts: a restore never brings back a suggestion
+        // dismissed on this device.
+        userPreferencesRepository.addDismissedRecurringSuggestions(preferences.app.dismissedRecurringSuggestions)
 
         // Like the license: fills in a missing UPI ID, never replaces one set here (#346).
         preferences.app.upiId?.takeIf { com.pennywiseai.tracker.domain.loan.UpiRequest.isValidUpiId(it) }?.let { id ->

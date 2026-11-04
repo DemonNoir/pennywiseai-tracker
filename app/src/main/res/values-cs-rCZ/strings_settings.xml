@@ -58,6 +58,10 @@
     <string name="settings_security_section">Zabezpečení</string>
     <string name="settings_app_lock_title">Zámek aplikací</string>
     <string name="settings_app_lock_subtitle">Chraňte svá data biometrickým ověřením</string>
+    <string name="settings_shake_to_hide_title">Zatřesením skrýt částky</string>
+    <string name="settings_shake_to_hide_subtitle">Zatřeste telefonem a skryjte nebo zobrazte částky na všech obrazovkách</string>
+    <string name="shake_to_hide_first_hidden">Částky skryty. Dalším zatřesením je zobrazíte.</string>
+    <string name="shake_to_hide_first_shown">Částky zobrazeny. Dalším zatřesením je skryjete.</string>
     <string name="settings_lock_timeout_title">Časový limit zámku</string>
     <string name="settings_lock_timeout_immediately_subtitle">Zamknout ihned</string>
     <plurals name="settings_lock_timeout_after_minutes">
@@ -221,6 +225,7 @@
     <string name="settings_notification_access_disabled">Klepnutím povolíte upozornění na bankovní aplikaci</string>
     <string name="settings_notification_access_on">Zapnuto</string>
     <string name="settings_notification_access_off">Vypnuto</string>
+    <!-- #994 step 4: pick apps whose notifications become suggested transactions -->
     <string name="settings_daily_summary_title">Denní souhrn</string>
     <string name="settings_daily_summary_subtitle">Shrnutí dnešních výdajů ve 21:00</string>
     <string name="settings_daily_summary_needs_permission">Povolte oznámení pro PennyWise, abyste dostávali denní souhrn.</string>

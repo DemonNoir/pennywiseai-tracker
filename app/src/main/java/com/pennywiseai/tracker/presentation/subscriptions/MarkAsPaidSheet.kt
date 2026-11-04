@@ -36,7 +36,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,7 +93,7 @@ fun MarkAsPaidSheet(
     onConfirm: (LocalDate) -> Unit,
     onLinkExisting: (TransactionEntity) -> Unit = {},
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded))
     val scope = rememberCoroutineScope()
 
     val today = remember { LocalDate.now() }
@@ -319,10 +320,10 @@ fun MarkAsPaidSheet(
                             .atZone(ZoneOffset.UTC).toLocalDate()
                     }
                     showDatePicker = false
-                }) { Text(stringResource(R.string.subscriptions_action_ok)) }
+                }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.subscriptions_action_ok)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text(stringResource(R.string.subscriptions_action_cancel)) }
+                TextButton(onClick = { showDatePicker = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.subscriptions_action_cancel)) }
             },
         ) {
             DatePicker(state = datePickerState)
@@ -464,6 +465,7 @@ private fun DateChips(
     ) {
         FilterChip(
             selected = isToday,
+            shapes = FilterChipDefaults.shapes(),
             onClick = { onSelect(today) },
             label = { Text(stringResource(R.string.mark_paid_today)) },
             colors = FilterChipDefaults.filterChipColors(
@@ -473,6 +475,7 @@ private fun DateChips(
         )
         FilterChip(
             selected = isYesterday,
+            shapes = FilterChipDefaults.shapes(),
             onClick = { onSelect(yesterday) },
             label = { Text(stringResource(R.string.mark_paid_yesterday)) },
             colors = FilterChipDefaults.filterChipColors(
@@ -482,6 +485,7 @@ private fun DateChips(
         )
         FilterChip(
             selected = isCustom,
+            shapes = FilterChipDefaults.shapes(),
             onClick = onPickDate,
             label = {
                 Text(

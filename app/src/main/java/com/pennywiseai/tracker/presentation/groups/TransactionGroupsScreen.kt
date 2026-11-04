@@ -25,7 +25,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
 import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
@@ -41,7 +41,7 @@ import dev.chrisbanes.haze.hazeSource
 import java.math.BigDecimal
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TransactionGroupsScreen(
     onNavigateBack: () -> Unit = {},
@@ -63,7 +63,7 @@ fun TransactionGroupsScreen(
                 title = stringResource(R.string.groups_title),
                 hasBackButton = true,
                 navigationContent = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onNavigateBack, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.group_back))
                     }
                 },
@@ -85,7 +85,7 @@ fun TransactionGroupsScreen(
                 modifier = Modifier.fillMaxSize().padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                LoadingIndicator()
             }
             return@Scaffold
         }
@@ -266,13 +266,14 @@ private fun CreateGroupDialog(
         confirmButton = {
             TextButton(
                 onClick = { onCreate(name, note.ifBlank { null }) },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank(),
+                shapes = ButtonDefaults.shapes()
             ) {
                 Text(stringResource(R.string.groups_create_confirm))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
                 Text(stringResource(R.string.group_cancel))
             }
         }

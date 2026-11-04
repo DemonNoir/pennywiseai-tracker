@@ -50,6 +50,7 @@ class SlipNotificationManager @Inject constructor(
             Intent.ACTION_VIEW,
             Uri.parse("pennywise://transaction/edit/$transactionId")
         ).apply {
+            setClass(context, com.pennywiseai.tracker.MainActivity::class.java)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 

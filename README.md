@@ -3,7 +3,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/sarim2000/pennywiseai-tracker?style=social)](https://github.com/sarim2000/pennywiseai-tracker)
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)](https://developer.android.com/about/versions/oreo/android-8.0)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.21-7F52FF)](https://kotlinlang.org/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF)](https://kotlinlang.org/)
 [![Privacy](https://img.shields.io/badge/AI-100%25_On--Device-FF6B6B)](https://ai.google.dev/edge)
 [![Downloads](https://img.shields.io/badge/Downloads-100+-green)](https://play.google.com/store/apps/details?id=com.pennywiseai.tracker)
 [![F-Droid](https://img.shields.io/f-droid/v/com.pennywiseai.tracker?color=1976d2)](https://f-droid.org/packages/com.pennywiseai.tracker/)
@@ -372,7 +372,7 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/Mikcharls311"><img src="https://avatars.githubusercontent.com/Mikcharls311?v=4&s=100" width="100px;" alt="Mikcharls311"/><br /><sub><b>Mikcharls311</b></sub></a><br /><a href="https://github.com/sarim2000/pennywiseai-tracker/issues?q=author%3AMikcharls311" title="Bug reports">🐛</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/rhsjudb"><img src="https://avatars.githubusercontent.com/rhsjudb?v=4&s=100" width="100px;" alt="rhsjudb"/><br /><sub><b>rhsjudb</b></sub></a><br /><a href="https://github.com/sarim2000/pennywiseai-tracker/issues?q=author%3Arhsjudb" title="Bug reports">🐛</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/xRahul"><img src="https://avatars.githubusercontent.com/xRahul?v=4&s=100" width="100px;" alt="xRahul"/><br /><sub><b>xRahul</b></sub></a><br /><a href="https://github.com/sarim2000/pennywiseai-tracker/commits?author=xRahul" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/haithamassoli44"><img src="https://avatars.githubusercontent.com/haithamassoli44?v=4&s=100" width="100px;" alt="haithamassoli44"/><br /><sub><b>haithamassoli44</b></sub></a><br /><a href="https://github.com/sarim2000/pennywiseai-tracker/commits?author=haithamassoli44" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/haithamassoli44"><img src="https://avatars.githubusercontent.com/haithamassoli44?v=4&s=100" width="100px;" alt="haithamassoli44"/><br /><sub><b>haithamassoli44</b></sub></a><br /><a href="https://github.com/sarim2000/pennywiseai-tracker/commits?author=haithamassoli44" title="Code">💻</a> <a href="#translation-haithamassoli44" title="Translation">🌍</a></td>
     </tr>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/khushalmajoka"><img src="https://avatars.githubusercontent.com/khushalmajoka?v=4&s=100" width="100px;" alt="khushalmajoka"/><br /><sub><b>khushalmajoka</b></sub></a><br /><a href="https://github.com/sarim2000/pennywiseai-tracker/commits?author=khushalmajoka" title="Code">💻</a></td>

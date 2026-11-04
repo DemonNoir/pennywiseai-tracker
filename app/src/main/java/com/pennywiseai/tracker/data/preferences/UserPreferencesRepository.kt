@@ -94,6 +94,18 @@ open class UserPreferencesRepository @Inject constructor(
         val SHARE_PROMPT_HANDLED_MONTH = stringPreferencesKey("share_prompt_handled_month")
         // Device-local on purpose: kept out of the backup's PreferencesSnapshot (#945).
         val PRO_HOME_CARD_HANDLED = booleanPreferencesKey("pro_home_card_handled")
+        val PAYDAY_SUGGESTION_HANDLED = booleanPreferencesKey("payday_suggestion_handled")
+        // Recurring-bill suggestions the user marked "Not recurring", as
+        // RecurringSuggestions.keyFor keys. Backed up (AppPreferences).
+        val DISMISSED_RECURRING_SUGGESTIONS = stringSetPreferencesKey("dismissed_recurring_suggestions")
+        // The Home "possible recurring bills" card: the suggestions it showed when
+        // last dismissed, and when. It comes back only for a new suggestion, and
+        // not within 30 days. Device-local.
+        val RECURRING_HOME_CARD_SEEN = stringSetPreferencesKey("recurring_home_card_seen")
+        val RECURRING_HOME_CARD_DISMISSED_AT = longPreferencesKey("recurring_home_card_dismissed_at")
+        // "Track as … bill" on transaction alerts: "key|epochDay" per merchant
+        // offered, to cap how often it's offered. Device-local.
+        val RECURRING_OFFER_LOG = stringSetPreferencesKey("recurring_offer_log")
 
         // App Lock preferences
         val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
@@ -147,6 +159,8 @@ open class UserPreferencesRepository @Inject constructor(
 
         // Balance Visibility
         val BALANCE_HIDDEN = booleanPreferencesKey("balance_hidden")
+        val SHAKE_TO_HIDE_AMOUNTS = booleanPreferencesKey("shake_to_hide_amounts")
+        val SHAKE_TO_HIDE_HINT_SHOWN = booleanPreferencesKey("shake_to_hide_hint_shown")
 
         // Selected Profile
         val SELECTED_PROFILE_ID = longPreferencesKey("selected_profile_id")
@@ -523,6 +537,81 @@ open class UserPreferencesRepository @Inject constructor(
     /** Marked on the user's action, not on display — same reasoning as [markSharePromptHandled]. */
     suspend fun markProHomeCardHandled() {
         context.dataStore.edit { it[PreferencesKeys.PRO_HOME_CARD_HANDLED] = true }
+    }
+
+    /** Whether the one-time "start budgets on payday?" Home card was accepted or dismissed. */
+    val paydaySuggestionHandled: Flow<Boolean> = context.dataStore.data
+        .map { it[PreferencesKeys.PAYDAY_SUGGESTION_HANDLED] ?: false }
+
+    /** Marked on the user's action, not on display — same reasoning as [markSharePromptHandled]. */
+    suspend fun markPaydaySuggestionHandled() {
+        context.dataStore.edit { it[PreferencesKeys.PAYDAY_SUGGESTION_HANDLED] = true }
+    }
+
+    /** Recurring-bill suggestions marked "Not recurring"; they never come back. */
+    val dismissedRecurringSuggestions: Flow<Set<String>> = context.dataStore.data
+        .map { it[PreferencesKeys.DISMISSED_RECURRING_SUGGESTIONS] ?: emptySet() }
+
+    suspend fun addDismissedRecurringSuggestions(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        context.dataStore.edit {
+            it[PreferencesKeys.DISMISSED_RECURRING_SUGGESTIONS] =
+                (it[PreferencesKeys.DISMISSED_RECURRING_SUGGESTIONS] ?: emptySet()) + keys
+        }
+    }
+
+    suspend fun removeDismissedRecurringSuggestion(key: String) {
+        context.dataStore.edit {
+            it[PreferencesKeys.DISMISSED_RECURRING_SUGGESTIONS] =
+                (it[PreferencesKeys.DISMISSED_RECURRING_SUGGESTIONS] ?: emptySet()) - key
+        }
+    }
+
+    /** Suggestion keys the Home card showed when it was last dismissed. */
+    val recurringHomeCardSeen: Flow<Set<String>> = context.dataStore.data
+        .map { it[PreferencesKeys.RECURRING_HOME_CARD_SEEN] ?: emptySet() }
+
+    /** When the Home card was last dismissed (epoch millis), or null. */
+    val recurringHomeCardDismissedAt: Flow<Long?> = context.dataStore.data
+        .map { it[PreferencesKeys.RECURRING_HOME_CARD_DISMISSED_AT] }
+
+    suspend fun dismissRecurringHomeCard(shownKeys: Collection<String>, nowMillis: Long) {
+        context.dataStore.edit {
+            it[PreferencesKeys.RECURRING_HOME_CARD_SEEN] =
+                (it[PreferencesKeys.RECURRING_HOME_CARD_SEEN] ?: emptySet()) + shownKeys
+            it[PreferencesKeys.RECURRING_HOME_CARD_DISMISSED_AT] = nowMillis
+        }
+    }
+
+    /**
+     * Records a "Track as … bill" offer for [key] on [today] if the caps allow
+     * it: one per merchant per [perMerchantDays], one a day overall. Returns
+     * whether the offer may be shown. Entries older than [perMerchantDays] are
+     * dropped as it goes.
+     */
+    suspend fun tryRecordRecurringOffer(key: String, today: LocalDate, perMerchantDays: Long): Boolean {
+        var allowed = false
+        context.dataStore.edit { prefs ->
+            val day = today.toEpochDay()
+            val log = (prefs[PreferencesKeys.RECURRING_OFFER_LOG] ?: emptySet())
+                .mapNotNull { entry ->
+                    val at = entry.lastIndexOf('|')
+                    entry.substring(at + 1).toLongOrNull()?.let { entry.substring(0, at) to it }
+                }
+                .filter { (_, offeredOn) -> day - offeredOn < perMerchantDays }
+            allowed = log.none { (k, _) -> k == key } && log.none { (_, offeredOn) -> offeredOn == day }
+            val kept = log.map { (k, offeredOn) -> "$k|$offeredOn" }.toSet()
+            prefs[PreferencesKeys.RECURRING_OFFER_LOG] = if (allowed) kept + "$key|$day" else kept
+        }
+        return allowed
+    }
+
+    /** Undoes [tryRecordRecurringOffer] for an offer that was never shown. */
+    suspend fun releaseRecurringOffer(key: String, today: LocalDate) {
+        context.dataStore.edit { prefs ->
+            prefs[PreferencesKeys.RECURRING_OFFER_LOG] =
+                (prefs[PreferencesKeys.RECURRING_OFFER_LOG] ?: emptySet()) - "$key|${today.toEpochDay()}"
+        }
     }
 
     suspend fun setShareCardConfig(config: ShareCardConfig) {
@@ -919,12 +1008,56 @@ open class UserPreferencesRepository @Inject constructor(
             preferences[PreferencesKeys.BALANCE_HIDDEN] ?: true // hidden until the user reveals it
         }
 
+    /**
+     * Whether every screen masks amounts, not just Home. Only a saved choice counts:
+     * until the user taps the eye, Home stays hidden ([isBalanceHidden]) and the rest
+     * of the app shows its numbers, so a fresh install doesn't look empty.
+     */
+    val isAmountHiddenEverywhere: Flow<Boolean> = context.dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.BALANCE_HIDDEN] ?: false }
+
     suspend fun setBalanceHidden(hidden: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.BALANCE_HIDDEN] = hidden
         }
         // The widgets' totals follow the same eye.
         WidgetRefresher.refreshTransactionWidgets(context)
+    }
+
+    /**
+     * Flips the saved hide choice in one read-modify-write, so the eye and a shake
+     * can't race. Returns the new value. [hiddenWhenUnset] is what the caller sees
+     * before any choice: Home's eye sees hidden ([isBalanceHidden]), a shake sees
+     * the rest of the app shown ([isAmountHiddenEverywhere]), so it hides.
+     */
+    suspend fun toggleBalanceHidden(hiddenWhenUnset: Boolean = true): Boolean {
+        var hidden = true
+        context.dataStore.edit { preferences ->
+            hidden = !(preferences[PreferencesKeys.BALANCE_HIDDEN] ?: hiddenWhenUnset)
+            preferences[PreferencesKeys.BALANCE_HIDDEN] = hidden
+        }
+        WidgetRefresher.refreshTransactionWidgets(context)
+        return hidden
+    }
+
+    /** Shake the phone to hide / show amounts. Off by default: a jolt in a pocket shouldn't reveal them. */
+    val shakeToHideAmounts: Flow<Boolean> = context.dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.SHAKE_TO_HIDE_AMOUNTS] ?: false }
+
+    suspend fun setShakeToHideAmounts(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SHAKE_TO_HIDE_AMOUNTS] = enabled
+        }
+    }
+
+    /** True only the first time it's called: the first shake explains the gesture. */
+    suspend fun claimShakeToHideHint(): Boolean {
+        var first = false
+        context.dataStore.edit { preferences ->
+            first = preferences[PreferencesKeys.SHAKE_TO_HIDE_HINT_SHOWN] != true
+            preferences[PreferencesKeys.SHAKE_TO_HIDE_HINT_SHOWN] = true
+        }
+        return first
     }
 
     // Replace UPI VPAs with matching contact names at display time.

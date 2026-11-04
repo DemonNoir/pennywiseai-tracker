@@ -64,7 +64,7 @@ class LlmRepository @Inject constructor(
         )
         chatDao.insertMessage(userChatMessage)
 
-        ensureConversation()
+        ensureConversation(pending = userChatMessage)
 
         // Use synchronous collection for non-streaming path
         val responseBuilder = StringBuilder()
@@ -117,7 +117,7 @@ class LlmRepository @Inject constructor(
             message = userMessage,
             isUser = true
         )
-        Log.d(TAG, "Saving user message: ${userMessage.take(50)}...")
+        Log.d(TAG, "Saving user message (${userMessage.length} chars)")
         chatDao.insertMessage(userChatMessage)
 
         // Check if model is downloading
@@ -127,7 +127,7 @@ class LlmRepository @Inject constructor(
         }
 
         // Ensure engine is initialized and conversation is active
-        ensureConversation()
+        ensureConversation(pending = userChatMessage)
 
         Log.d(TAG, "=== SENDING TO LLM ===")
         Log.d(TAG, "Total messages in context: ${currentMessages.size}")
@@ -159,7 +159,7 @@ class LlmRepository @Inject constructor(
 
         // Save the complete AI response
         val finalResponse = responseBuilder.toString()
-        Log.d(TAG, "Saving AI response: ${finalResponse.take(50)}...")
+        Log.d(TAG, "Saving AI response (${finalResponse.length} chars)")
         val aiMessage = ChatMessage(
             message = finalResponse,
             isUser = false
@@ -168,7 +168,8 @@ class LlmRepository @Inject constructor(
         Log.d(TAG, "AI response saved")
     }
 
-    private suspend fun ensureConversation() {
+    /** [pending] is the message about to be sent: saved already, so kept out of the replayed history. */
+    private suspend fun ensureConversation(pending: ChatMessage) {
         // Initialize engine if needed
         if (!llmService.isInitialized()) {
             val modelFile = modelRepository.getModelFile()
@@ -201,9 +202,10 @@ class LlmRepository @Inject constructor(
                     buildSystemPrompt(chatContext)
                 }
 
-            // Build history (excluding system prompt)
+            // Build history (excluding system prompt, and the message being sent —
+            // replaying it too would put it in front of the model twice)
             val history = allMessages
-                .filter { !it.isSystemPrompt }
+                .filter { !it.isSystemPrompt && it.id != pending.id }
                 .map { it.message to it.isUser }
 
             val result = llmService.createConversation(systemPrompt, history, withTools = true)
@@ -265,7 +267,7 @@ class LlmRepository @Inject constructor(
             } else {
                 _pendingAction.value = PendingChatAction.Add(draft)
                 val currency = userPreferencesRepository.baseCurrency.first()
-                "Here's what I'll add — confirm below:\n${CurrencyFormatter.formatCurrency(draft.amount, currency)} " +
+                "Here's what I'll add — confirm below:\n${CurrencyFormatter.formatCurrency(draft.amount, currency, maskIfHidden = false)} " +
                     "${if (draft.type == TransactionType.INCOME) "from" else "at"} ${draft.merchant} · ${draft.category} · ${draft.accountLabel}"
             }
         }
@@ -297,15 +299,15 @@ class LlmRepository @Inject constructor(
         PennyWiseTools.MONTH_SUMMARY -> {
             val m = aiContextRepository.getChatContext().monthSummary
             val currency = userPreferencesRepository.baseCurrency.first()
-            "This month: ${CurrencyFormatter.formatCurrency(m.totalExpense, currency)} spent, " +
-                "${CurrencyFormatter.formatCurrency(m.totalIncome, currency)} received, ${m.transactionCount} transactions."
+            "This month: ${CurrencyFormatter.formatCurrency(m.totalExpense, currency, maskIfHidden = false)} spent, " +
+                "${CurrencyFormatter.formatCurrency(m.totalIncome, currency, maskIfHidden = false)} received, ${m.transactionCount} transactions."
         }
         PennyWiseTools.SPENDING_BY_CATEGORY -> {
             val category = (call.arguments["category"] as? String)?.trim().orEmpty()
             val currency = userPreferencesRepository.baseCurrency.first()
             val spend = aiContextRepository.getCategorySpending(category)
             if (spend == null) "Nothing spent on $category this month."
-            else "${CurrencyFormatter.formatCurrency(spend.amount, currency)} on ${spend.category} this month across ${spend.transactionCount} transactions."
+            else "${CurrencyFormatter.formatCurrency(spend.amount, currency, maskIfHidden = false)} on ${spend.category} this month across ${spend.transactionCount} transactions."
         }
         else -> null
     }
@@ -321,7 +323,7 @@ class LlmRepository @Inject constructor(
 
     /** An existing row is shown in ITS currency, never relabelled with the base one. */
     private fun describe(tx: TransactionEntity): String =
-        "${CurrencyFormatter.formatCurrency(tx.amount, tx.currency)} ${if (tx.transactionType == TransactionType.INCOME) "from" else "at"} ${tx.merchantName} · ${tx.category} · " +
+        "${CurrencyFormatter.formatCurrency(tx.amount, tx.currency, maskIfHidden = false)} ${if (tx.transactionType == TransactionType.INCOME) "from" else "at"} ${tx.merchantName} · ${tx.category} · " +
             tx.dateTime.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
 
     /**
@@ -340,8 +342,8 @@ class LlmRepository @Inject constructor(
             .map { it.alias ?: "${it.bankName} ${it.accountLast4}" }
         return composeSystemPrompt(
             currentDate = context.currentDate.toString(),
-            monthLine = "${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency)} spent, " +
-                "${CurrencyFormatter.formatCurrency(monthSummary.totalIncome, currency)} income, ${monthSummary.transactionCount} transactions",
+            monthLine = "${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency, maskIfHidden = false)} spent, " +
+                "${CurrencyFormatter.formatCurrency(monthSummary.totalIncome, currency, maskIfHidden = false)} income, ${monthSummary.transactionCount} transactions",
             expenseCategories = categories.filter { !it.isIncome }.map { it.name },
             incomeCategories = categories.filter { it.isIncome }.map { it.name },
             accounts = accounts
@@ -367,7 +369,7 @@ class LlmRepository @Inject constructor(
 
         Tell me what you spent and I'll add it after you confirm — e.g. "coffee 120 at Starbucks" or "got 50000 salary". Ask "how much on groceries this month?" for a total.
 
-        This month so far: ${monthSummary.transactionCount} transactions, ${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency)} spent.
+        This month so far: ${monthSummary.transactionCount} transactions, ${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency, maskIfHidden = false)} spent.
         Nothing is saved without your tap.
         """.trimIndent()
     }

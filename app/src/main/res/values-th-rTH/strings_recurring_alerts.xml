@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Transaction alert: offer to track a charge that repeats an earlier one as a bill -->
+    <string name="recurring_alert_track_weekly">ติดตามเป็นบิลรายสัปดาห์</string>
+    <string name="recurring_alert_track_monthly">ติดตามเป็นบิลรายเดือน</string>
+    <string name="recurring_alert_track_quarterly">ติดตามเป็นบิลรายไตรมาส</string>
+    <string name="recurring_alert_track_semi_annual">ติดตามเป็นบิลทุก 6 เดือน</string>
+    <string name="recurring_alert_track_annual">ติดตามเป็นบิลรายปี</string>
+
+    <!-- Billing cycle as it reads inside recurring_alert_tracking -->
+    <string name="recurring_alert_cycle_weekly">รายสัปดาห์</string>
+    <string name="recurring_alert_cycle_monthly">รายเดือน</string>
+    <string name="recurring_alert_cycle_quarterly">รายไตรมาส</string>
+    <string name="recurring_alert_cycle_semi_annual">ทุก 6 เดือน</string>
+    <string name="recurring_alert_cycle_annual">รายปี</string>
+
+    <!-- Confirmation after tapping "Track as … bill". %1$s merchant, %2$s billing cycle (recurring_alert_cycle_*), %3$s next due date, e.g. "24 Nov" -->
+    <string name="recurring_alert_tracking">กำลังติดตาม %1$s · %2$s · ครบกำหนดครั้งถัดไป %3$s</string>
+
+    <!-- Transaction alert line when a charge may be a subscription at a new price; nothing changes until "Update price". %1$s subscription, %2$s old amount, %3$s new amount -->
+    <string name="recurring_alert_price_up">%1$s ขึ้นราคาใช่ไหม %2$s → %3$s</string>
+    <string name="recurring_alert_price_down">%1$s ลดราคาใช่ไหม %2$s → %3$s</string>
+    <string name="recurring_alert_update_price">อัปเดตราคา</string>
+    <!-- Confirmation after tapping "Update price". %1$s subscription, %2$s new amount, %3$s next due date, e.g. "24 Nov" -->
+    <string name="recurring_alert_price_updated">%1$s ราคาใหม่ %2$s · ครบกำหนดครั้งถัดไป %3$s</string>
+</resources>

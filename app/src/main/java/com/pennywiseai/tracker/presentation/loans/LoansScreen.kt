@@ -22,7 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.data.database.entity.LoanDirection
 import com.pennywiseai.tracker.data.database.entity.LoanEntity
@@ -38,7 +38,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import java.math.BigDecimal
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LoansScreen(
     onNavigateBack: () -> Unit = {},
@@ -60,7 +60,7 @@ fun LoansScreen(
                 title = stringResource(R.string.loans_title),
                 hasBackButton = true,
                 navigationContent = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onNavigateBack, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accounts_back))
                     }
                 },
@@ -75,7 +75,7 @@ fun LoansScreen(
                 modifier = Modifier.fillMaxSize().padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                LoadingIndicator()
             }
             return@Scaffold
         }
@@ -108,10 +108,10 @@ fun LoansScreen(
                     TextButton(onClick = {
                         viewModel.settleUp(person)
                         settleUpPerson = null
-                    }) { Text(stringResource(R.string.loans_settle_up)) }
+                    }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.loans_settle_up)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { settleUpPerson = null }) { Text(stringResource(R.string.accounts_action_cancel)) }
+                    TextButton(onClick = { settleUpPerson = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.accounts_action_cancel)) }
                 }
             )
         }
@@ -161,7 +161,7 @@ fun LoansScreen(
             if (settledPeople.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(Spacing.sm))
-                    TextButton(onClick = { viewModel.toggleShowSettled() }) {
+                    TextButton(onClick = { viewModel.toggleShowSettled() }, shapes = ButtonDefaults.shapes()) {
                         Icon(
                             if (uiState.showSettledLoans) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                             contentDescription = null,
@@ -202,7 +202,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.personItems(
             if (person.hasActive) {
                 item(key = "settle-${person.name}") {
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        FilledTonalButton(onClick = { onSettleUp(person) }) {
+                        FilledTonalButton(onClick = { onSettleUp(person) }, shapes = ButtonDefaults.shapes()) {
                             Text(stringResource(R.string.loans_settle_up))
                         }
                     }

@@ -3,11 +3,18 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- SMS Permissions for reading and receiving transaction messages -->
+    <!-- Shake to hide amounts: a short buzz confirms the shake. Install-time, no prompt. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
     <!-- Notification permission for Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- MediaStore access for opt-in, on-device bank slip scanning. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- Telephony hardware feature (optional for ChromeOS compatibility) -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -52,6 +59,7 @@
         android:theme="@style/Theme.Pennywisecompose">
 
         <!-- GPU acceleration for LiteRT-LM (optional) -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
 
         <activity
@@ -83,6 +91,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="pennywise" android:host="add" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="pennywise" android:host="transaction" android:pathPrefix="/edit/" />
             </intent-filter>
         </activity>
 
@@ -183,6 +197,11 @@
                 <action android:name="com.pennywiseai.tracker.ACTION_CONFIRM_TRANSACTION" />
             </intent-filter>
         </receiver>
+
+        <!-- "Bill due tomorrow" reminder actions: paid in cash / skip this time -->
+        <receiver
+            android:name=".receiver.BillReminderActionReceiver"
+            android:exported="false" />
 
         <!-- Notification listener for bank app notifications -->
         <service

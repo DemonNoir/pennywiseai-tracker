@@ -1,9 +1,12 @@
 package com.pennywiseai.tracker.di
 
 import android.content.Context
-import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.room3.Room
+import androidx.room3.RoomDatabase
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.driver.AndroidSQLiteDriver
+import androidx.sqlite.execSQL
+import com.pennywiseai.tracker.data.database.execSQL
 import com.pennywiseai.tracker.data.database.PennyWiseDatabase
 import com.pennywiseai.tracker.data.database.dao.AccountBalanceDao
 import com.pennywiseai.tracker.data.database.dao.ProfileDao
@@ -31,14 +34,13 @@ import com.pennywiseai.tracker.data.database.dao.WebhookProfileDao
 import com.pennywiseai.tracker.data.database.dao.WebhookLogDao
 import com.pennywiseai.tracker.data.database.dao.WebhookCursorDao
 import com.pennywiseai.tracker.data.database.dao.GoalDao
+import com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao
+import com.pennywiseai.tracker.data.database.dao.SlipScanHistoryDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import javax.inject.Singleton
 
 /**
@@ -67,6 +69,8 @@ object DatabaseModule {
             // Single source of truth lives in PennyWiseDatabase.ALL_MIGRATIONS
             // so the BroadcastReceiver fallback builder stays in sync.
             .addMigrations(*PennyWiseDatabase.ALL_MIGRATIONS)
+            // System SQLite, same engine Room 2 used: see PennyWiseDatabase.getInstance.
+            .setDriver(AndroidSQLiteDriver())
 
             // Enable auto-migrations
             // Room will automatically detect schema changes between versions
@@ -296,23 +300,25 @@ object DatabaseModule {
     @Provides @Singleton fun provideWebhookLogDao(database: PennyWiseDatabase): WebhookLogDao = database.webhookLogDao()
     @Provides @Singleton fun provideWebhookCursorDao(database: PennyWiseDatabase): WebhookCursorDao = database.webhookCursorDao()
     @Provides @Singleton fun provideGoalDao(database: PennyWiseDatabase): GoalDao = database.goalDao()
+    @Provides @Singleton fun provideSlipScanHistoryDao(database: PennyWiseDatabase): SlipScanHistoryDao = database.slipScanHistoryDao()
+    @Provides @Singleton fun provideScanCorrectionDao(database: PennyWiseDatabase): ScanCorrectionDao = database.scanCorrectionDao()
 }
 
 /**
  * Database callback to seed initial data when database is first created
  */
 class DatabaseCallback : RoomDatabase.Callback() {
-    override fun onCreate(db: SupportSQLiteDatabase) {
+    override suspend fun onCreate(db: SQLiteConnection) {
         super.onCreate(db)
         
-        // Seed default categories for new installations
-        CoroutineScope(Dispatchers.IO).launch {
-            seedCategories(db)
-            seedProfiles(db)
-        }
+        // Seed default categories for new installations. Synchronous: Room 3
+        // confines the connection to this call, so it can't be used from a
+        // coroutine launched here.
+        seedCategories(db)
+        seedProfiles(db)
     }
     
-    private fun seedCategories(db: SupportSQLiteDatabase) {
+    private fun seedCategories(db: SQLiteConnection) {
         val categories = DefaultCategoryData.ALL
 
         categories.forEachIndexed { index, seed ->
@@ -323,7 +329,7 @@ class DatabaseCallback : RoomDatabase.Callback() {
         }
     }
 
-    private fun seedProfiles(db: SupportSQLiteDatabase) {
+    private fun seedProfiles(db: SQLiteConnection) {
         db.execSQL("INSERT OR IGNORE INTO profiles (id, name, color_hex, sort_order) VALUES (1, 'Personal', '#4CAF50', 0)")
         db.execSQL("INSERT OR IGNORE INTO profiles (id, name, color_hex, sort_order) VALUES (2, 'Business', '#2196F3', 1)")
     }

@@ -20,12 +20,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,10 +40,11 @@ import androidx.compose.ui.res.stringResource
 import com.pennywiseai.tracker.R
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.ui.components.PennyWiseScaffold
 import com.pennywiseai.tracker.ui.theme.Spacing
+import com.pennywiseai.tracker.ui.components.rememberSlipScanAccess
 import com.pennywiseai.tracker.ui.viewmodel.PermissionViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,6 +55,7 @@ fun PermissionScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val (hasSlipAccess, requestSlipAccess) = rememberSlipScanAccess()
 
     var readSmsGranted by remember { mutableStateOf(false) }
     var receiveSmsGranted by remember { mutableStateOf(false) }
@@ -174,7 +178,8 @@ fun PermissionScreen(
                                 val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                                 notificationAccessLauncher.launch(intent)
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shapes = ButtonDefaults.shapes()
                         ) {
                             Text(stringResource(R.string.permission_notification_open_settings))
                         }
@@ -214,9 +219,15 @@ fun PermissionScreen(
 
                     multiplePermissionLauncher.launch(permissions.toTypedArray())
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shapes = ButtonDefaults.shapes()
             ) {
                 Text(stringResource(R.string.permission_enable_button))
+            }
+            if (!hasSlipAccess) {
+                TextButton(onClick = requestSlipAccess) {
+                    Text(stringResource(R.string.permission_slip_title))
+                }
             }
         }
     }

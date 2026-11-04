@@ -1,6 +1,6 @@
 package com.pennywiseai.tracker.data.database.dao
 
-import androidx.room.*
+import androidx.room3.*
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import kotlinx.coroutines.flow.Flow
@@ -25,7 +25,7 @@ interface TransactionDao {
      * Re-derives `lent_shares_total` from the transaction's `loan_shares` rows,
      * the one source of truth; a no-op (no `updated_at` bump) when it already agrees.
      */
-    @androidx.room.Transaction
+    @androidx.room3.Transaction
     suspend fun syncLentSharesTotal(transactionId: Long) {
         val current = getTransactionById(transactionId) ?: return
         val amounts = getShareAmounts(transactionId)
@@ -40,7 +40,7 @@ interface TransactionDao {
      * row can take them: an expense in the same currency, not marked as a loan,
      * not split itself, and at least as large. Returns whether they moved.
      */
-    @androidx.room.Transaction
+    @androidx.room3.Transaction
     suspend fun moveSharesToKeeper(fromId: Long, toId: Long): Boolean {
         if (fromId == toId) return false
         val moving = getShareAmounts(fromId)
@@ -263,6 +263,10 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET category = :category, updated_at = :updatedAt WHERE id = :transactionId")
     suspend fun updateCategoryById(transactionId: Long, category: String, updatedAt: LocalDateTime)
+
+    /** Flips only the "don't count" flag; 0 when it already had that value. */
+    @Query("UPDATE transactions SET excluded_from_analytics = :excluded, updated_at = :updatedAt WHERE id = :transactionId AND excluded_from_analytics != :excluded")
+    suspend fun setExcludedFromAnalytics(transactionId: Long, excluded: Boolean, updatedAt: LocalDateTime): Int
 
     @Query("SELECT COUNT(*) FROM transactions WHERE merchant_name = :merchantName COLLATE NOCASE AND id != :excludeId")
     suspend fun getTransactionCountForMerchant(merchantName: String, excludeId: Long): Int
@@ -648,4 +652,36 @@ interface TransactionDao {
         dateStart: LocalDateTime,
         dateEnd: LocalDateTime
     ): List<TransactionEntity>
+
+    /**
+     * Live rows of [types] in [currency] from [from] up to (not including)
+     * [before], newest first, minus [excludeId]: the history a repeat-charge
+     * check scans. Merchant and amount compare loosely, so that's done by the
+     * caller.
+     */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+          AND currency = :currency
+          AND transaction_type IN (:types)
+          AND date_time >= :from
+          AND date_time < :before
+          AND id != :excludeId
+        ORDER BY date_time DESC
+    """)
+    suspend fun getChargesInCurrencyBetween(
+        currency: String,
+        types: List<String>,
+        from: LocalDateTime,
+        before: LocalDateTime,
+        excludeId: Long
+    ): List<TransactionEntity>
+
+    /**
+     * Merchants the bank itself has charged for a subscription in [currency]:
+     * live rows matched as recurring that came from an SMS or bank alert. Manual
+     * entries and in-app "mark paid" rows carry no `sms_body`.
+     */
+    @Query("SELECT DISTINCT merchant_name FROM transactions WHERE is_deleted = 0 AND is_recurring = 1 AND sms_body IS NOT NULL AND currency = :currency")
+    suspend fun getBankChargedRecurringMerchants(currency: String): List<String>
 }
