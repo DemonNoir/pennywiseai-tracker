@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.pennywiseai.tracker.slip.worker.SlipAutoScanWorker
 import com.pennywiseai.tracker.worker.OptimizedSmsReaderWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -32,6 +33,12 @@ class SmsScanManager @Inject constructor(
             OptimizedSmsReaderWorker.WORK_NAME,
             ExistingWorkPolicy.REPLACE,
             smsReaderWork
+        )
+
+        workManager.enqueueUniqueWork(
+            SlipAutoScanWorker.WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<SlipAutoScanWorker>().build()
         )
     }
 

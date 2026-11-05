@@ -150,6 +150,7 @@ fun TransactionDetailScreen(
     val isEditMode by viewModel.isEditMode.collectAsStateWithLifecycle()
     val editableTransaction by viewModel.editableTransaction.collectAsStateWithLifecycle()
     val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
+    val isRescanningSlip by viewModel.isRescanningSlip.collectAsStateWithLifecycle()
     val saveSuccess by viewModel.saveSuccess.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val applyToAllFromMerchant by viewModel.applyToAllFromMerchant.collectAsStateWithLifecycle()
@@ -372,6 +373,25 @@ fun TransactionDetailScreen(
                             }
                         }
                     } else if (isEditMode) {
+                        if (transaction?.smsSender == "SLIP_SCAN" && transaction?.receiptPath != null) {
+                            IconButton(
+                                onClick = viewModel::rescanSlip,
+                                enabled = !isRescanningSlip,
+                                shapes = IconButtonDefaults.shapes()
+                            ) {
+                                if (isRescanningSlip) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(Dimensions.Icon.small),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.DocumentScanner,
+                                        contentDescription = stringResource(R.string.txn_detail_slip_rescan)
+                                    )
+                                }
+                            }
+                        }
                         TextButton(
                             onClick = { viewModel.saveChanges() },
                             enabled = !isSaving,
@@ -1389,7 +1409,6 @@ private fun EditableTransactionHeader(
                 isError = transaction.merchantName.isBlank(),
                 colors = editFilledColors()
             )
-
             // Display alias (#583): shown in place of the merchant everywhere,
             // for all transactions from it. The raw merchant above is unchanged.
             val merchantAlias by viewModel.merchantAlias.collectAsStateWithLifecycle()
@@ -1445,6 +1464,18 @@ private fun EditableTransactionHeader(
                 shape = editBottomShape,
                 colors = editFilledColors()
             )
+        }
+
+        val merchantSuggestions by viewModel.merchantSuggestions.collectAsStateWithLifecycle()
+        if (merchantSuggestions.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                merchantSuggestions.forEach { suggestion ->
+                    SuggestionChip(
+                        onClick = { viewModel.updateMerchantName(suggestion) },
+                        label = { Text(suggestion) }
+                    )
+                }
+            }
         }
 
         // Tags (optional) — create or select existing

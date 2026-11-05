@@ -73,7 +73,7 @@ class SlipAutoScanWorker @AssistedInject constructor(
 
                 try {
                     val rawText = ocrEngine.getRawTextSync(uri)
-                    var parsedSlip = ocrEngine.processRawText(rawText)
+                    var parsedSlip = ocrEngine.processRawText(rawText).copy(imageUriString = uri.toString())
 
                     // ถ้า OCR หาวันที่ในสลิปไม่เจอ → fallback ไปที่วันที่รูปถูกบันทึก
                     // (DATE_ADDED จาก MediaStore) เหมือน SlipForegroundScanner

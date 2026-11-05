@@ -40,6 +40,7 @@ import com.pennywiseai.tracker.data.repository.AccountBalanceRepository
 import com.pennywiseai.tracker.data.repository.TransactionRepository
 import com.pennywiseai.tracker.domain.usecase.DeleteAllTransactionsUseCase
 import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
+import com.pennywiseai.tracker.slip.recipient.SlipMerchantLearning
 import com.pennywiseai.tracker.utils.CurrencyFormatter
 import com.pennywiseai.tracker.utils.CurrencyUtils
 import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
@@ -63,6 +64,7 @@ class SettingsViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val unrecognizedSmsRepository: UnrecognizedSmsRepository,
     private val transactionRepository: TransactionRepository,
+    private val slipMerchantLearning: SlipMerchantLearning,
     private val deleteAllTransactionsUseCase: DeleteAllTransactionsUseCase,
     private val accountBalanceRepository: AccountBalanceRepository,
     private val backupExporter: BackupExporter,
@@ -74,6 +76,18 @@ class SettingsViewModel @Inject constructor(
     private val modelDownloader: com.pennywiseai.tracker.data.manager.ModelDownloader,
     entitlementGate: EntitlementGate,
 ) : ViewModel() {
+
+    val learnedSlipNames = slipMerchantLearning.rules
+
+    fun resetLearnedSlipNames() {
+        viewModelScope.launch {
+            slipMerchantLearning.forgetAll()
+        }
+    }
+
+    fun forgetLearnedSlipName(id: Long) {
+        viewModelScope.launch { slipMerchantLearning.forget(id) }
+    }
 
     /** Drives the Settings → Pro row: shows "Active" when true, "Upgrade" when false. */
     val isProEntitled: StateFlow<Boolean> = entitlementGate.isProEntitled

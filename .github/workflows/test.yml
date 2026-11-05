@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -106,6 +106,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
+
+    - name: Check custom integration points
+      run: bash scripts/check-custom-integration.sh
 
     - uses: actions/setup-java@v6
       with:

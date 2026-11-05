@@ -118,6 +118,17 @@ object SlipRecipientResolver {
         return isSamePartyName(sender, receiver)
     }
 
+    /** Learned names are applied only when the extracted recipient itself matches. */
+    fun matchesLearnedReceiver(learnedOriginal: String?, scannedReceiver: String?): Boolean {
+        val original = normalize(learnedOriginal)
+        val receiver = normalize(scannedReceiver)
+        if (original.isBlank() || receiver.isBlank()) return false
+        if (original == receiver) return true
+        if (original.length < 5 || receiver.length < 5) return false
+        val editScore = 1.0 - levenshtein(original, receiver).toDouble() / max(original.length, receiver.length)
+        return editScore >= AUTO_APPLY_SCORE
+    }
+
     private fun isSamePartyName(leftName: String?, rightName: String?): Boolean {
         val sender = normalize(leftName)
         val receiver = normalize(rightName)

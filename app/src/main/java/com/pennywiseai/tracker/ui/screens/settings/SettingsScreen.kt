@@ -143,6 +143,7 @@ fun SettingsScreen(
     val deleteAllTransactionsCount by settingsViewModel.deleteAllTransactionsCount.collectAsStateWithLifecycle()
     val isDeletingAllTransactions by settingsViewModel.isDeletingAllTransactions.collectAsStateWithLifecycle()
     val deleteAllTransactionsResult by settingsViewModel.deleteAllTransactionsResult.collectAsStateWithLifecycle()
+    val learnedSlipNames by settingsViewModel.learnedSlipNames.collectAsStateWithLifecycle(initialValue = emptyList())
     val unifiedCurrencyMode by settingsViewModel.unifiedCurrencyMode.collectAsStateWithLifecycle(initialValue = false)
     val countCreditCardAsExpense by settingsViewModel.countCreditCardAsExpense.collectAsStateWithLifecycle(initialValue = false)
     val dailySummaryEnabled by settingsViewModel.dailySummaryEnabled.collectAsStateWithLifecycle(initialValue = com.pennywiseai.tracker.data.preferences.DAILY_SUMMARY_DEFAULT)
@@ -173,6 +174,7 @@ fun SettingsScreen(
         if (granted) settingsViewModel.setUseContactsForVpa(true)
     }
     var showSmsScanDialog by remember { mutableStateOf(false) }
+    var showResetSlipNamesDialog by remember { mutableStateOf(false) }
     var showSmsScanDatePicker by remember { mutableStateOf(false) }
     var showExportOptionsDialog by remember { mutableStateOf(false) }
     var showTimeoutDialog by remember { mutableStateOf(false) }
@@ -801,6 +803,15 @@ fun SettingsScreen(
                     }
                 )
                 SettingsNavItem(
+                    icon = Icons.Default.RestartAlt,
+                    iconBgColor = orange_light,
+                    iconTint = orange_dark,
+                    title = stringResource(R.string.settings_reset_slip_names_title),
+                    subtitle = stringResource(R.string.settings_reset_slip_names_subtitle),
+                    onClick = { showResetSlipNamesDialog = true },
+                    position = ListItemPosition.Middle
+                )
+                SettingsNavItem(
                     icon = Icons.Default.DeleteForever,
                     iconBgColor = red_light,
                     iconTint = red_dark,
@@ -984,6 +995,48 @@ fun SettingsScreen(
     }
 
     // ── Dialogs ──
+
+    if (showResetSlipNamesDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetSlipNamesDialog = false },
+            title = { Text(stringResource(R.string.settings_reset_slip_names_title)) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.settings_reset_slip_names_message))
+                    if (learnedSlipNames.isEmpty()) {
+                        Text(stringResource(R.string.settings_reset_slip_names_empty))
+                    }
+                    learnedSlipNames.forEach { rule ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "${rule.originalValue} → ${rule.correctedValue}",
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { settingsViewModel.forgetLearnedSlipName(rule.id) }) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = stringResource(R.string.settings_reset_slip_name_one)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    settingsViewModel.resetLearnedSlipNames()
+                    showResetSlipNamesDialog = false
+                }, enabled = learnedSlipNames.isNotEmpty()) {
+                    Text(stringResource(R.string.settings_reset_slip_names_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetSlipNamesDialog = false }) {
+                    Text(stringResource(R.string.settings_action_cancel))
+                }
+            }
+        )
+    }
 
     // Display Currency Dialog
     if (showDisplayCurrencyDialog) {

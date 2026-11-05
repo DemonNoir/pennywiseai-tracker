@@ -15,6 +15,14 @@ import java.time.LocalDateTime
 class SlipRecipientResolverTest {
 
     @Test
+    fun `learned name matches recipient OCR variation but not another recipient`() {
+        assertTrue(SlipRecipientResolver.matchesLearnedReceiver("ร้านถุงเงิน", "ร้านถุงเงน"))
+        assertTrue(!SlipRecipientResolver.matchesLearnedReceiver("ร้านถุงเงิน", "ร้านกาแฟบ้านสวน"))
+        assertTrue(!SlipRecipientResolver.matchesLearnedReceiver("Coffee Shop North", "Coffee Shop South"))
+        assertTrue(!SlipRecipientResolver.matchesLearnedReceiver("ร้านถุงเงิน", null))
+    }
+
+    @Test
     fun `exact correction can be auto applied`() {
         val candidates = SlipRecipientResolver.resolve(
             ocrName = "ร้านถุงเงน",

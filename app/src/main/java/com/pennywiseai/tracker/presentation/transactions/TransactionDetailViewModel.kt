@@ -16,6 +16,7 @@ import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
 import com.pennywiseai.tracker.data.database.entity.LoanDirection
 import com.pennywiseai.tracker.data.database.entity.LoanEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
+import com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao
 import com.pennywiseai.tracker.data.database.entity.TransactionSplitEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.ui.components.SplitItem
@@ -43,6 +44,11 @@ import com.pennywiseai.tracker.data.database.entity.TransactionGroupEntity
 import com.pennywiseai.tracker.domain.loan.LoanCurrencyRules
 import com.pennywiseai.tracker.domain.usecase.DeleteTransactionUseCase
 import com.pennywiseai.tracker.core.Constants
+import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
+import com.pennywiseai.tracker.slip.parser.SlipParser
+import com.pennywiseai.tracker.slip.recipient.SlipRecipientResolver
+import com.pennywiseai.tracker.slip.recipient.SlipMerchantLearning
+import com.pennywiseai.tracker.slip.recipient.matchesBackfillRecipient
 import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -67,6 +73,9 @@ class TransactionDetailViewModel @Inject constructor(
     private val currencyConversionService: CurrencyConversionService,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val receiptManager: ReceiptManager,
+    private val scanCorrectionDao: ScanCorrectionDao,
+    private val slipMerchantLearning: SlipMerchantLearning,
+    private val slipOcrEngine: SlipOcrEngine,
     private val deleteTransactionUseCase: DeleteTransactionUseCase,
     private val ruleRepository: com.pennywiseai.tracker.domain.repository.RuleRepository,
     private val detectBalanceDiscrepancy: com.pennywiseai.tracker.domain.usecase.DetectBalanceDiscrepancyUseCase,
@@ -96,6 +105,10 @@ class TransactionDetailViewModel @Inject constructor(
     
     private val _editableTransaction = MutableStateFlow<TransactionEntity?>(null)
     val editableTransaction: StateFlow<TransactionEntity?> = _editableTransaction.asStateFlow()
+    private val _merchantSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val merchantSuggestions: StateFlow<List<String>> = _merchantSuggestions.asStateFlow()
+    private val _isRescanningSlip = MutableStateFlow(false)
+    val isRescanningSlip: StateFlow<Boolean> = _isRescanningSlip.asStateFlow()
 
     // Tags ----------------------------------------------------------------
     // Read-only set of tag names on the currently loaded transaction.
@@ -468,6 +481,7 @@ class TransactionDetailViewModel @Inject constructor(
     fun enterEditMode() {
         _editableTransaction.value = _transaction.value?.copy()
         _isEditMode.value = true
+        loadMerchantSuggestions(_transaction.value)
         _errorMessage.value = null
         _pendingReceiptUri.value = null
         _receiptRemoved.value = false
@@ -504,6 +518,7 @@ class TransactionDetailViewModel @Inject constructor(
     fun exitEditMode() {
         _editableTransaction.value = null
         _isEditMode.value = false
+        _merchantSuggestions.value = emptyList()
         _editableTags.value = emptyList()
         _errorMessage.value = null
         _applyToAllFromMerchant.value = false
@@ -577,6 +592,46 @@ class TransactionDetailViewModel @Inject constructor(
             current?.copy(merchantName = name)
         }
         validateMerchantName(name)
+    }
+
+    private fun loadMerchantSuggestions(transaction: TransactionEntity?) {
+        if (transaction?.smsSender != "SLIP_SCAN" || transaction.smsBody.isNullOrBlank()) return
+        viewModelScope.launch {
+            val parsed = SlipParser.parse(transaction.smsBody)
+            val bank = parsed.bankName ?: transaction.bankName ?: "unknown"
+            _merchantSuggestions.value = scanCorrectionDao.getMerchantCorrectionsList()
+                .filter { matchesBackfillRecipient(it.originalValue, parsed.receiverName, parsed.senderName, it.bankName, bank) }
+                .map { it.correctedValue }
+                .distinct()
+                .filterNot { it.equals(transaction.merchantName, true) }
+        }
+    }
+
+    fun rescanSlip() {
+        val transaction = _transaction.value ?: return
+        val path = transaction.receiptPath ?: return
+        if (transaction.smsSender != "SLIP_SCAN" || _isRescanningSlip.value) return
+        viewModelScope.launch {
+            _isRescanningSlip.value = true
+            try {
+                slipOcrEngine.waitForReady()
+                val text = slipOcrEngine.getRawTextSync(Uri.fromFile(receiptManager.getReceiptFile(path)))
+                val parsed = SlipParser.parse(text)
+                val amount = parsed.amountBigDecimal ?: parsed.amount?.toBigDecimal()
+                _editableTransaction.update { current ->
+                    current?.copy(
+                        merchantName = parsed.receiverName?.takeIf { it.isNotBlank() } ?: current.merchantName,
+                        amount = amount?.takeIf { it > BigDecimal.ZERO } ?: current.amount,
+                        smsBody = text
+                    )
+                }
+                loadMerchantSuggestions(transaction.copy(smsBody = text))
+            } catch (e: Exception) {
+                _errorMessage.value = UiText.Res(R.string.txn_detail_slip_rescan_failed)
+            } finally {
+                _isRescanningSlip.value = false
+            }
+        }
     }
     
     fun updateAmount(amountStr: String) {
@@ -1008,6 +1063,10 @@ class TransactionDetailViewModel @Inject constructor(
                 }
 
                 transactionRepository.updateTransaction(normalizedTransaction)
+                if (original != null && original.merchantName != normalizedTransaction.merchantName) {
+                    // A later manual edit owns this row; learned-name reset must not undo it.
+                    scanCorrectionDao.deleteMerchantProvenanceForTransaction(normalizedTransaction.id)
+                }
 
                 // Persist the edited tag set (create-or-select handled in repo).
                 tagRepository.setTagsForTransaction(normalizedTransaction.id, _editableTags.value)
@@ -1077,6 +1136,26 @@ class TransactionDetailViewModel @Inject constructor(
                 // The merchant-wide writes below key on the merchant as it was
                 // before this edit: future SMS still arrive under that name.
                 val merchantKey = merchantKeyForApply(original?.merchantName, normalizedTransaction.merchantName)
+
+                val originalParsedSlip = normalizedTransaction.smsBody
+                    ?.takeIf { originalTxn?.smsSender == "SLIP_SCAN" }
+                    ?.let { SlipParser.parse(it) }
+                val canLearnMerchantCorrection = originalTxn?.smsSender == "SLIP_SCAN" &&
+                    normalizedTransaction.transactionType != TransactionType.TRANSFER &&
+                    !SlipRecipientResolver.looksLikeSameParty(
+                        originalParsedSlip?.senderName,
+                        originalParsedSlip?.receiverName
+                    )
+                val originalSlipMerchant = originalParsedSlip?.receiverName ?: originalTxn?.merchantName
+                if (canLearnMerchantCorrection && !originalSlipMerchant.isNullOrBlank() &&
+                    originalSlipMerchant != normalizedTransaction.merchantName) {
+                    slipMerchantLearning.learn(
+                        transactionId = normalizedTransaction.id,
+                        rawReceiver = originalSlipMerchant,
+                        correctedName = normalizedTransaction.merchantName,
+                        bankName = normalizedTransaction.bankName ?: "unknown"
+                    )
+                }
 
                 // Save merchant mapping if checkbox is checked
                 if (_applyToAllFromMerchant.value) {

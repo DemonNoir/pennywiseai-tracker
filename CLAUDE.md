@@ -85,6 +85,7 @@ part of the gate — don't use them to verify.
   live version is in `app/build.gradle.kts`.
 
 ## Topic Docs — read when the task touches the area
+For upstream merges in this custom checkout, follow `docs/custom-upstream-integration.md` and run `bash scripts/check-custom-integration.sh`.
 | Area | Doc | Read when |
 |---|---|---|
 | Architecture / layers | `docs/architecture.md` | Changing layer responsibilities, DI, data flow |

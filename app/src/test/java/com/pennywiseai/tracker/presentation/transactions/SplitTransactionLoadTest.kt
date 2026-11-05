@@ -61,6 +61,7 @@ class SplitTransactionLoadTest {
         transactions, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
         mockk(relaxed = true), loans, mockk(relaxed = true), mockk(relaxed = true),
         mockk(relaxed = true), mockk(relaxed = true), prefs, mockk(relaxed = true),
+        mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
         mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
         mockk(relaxed = true)
     )

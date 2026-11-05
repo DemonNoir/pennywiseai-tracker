@@ -64,6 +64,8 @@
     <string name="txn_detail_action_ok">ตกลง</string>
     <string name="txn_detail_action_confirm">ยืนยัน</string>
     <string name="txn_detail_more_actions">การทำงานเพิ่มเติม</string>
+    <string name="txn_detail_slip_rescan">สแกนสลิปซ้ำ</string>
+    <string name="txn_detail_slip_rescan_failed">สแกนสลิปซ้ำไม่สำเร็จ</string>
     <string name="txn_detail_menu_add_to_group">เพิ่มลงกลุ่ม</string>
     <string name="txn_detail_menu_duplicate">ทำซ้ำ</string>
     <string name="txn_detail_menu_report_issue">รายงานปัญหา</string>

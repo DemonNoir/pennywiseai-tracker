@@ -72,6 +72,12 @@
     </plurals>
     <!-- Data Management -->
     <string name="settings_data_section">การจัดการข้อมูล</string>
+    <string name="settings_reset_slip_names_title">รีเซ็ตชื่อสลิปที่จดจำ</string>
+    <string name="settings_reset_slip_names_subtitle">ล้างชื่อที่เรียนรู้จากการแก้ไขสลิป</string>
+    <string name="settings_reset_slip_names_message">ลบชื่อที่จดจำทีละรายการหรือรีเซ็ตทั้งหมด สลิปที่ระบบเปลี่ยนชื่อให้อัตโนมัติจะกลับเป็นชื่อก่อนเปลี่ยน ส่วนชื่อที่คุณแก้เองภายหลังจะคงไว้</string>
+    <string name="settings_reset_slip_names_confirm">รีเซ็ตชื่อ</string>
+    <string name="settings_reset_slip_names_empty">ยังไม่มีชื่อที่จดจำ</string>
+    <string name="settings_reset_slip_name_one">ลบชื่อที่จดจำนี้</string>
     <string name="settings_manage_accounts_title">จัดการบัญชี</string>
     <string name="settings_manage_accounts_subtitle">ดูและจัดการบัญชีธนาคารของคุณ</string>
     <string name="settings_categories_title">หมวดหมู่</string>

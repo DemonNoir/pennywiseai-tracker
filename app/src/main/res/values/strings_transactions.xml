@@ -124,6 +124,8 @@
     <string name="txn_detail_sms_show">Show original SMS</string>
     <string name="txn_detail_field_amount">Amount</string>
     <string name="txn_detail_field_merchant">Merchant</string>
+    <string name="txn_detail_slip_rescan">Rescan slip</string>
+    <string name="txn_detail_slip_rescan_failed">Could not rescan this slip</string>
     <string name="txn_detail_field_alias">Display alias (Optional)</string>
     <string name="txn_detail_field_alias_placeholder">Show a friendlier name instead</string>
     <string name="txn_detail_field_description">Description (Optional)</string>

@@ -84,6 +84,12 @@
 
     <!-- Data Management -->
     <string name="settings_data_section">Data Management</string>
+    <string name="settings_reset_slip_names_title">Reset learned slip names</string>
+    <string name="settings_reset_slip_names_subtitle">Clear names learned from slip corrections</string>
+    <string name="settings_reset_slip_names_message">Remove a learned name or reset all. Slips changed automatically by a removed name return to their previous names; names you edited afterward stay as they are.</string>
+    <string name="settings_reset_slip_names_confirm">Reset names</string>
+    <string name="settings_reset_slip_names_empty">No learned names yet</string>
+    <string name="settings_reset_slip_name_one">Remove this learned name</string>
     <string name="settings_manage_accounts_title">Manage Accounts</string>
     <string name="settings_manage_accounts_subtitle">View and manage your bank accounts</string>
     <string name="settings_categories_title">Categories</string>
