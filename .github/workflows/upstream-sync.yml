@@ -1,0 +1,203 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    # 08:17 Asia/Bangkok. GitHub schedules can be delayed.
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+    inputs:
+      base-ref:
+        description: 'Custom base branch/ref to prepare (schedule always uses master)'
+        type: string
+        default: master
+      dry-run:
+        description: 'Prepare merge/report only; do not publish branch or PR'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    if: github.repository == 'DemonNoir/pennywiseai-tracker'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      changed: ${{ steps.merge.outputs.changed }}
+      candidate_sha: ${{ steps.merge.outputs.candidate_sha }}
+      pr_url: ${{ steps.pr.outputs.url }}
+      published: ${{ steps.publish.outputs.published }}
+    steps:
+      - name: Restrict publishing to the Custom branch
+        env:
+          BASE_REF: ${{ inputs.base-ref || 'master' }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [[ "$BASE_REF" != master && "$DRY_RUN" != true ]]; then
+            echo 'Alternate base refs are supported only in dry-run mode.' >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: automation
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.base-ref || 'master' }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Copy the trusted script before merging; candidate files are never executed
+      # in this job, which has permission to publish a branch and draft PR.
+      - name: Prepare candidate without credentials
+        id: merge
+        env:
+          SYNC_REPORT_DIR: ${{ runner.temp }}/upstream-sync-report
+        run: |
+          cp automation/scripts/sync-upstream.sh "$RUNNER_TEMP/sync-upstream.sh"
+          cd candidate
+          bash "$RUNNER_TEMP/sync-upstream.sh"
+
+      # Freeze an existing PR before changing its head, including any auto-merge
+      # a human might have enabled since the previous run.
+      - name: Keep existing candidate PR in draft
+        if: steps.merge.outputs.changed == 'true' && inputs.dry-run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          pr_urls="$(gh pr list --head auto/upstream-sync --state open --json url --jq '.[].url')"
+          while IFS= read -r pr_url; do
+            [[ -n "$pr_url" ]] || continue
+            auto_merge="$(gh pr view "$pr_url" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+            if [[ "$auto_merge" == true ]]; then
+              gh pr merge "$pr_url" --disable-auto
+            fi
+            is_draft="$(gh pr view "$pr_url" --json isDraft --jq .isDraft)"
+            if [[ "$is_draft" != true ]]; then
+              gh pr ready "$pr_url" --undo
+            fi
+          done <<< "$pr_urls"
+
+      - name: Publish bot candidate with lease
+        id: publish
+        if: steps.merge.outputs.changed == 'true' && inputs.dry-run != true
+        working-directory: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ steps.merge.outputs.candidate_sha }}
+        run: |
+          # Authentication is scoped to these git commands, never stored in checkout.
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          remote_sha="$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            ls-remote origin refs/heads/auto/upstream-sync | cut -f1)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            push --force-with-lease="refs/heads/auto/upstream-sync:$remote_sha" \
+            origin "$CANDIDATE_SHA:refs/heads/auto/upstream-sync"
+          printf 'published=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Create or refresh draft PR
+        id: pr
+        if: steps.publish.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE_REF: ${{ inputs.base-ref || 'master' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="$RUNNER_TEMP/upstream-sync-report/pr-body.md"
+          cp "$RUNNER_TEMP/upstream-sync-report/report.md" "$body"
+          printf '\nAutomated checks and APK artifacts: %s\n' "$RUN_URL" >> "$body"
+          pr_url="$(gh pr list --base "$BASE_REF" --head auto/upstream-sync --state open --json url --jq '.[0].url // empty')"
+          if [[ -n "$pr_url" ]]; then
+            is_draft="$(gh pr view "$pr_url" --json isDraft --jq .isDraft)"
+            if [[ "$is_draft" != true ]]; then
+              gh pr ready "$pr_url" --undo
+            fi
+            gh pr edit "$pr_url" --title 'Sync upstream into Custom (automated candidate)' --body-file "$body"
+          else
+            pr_url="$(gh pr create --draft --base "$BASE_REF" --head auto/upstream-sync \
+              --title 'Sync upstream into Custom (automated candidate)' --body-file "$body")"
+          fi
+          printf 'url=%s\n' "$pr_url" >> "$GITHUB_OUTPUT"
+          printf '\nDraft PR: %s\n' "$pr_url" >> "$RUNNER_TEMP/upstream-sync-report/report.md"
+
+      - name: Publish sync report
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/upstream-sync-report/report.md" ]]; then
+            cat "$RUNNER_TEMP/upstream-sync-report/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload sync report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-sync-report
+          path: ${{ runner.temp }}/upstream-sync-report/
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Invoke CI directly: GITHUB_TOKEN-created PR checks can require approval.
+  # This runs trusted workflow definitions with a read-only token and no secrets.
+  verify:
+    needs: prepare
+    if: needs.prepare.outputs.published == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.prepare.outputs.candidate_sha }}
+
+  summary:
+    needs: [prepare, verify]
+    if: always() && github.repository == 'DemonNoir/pennywiseai-tracker'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Summarize result
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          CHANGED: ${{ needs.prepare.outputs.changed }}
+          PUBLISHED: ${{ needs.prepare.outputs.published }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          PR_URL: ${{ needs.prepare.outputs.pr_url }}
+          CANDIDATE_SHA: ${{ needs.prepare.outputs.candidate_sha }}
+        run: |
+          {
+            printf '## Upstream sync result\n\n'
+            printf '* Prepare: %s\n* Tests: %s\n' "$PREPARE_RESULT" "$VERIFY_RESULT"
+            if [[ "$CHANGED" == true ]]; then
+              printf '* Candidate: `%s`\n' "$CANDIDATE_SHA"
+              if [[ "$PUBLISHED" == true ]]; then
+                printf '* Draft PR: %s\n' "$PR_URL"
+                printf '\nReview device behavior before merging/releasing.\n'
+              elif [[ "$DRY_RUN" == true ]]; then
+                printf '\nDry run: merge/report only. No branch or PR published; candidate CI was not run.\n'
+              fi
+            elif [[ "$PREPARE_RESULT" == success ]]; then
+              printf '\nNo new upstream commits need merging.\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$PREPARE_RESULT" != success || ( "$PUBLISHED" == true && "$VERIFY_RESULT" != success ) ]]; then
+            exit 1
+          fi

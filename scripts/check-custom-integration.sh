@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+# CI can execute a trusted copy against a separately checked-out candidate.
+if [[ $# -gt 1 ]]; then
+  echo 'Usage: check-custom-integration.sh [repository-root]' >&2
+  exit 2
+fi
+integration_root="${1:-$(dirname "$0")/..}"
+if [[ ! -d "$integration_root/app/src/main" ]]; then
+  echo 'Expected a PennyWise repository root containing app/src/main.' >&2
+  exit 2
+fi
+cd -- "$integration_root"
 
 check() {
   local description="$1" file="$2" pattern="$3"

@@ -1,13 +1,31 @@
 name: Tests
 
 on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch to verify (empty uses the selected workflow revision)'
+        required: false
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Immutable candidate commit from the upstream sync workflow'
+        required: false
+        default: ''
+        type: string
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
+# Keep reusable runs separate from their caller, which shares github.workflow.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: tests-${{ github.workflow }}-${{ github.ref }}-${{ inputs.ref || github.sha }}
   cancel-in-progress: true
 
 env:
@@ -18,13 +36,31 @@ defaults:
     shell: bash
 
 jobs:
+  automation-checks:
+    name: Automation Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref || github.sha }}
+        persist-credentials: false
+
+    - name: Check upstream automation syntax and behavior
+      run: |
+        bash -n scripts/sync-upstream.sh
+        bash scripts/tests/test-sync-upstream.sh
+
   parser-tests:
     name: Parser Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref || github.sha }}
+        persist-credentials: false
 
     - uses: actions/setup-java@v6
       with:
@@ -38,6 +74,10 @@ jobs:
         packages: platform-tools
 
     - uses: gradle/actions/setup-gradle@v5
+      with:
+        # Candidate code runs under the default-branch schedule context; avoid
+        # publishing its cache entries for subsequent trusted builds.
+        cache-read-only: ${{ inputs.ref != '' || github.event_name == 'pull_request' }}
 
     - name: Run parser-core tests
       run: ./gradlew :parser-core:test --continue
@@ -53,10 +93,13 @@ jobs:
   app-compile:
     name: App Compile
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref || github.sha }}
+        persist-credentials: false
 
     - uses: actions/setup-java@v6
       with:
@@ -70,18 +113,31 @@ jobs:
         packages: platform-tools
 
     - uses: gradle/actions/setup-gradle@v5
+      with:
+        # Candidate code runs under the default-branch schedule context; avoid
+        # publishing its cache entries for subsequent trusted builds.
+        cache-read-only: ${{ inputs.ref != '' || github.event_name == 'pull_request' }}
 
     - name: Compile standard debug app
       run: ./gradlew :app:compileStandardDebugKotlin --build-cache
 
-    - name: Build debug APK
-      run: ./gradlew :app:assembleDebug --build-cache
+    - name: Build both debug APK flavors
+      run: ./gradlew :app:assembleStandardDebug :app:assembleFdroidDebug --build-cache
+
+    - name: Record APK source revision
+      run: |
+        {
+          echo '### Debug APK source'
+          echo "Commit: $(git rev-parse HEAD)"
+          echo 'Both APKs use debug signing; installation over a release-signed app may require uninstalling it first.'
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload standard debug APK
       uses: actions/upload-artifact@v7
       with:
         name: standard-debug-apk
         path: app/build/outputs/apk/standard/debug/*.apk
+        if-no-files-found: error
         retention-days: 7
 
     - name: Upload fdroid debug APK
@@ -89,6 +145,7 @@ jobs:
       with:
         name: fdroid-debug-apk
         path: app/build/outputs/apk/fdroid/debug/*.apk
+        if-no-files-found: error
         retention-days: 7
 
     - name: Upload compile report
@@ -102,13 +159,27 @@ jobs:
   app-unit-tests:
     name: App Unit Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
+    # Save the guard from the workflow revision before checking out candidate
+    # code. Upstream changes cannot silently weaken their own integration gate.
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+        path: .ci-trusted
+        persist-credentials: false
 
-    - name: Check custom integration points
-      run: bash scripts/check-custom-integration.sh
+    - name: Save trusted custom integration guard
+      run: cp .ci-trusted/scripts/check-custom-integration.sh "$RUNNER_TEMP/check-custom-integration.sh"
+
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref || github.sha }}
+        persist-credentials: false
+
+    - name: Check custom integration points with trusted guard
+      run: bash "$RUNNER_TEMP/check-custom-integration.sh" "$GITHUB_WORKSPACE"
 
     - uses: actions/setup-java@v6
       with:
@@ -122,6 +193,10 @@ jobs:
         packages: platform-tools
 
     - uses: gradle/actions/setup-gradle@v5
+      with:
+        # Candidate code runs under the default-branch schedule context; avoid
+        # publishing its cache entries for subsequent trusted builds.
+        cache-read-only: ${{ inputs.ref != '' || github.event_name == 'pull_request' }}
 
     - name: Run standard debug unit tests
       run: ./gradlew :app:testStandardDebugUnitTest --build-cache --continue
