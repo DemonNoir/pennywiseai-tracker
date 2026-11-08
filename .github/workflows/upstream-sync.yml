@@ -173,7 +173,7 @@ jobs:
           if-no-files-found: warn
 
   # Invoke CI directly: GITHUB_TOKEN-created PR checks can require approval.
-  # This runs trusted workflow definitions with a read-only token and no secrets.
+  # Builds use read-only access; only the isolated signing job receives the key.
   verify:
     needs: prepare
     if: needs.prepare.outputs.published == 'true'
@@ -182,6 +182,8 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ needs.prepare.outputs.candidate_sha }}
+    secrets:
+      PERSONAL_APK_KEYSTORE_BASE64: ${{ secrets.PERSONAL_APK_KEYSTORE_BASE64 }}
 
   summary:
     needs: [prepare, verify]

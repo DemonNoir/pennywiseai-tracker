@@ -9,6 +9,10 @@ on:
         default: ''
         type: string
   workflow_call:
+    secrets:
+      PERSONAL_APK_KEYSTORE_BASE64:
+        required: false
+        description: 'Existing personal Android debug keystore for stable APK signatures'
     inputs:
       ref:
         description: 'Immutable candidate commit from the upstream sync workflow'
@@ -132,10 +136,10 @@ jobs:
           echo 'Both APKs use debug signing; installation over a release-signed app may require uninstalling it first.'
         } >> "$GITHUB_STEP_SUMMARY"
 
-    - name: Upload standard debug APK
+    - name: Upload standard debug build for signing
       uses: actions/upload-artifact@v7
       with:
-        name: standard-debug-apk
+        name: standard-debug-build
         path: app/build/outputs/apk/standard/debug/*.apk
         if-no-files-found: error
         retention-days: 7
@@ -154,6 +158,106 @@ jobs:
       with:
         name: compile-report
         path: app/build/reports/
+        retention-days: 7
+
+  app-release:
+    name: Standard Release Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref || github.sha }}
+        persist-credentials: false
+    - uses: actions/setup-java@v6
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+    - uses: android-actions/setup-android@v4
+      with:
+        packages: platform-tools
+    - uses: gradle/actions/setup-gradle@v5
+      with:
+        cache-read-only: ${{ inputs.ref != '' || github.event_name == 'pull_request' }}
+    - name: Build standardRelease with shrinking
+      run: ./gradlew :app:assembleStandardRelease --build-cache
+    - name: Upload release build for signing
+      uses: actions/upload-artifact@v7
+      with:
+        name: standard-release-build
+        path: app/build/outputs/apk/standard/release/*universal*.apk
+        if-no-files-found: error
+        retention-days: 7
+
+  sign-installable-apks:
+    name: Sign Personal APKs
+    needs: [automation-checks, parser-tests, app-compile, app-release, app-unit-tests]
+    # Only trusted workflow revisions may access the personal signing key.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Check signing configuration
+      id: signing
+      env:
+        KEYSTORE_BASE64: ${{ secrets.PERSONAL_APK_KEYSTORE_BASE64 }}
+      run: |
+        if [[ -n "$KEYSTORE_BASE64" ]]; then
+          echo 'enabled=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'enabled=false' >> "$GITHUB_OUTPUT"
+          echo 'Personal signing key is not configured. Build artifacts are previews with temporary CI signatures.' >> "$GITHUB_STEP_SUMMARY"
+        fi
+    - uses: actions/setup-java@v6
+      if: steps.signing.outputs.enabled == 'true'
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+    - uses: android-actions/setup-android@v4
+      if: steps.signing.outputs.enabled == 'true'
+      with:
+        packages: 'build-tools;37.0.0'
+    - uses: actions/download-artifact@v8
+      if: steps.signing.outputs.enabled == 'true'
+      with:
+        pattern: standard-*-build
+        path: apk-input
+    # No repository checkout or candidate build scripts run in this job.
+    - name: Sign both variants with the existing personal key
+      if: steps.signing.outputs.enabled == 'true'
+      env:
+        KEYSTORE_BASE64: ${{ secrets.PERSONAL_APK_KEYSTORE_BASE64 }}
+      run: |
+        set -euo pipefail
+        keystore="$RUNNER_TEMP/personal-apk.keystore"
+        trap 'rm -f "$keystore"' EXIT
+        umask 077
+        printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+        signer="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+        for variant in debug release; do
+          mapfile -t apks < <(find "apk-input/standard-$variant-build" -maxdepth 1 -type f -name '*.apk')
+          [[ ${#apks[@]} == 1 ]] || { echo 'Expected one APK per variant.' >&2; exit 1; }
+          mkdir -p "signed/$variant"
+          output="signed/$variant/pennywise-standard-$variant.apk"
+          "$signer" sign --ks "$keystore" --ks-key-alias androiddebugkey \
+            --ks-pass pass:android --key-pass pass:android --out "$output" "${apks[0]}"
+          "$signer" verify --print-certs "$output" > "$RUNNER_TEMP/cert-$variant.txt"
+          grep -Fq 'certificate SHA-256 digest: eb6e1ad5e9aaa7fdfe3c08324b9443331273569de5916e33a86fd5ce4ef7f967' "$RUNNER_TEMP/cert-$variant.txt"
+        done
+        echo 'Both installable APKs use the existing personal certificate. Release and debug have separate application IDs.' >> "$GITHUB_STEP_SUMMARY"
+    - uses: actions/upload-artifact@v7
+      if: steps.signing.outputs.enabled == 'true'
+      with:
+        name: standard-debug-apk
+        path: signed/debug/*.apk
+        if-no-files-found: error
+        retention-days: 7
+    - uses: actions/upload-artifact@v7
+      if: steps.signing.outputs.enabled == 'true'
+      with:
+        name: standard-release-apk
+        path: signed/release/*.apk
+        if-no-files-found: error
         retention-days: 7
 
   app-unit-tests:
