@@ -12,9 +12,17 @@ if [[ ! -d "$integration_root/app/src/main" ]]; then
 fi
 cd -- "$integration_root"
 
+# Minimal hosted runners may not include ripgrep. These wiring patterns use
+# extended regular expressions supported by both tools.
+if command -v rg >/dev/null 2>&1; then
+  integration_search=(rg -q)
+else
+  integration_search=(grep -Eq)
+fi
+
 check() {
   local description="$1" file="$2" pattern="$3"
-  if ! rg -q -- "$pattern" "$file"; then
+  if ! "${integration_search[@]}" -- "$pattern" "$file"; then
     echo "Missing custom integration: $description ($file)" >&2
     exit 1
   fi
