@@ -25,7 +25,7 @@ permissions:
 
 # Keep reusable runs separate from their caller, which shares github.workflow.
 concurrency:
-  group: tests-${{ github.workflow }}-${{ github.ref }}-${{ inputs.ref || github.sha }}
+  group: tests-${{ github.workflow }}-${{ github.ref }}-${{ inputs.ref }}
   cancel-in-progress: true
 
 env:
@@ -87,7 +87,7 @@ jobs:
       if: always()
       with:
         name: parser-test-results
-        path: parser-core/build/test-results/test/
+        path: parser-core/build/test-results/
         retention-days: 7
 
   app-compile:
