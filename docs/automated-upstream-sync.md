@@ -34,6 +34,11 @@ candidate and failure details. Debug APKs and test reports are available from
 the corresponding test jobs. These APKs use debug signing; they are not signed
 release replacements for an installed app with another certificate.
 
+If upstream changes `.github/workflows/`, publication stops before changing any
+bot branch or PR. Those definitions need separate review and integration: the
+built-in token cannot publish workflow changes. Dry runs can still report merge
+feasibility. See the [upstream-sync action author's token limitation](https://github.com/peter-evans/create-pull-request/blob/main/docs/examples.md#keep-a-fork-up-to-date-with-its-upstream).
+
 Treat `auto/upstream-sync` as disposable automation output. The next run can
 refresh it with a force-with-lease push. Put manual conflict fixes or other
 development on another branch, and rerun checks after any changes or when the

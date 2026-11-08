@@ -74,6 +74,23 @@ jobs:
           cd candidate
           bash "$RUNNER_TEMP/sync-upstream.sh"
 
+      - name: Require review for upstream workflow changes
+        if: steps.merge.outputs.changed == 'true' && inputs.dry-run != true
+        working-directory: candidate
+        env:
+          BASE_SHA: ${{ steps.merge.outputs.base_sha }}
+          CANDIDATE_SHA: ${{ steps.merge.outputs.candidate_sha }}
+        run: |
+          workflow_changes="$(git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- .github/workflows/)"
+          if [[ -n "$workflow_changes" ]]; then
+            {
+              printf '\n## Workflow review required\n\n'
+              printf 'The built-in token cannot publish upstream workflow changes. Integrate these separately after review:\n\n```text\n%s\n```\n' "$workflow_changes"
+            } >> "$RUNNER_TEMP/upstream-sync-report/report.md"
+            echo 'Upstream changes workflow definitions; manual integration is required.' >&2
+            exit 1
+          fi
+
       # Freeze an existing PR before changing its head, including any auto-merge
       # a human might have enabled since the previous run.
       - name: Keep existing candidate PR in draft
