@@ -1,0 +1,381 @@
+package com.pennywiseai.tracker.ui.icons
+
+import android.content.Context
+import androidx.annotation.StringRes
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.AirplanemodeActive
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Commute
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Fastfood
+import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Flight
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.LocalGroceryStore
+import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.MoneyOff
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.MovieFilter
+import androidx.compose.material.icons.filled.Payment
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.RemoveCircle
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.SportsMartialArts
+import androidx.compose.material.icons.filled.Store
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.pennywiseai.shared.domain.mapping.SharedCategoryMapping
+import com.pennywiseai.tracker.R
+import com.pennywiseai.tracker.data.database.entity.CategoryEntity
+import com.pennywiseai.tracker.data.database.entity.builtinKey
+
+/**
+ * Category visual properties (icons, colors) for Android UI.
+ * Keyword-based categorization is delegated to SharedCategoryMapping.
+ */
+object CategoryMapping {
+
+    data class CategoryInfo(
+        @StringRes val label: Int,
+        val icon: ImageVector,
+        val color: Color,
+        val fallbackIcon: ImageVector = Icons.Default.Category
+    )
+
+    /** What the user set on a CategoryEntity: its color and optional emoji (#760). */
+    data class UserStyle(
+        val colorHex: String,
+        val emoji: String?,
+        /** Original name of a renamed built-in (#823); null otherwise. */
+        val builtinKey: String? = null,
+        /** True when [colorHex] is the user's choice rather than a built-in's seed. */
+        val customColor: Boolean = true,
+        /** A built-in still on its original name — the only kind shown translated. */
+        val isBuiltin: Boolean = false
+    )
+
+    /**
+     * Name → user style, mirrored from the categories table by
+     * [com.pennywiseai.tracker.PennyWiseApplication] so the many non-ViewModel
+     * icon call sites (BrandIcon, CategoryIcon, IconProvider) can resolve a
+     * custom category without plumbing a map through every screen.
+     */
+    val userStyles = mutableStateMapOf<String, UserStyle>()
+
+    /**
+     * Translated name of an un-renamed built-in, or null to show [name] as stored.
+     * Storage, rules, budgets and backups all keep the English key; only display
+     * changes. A user's own name (a custom category or a renamed built-in, #823)
+     * is never translated.
+     */
+    @StringRes
+    fun labelRes(name: String): Int? = labelRes(name, userStyles[name]?.isBuiltin)
+
+    /** [isBuiltin] null = no category row by that name (e.g. the non-seeded "Tax"). */
+    @StringRes
+    private fun labelRes(name: String, isBuiltin: Boolean?): Int? =
+        if (isBuiltin == false) null else builtins[name]?.label ?: labelOnly[name]
+
+    /** Names the app assigns by default but that have no built-in icon or colour of their own. */
+    private val labelOnly = mapOf("Subscriptions" to R.string.category_subscriptions)
+
+    /** [labelRes] for non-Compose callers (widgets, workers, notifications). */
+    fun label(context: Context, name: String): String =
+        labelRes(name)?.let(context::getString) ?: name
+
+    /**
+     * [label] decided from rows the caller already loaded. A background process
+     * (widget refresh, incoming SMS) may run before [userStyles] is mirrored, and
+     * an unmirrored custom "Groceries" would otherwise be shown translated.
+     */
+    fun label(context: Context, name: String, categories: List<CategoryEntity>): String =
+        labelRes(name, categories)?.let(context::getString) ?: name
+
+    @StringRes
+    fun labelRes(name: String, categories: List<CategoryEntity>): Int? =
+        labelRes(name, categories.firstOrNull { it.name == name }?.let { it.builtinKey == it.name })
+
+    fun emojiFor(name: String): String? = userStyles[name]?.emoji?.takeIf { it.isNotBlank() }
+
+    /**
+     * Resolves the display color for a category. Prefers the user's assigned color
+     * ([overrideHex], e.g. "#4CAF50" from CategoryEntity), then the built-in palette,
+     * then gray — so user-created categories no longer render gray in Analytics (#586).
+     */
+    fun colorFor(name: String, overrideHex: String? = null): Color {
+        if (!overrideHex.isNullOrBlank()) {
+            runCatching { Color(android.graphics.Color.parseColor(overrideHex)) }
+                .getOrNull()?.let { return it }
+        }
+        val userColor = userStyles[name]?.colorHex?.let { hex -> runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrNull() }
+        if (userColor != null && userStyles[name]?.customColor == true) return userColor
+        return categories[name]?.color ?: userColor ?: Color.Gray
+    }
+
+    /**
+     * Built-in icon/colour by name. A renamed built-in (#823) is found through its
+     * original name, carried in [userStyles], so every `categories[name]` call site
+     * keeps working after a rename.
+     */
+    val categories: Map<String, CategoryInfo> by lazy {
+        object : Map<String, CategoryInfo> by builtins {
+            // Identity first: a built-in renamed to another's freed name keeps its own icon.
+            override fun get(key: String): CategoryInfo? =
+                userStyles[key]?.builtinKey?.let { builtins[it] } ?: builtins[key]
+            override fun containsKey(key: String): Boolean = get(key) != null
+        }
+    }
+
+    private val builtins = mapOf(
+        "Food & Dining" to CategoryInfo(
+            label = R.string.category_food_dining,
+            icon = Icons.Default.Restaurant,
+            color = Color(0xFFFC8019),
+            fallbackIcon = Icons.Default.Fastfood
+        ),
+        "Groceries" to CategoryInfo(
+            label = R.string.category_groceries,
+            icon = Icons.Default.ShoppingCart,
+            color = Color(0xFF5AC85A),
+            fallbackIcon = Icons.Default.LocalGroceryStore
+        ),
+        "Transportation" to CategoryInfo(
+            label = R.string.category_transportation,
+            icon = Icons.Default.DirectionsCar,
+            color = Color(0xFF000000),
+            fallbackIcon = Icons.Default.Commute
+        ),
+        "Shopping" to CategoryInfo(
+            label = R.string.category_shopping,
+            icon = Icons.Default.ShoppingBag,
+            color = Color(0xFFFF9900),
+            fallbackIcon = Icons.Default.Store
+        ),
+        "Bills & Utilities" to CategoryInfo(
+            label = R.string.category_bills_utilities,
+            icon = Icons.Default.Receipt,
+            color = Color(0xFF4CAF50),
+            fallbackIcon = Icons.Default.Payment
+        ),
+        "Entertainment" to CategoryInfo(
+            label = R.string.category_entertainment,
+            icon = Icons.Default.MovieFilter,
+            color = Color(0xFFE50914),
+            fallbackIcon = Icons.Default.PlayCircle
+        ),
+        "Healthcare" to CategoryInfo(
+            label = R.string.category_healthcare,
+            icon = Icons.Default.LocalHospital,
+            color = Color(0xFF10847E),
+            fallbackIcon = Icons.Default.HealthAndSafety
+        ),
+        "Investments" to CategoryInfo(
+            label = R.string.category_investments,
+            icon = Icons.AutoMirrored.Filled.TrendingUp,
+            color = Color(0xFF00D09C),
+            fallbackIcon = Icons.AutoMirrored.Filled.ShowChart
+        ),
+        "Banking" to CategoryInfo(
+            label = R.string.category_banking,
+            icon = Icons.Default.AccountBalance,
+            color = Color(0xFF004C8F),
+            fallbackIcon = Icons.Default.AccountBalanceWallet
+        ),
+        "Personal Care" to CategoryInfo(
+            label = R.string.category_personal_care,
+            icon = Icons.Default.Face,
+            color = Color(0xFF6A4C93),
+            fallbackIcon = Icons.Default.Spa
+        ),
+        "Education" to CategoryInfo(
+            label = R.string.category_education,
+            icon = Icons.Default.School,
+            color = Color(0xFF673AB7),
+            fallbackIcon = Icons.Default.Book
+        ),
+        "Mobile" to CategoryInfo(
+            label = R.string.category_mobile,
+            icon = Icons.Default.Smartphone,
+            color = Color(0xFF2A3890),
+            fallbackIcon = Icons.Default.PhoneAndroid
+        ),
+        "Fitness" to CategoryInfo(
+            label = R.string.category_fitness,
+            icon = Icons.Default.FitnessCenter,
+            color = Color(0xFFFF3278),
+            fallbackIcon = Icons.Default.SportsMartialArts
+        ),
+        "Insurance" to CategoryInfo(
+            label = R.string.category_insurance,
+            icon = Icons.Default.Shield,
+            color = Color(0xFF0066CC),
+            fallbackIcon = Icons.Default.Security
+        ),
+        "Tax" to CategoryInfo(
+            label = R.string.category_tax,
+            icon = Icons.Default.AccountBalanceWallet,
+            color = Color(0xFF795548),
+            fallbackIcon = Icons.Default.Receipt
+        ),
+        "Bank Charges" to CategoryInfo(
+            label = R.string.category_bank_charges,
+            icon = Icons.Default.MoneyOff,
+            color = Color(0xFF9E9E9E),
+            fallbackIcon = Icons.Default.RemoveCircle
+        ),
+        "Credit Card Payment" to CategoryInfo(
+            label = R.string.category_credit_card_payment,
+            icon = Icons.Default.CreditCard,
+            color = Color(0xFF1976D2),
+            fallbackIcon = Icons.Default.Payment
+        ),
+        "Salary" to CategoryInfo(
+            label = R.string.category_salary,
+            icon = Icons.Default.Payments,
+            color = Color(0xFF4CAF50),
+            fallbackIcon = Icons.Default.AttachMoney
+        ),
+        "Income" to CategoryInfo(
+            label = R.string.category_income,
+            icon = Icons.Default.AddCircle,
+            color = Color(0xFF4CAF50),
+            fallbackIcon = Icons.AutoMirrored.Filled.TrendingUp
+        ),
+        "Travel" to CategoryInfo(
+            label = R.string.category_travel,
+            icon = Icons.Default.Flight,
+            color = Color(0xFF00BCD4),
+            fallbackIcon = Icons.Default.AirplanemodeActive
+        ),
+        "Others" to CategoryInfo(
+            label = R.string.category_others,
+            icon = Icons.Default.Category,
+            color = Color(0xFF757575),
+            fallbackIcon = Icons.Default.MoreHoriz
+        )
+    )
+
+    /**
+     * Get category for a merchant name.
+     * Delegates to SharedCategoryMapping (single source of truth).
+     */
+    fun getCategory(merchantName: String): String {
+        return SharedCategoryMapping.getCategory(merchantName)
+    }
+}
+
+/** A category name as the user should read it: built-ins in the app's language. */
+@Composable
+fun categoryLabel(name: String): String =
+    CategoryMapping.labelRes(name)?.let { stringResource(it) } ?: name
+
+/**
+ * Icon provider with fallback mechanism
+ */
+object IconProvider {
+
+    /**
+     * Get icon for a merchant with fallback logic
+     * 1. Try to get brand-specific icon
+     * 2. If not found, use category icon
+     * 3. If category not found, use default icon
+     */
+    fun getIconForMerchant(merchantName: String): IconResource {
+        BrandIcons.getIconResource(merchantName)?.let { iconRes ->
+            return IconResource.DrawableResource(iconRes)
+        }
+
+        val category = CategoryMapping.getCategory(merchantName)
+        CategoryMapping.emojiFor(category)?.let { return IconResource.Emoji(it, CategoryMapping.colorFor(category)) }
+        val categoryInfo = CategoryMapping.categories[category]
+            ?: CategoryMapping.categories["Others"]!!
+
+        return IconResource.VectorIcon(
+            icon = categoryInfo.icon,
+            tint = categoryInfo.color
+        )
+    }
+
+    /**
+     * Get category info including icon and color
+     */
+    fun getCategoryInfo(merchantName: String): CategoryMapping.CategoryInfo {
+        val category = CategoryMapping.getCategory(merchantName)
+        return CategoryMapping.categories[category]
+            ?: CategoryMapping.categories["Others"]!!
+    }
+
+    /**
+     * Get icon for a transaction, using an explicitly set category when available.
+     * 1. Try brand-specific icon
+     * 2. If not found, use provided category (if valid)
+     * 3. Otherwise, derive category from merchant name
+     * 4. If still not found, use default icon
+     */
+    fun getTransactionIcon(merchantName: String, category: String?): IconResource {
+        // A user's explicit category emoji outranks the auto-detected brand logo (#760).
+        if (category.isValidCategoryOverride()) {
+            CategoryMapping.emojiFor(category!!)?.let {
+                return IconResource.Emoji(it, CategoryMapping.colorFor(category))
+            }
+        }
+        BrandIcons.getIconResource(merchantName)?.let { iconRes ->
+            return IconResource.DrawableResource(iconRes)
+        }
+
+        val effectiveCategory = if (category.isValidCategoryOverride()) category!!
+            else CategoryMapping.getCategory(merchantName)
+
+        CategoryMapping.emojiFor(effectiveCategory)?.let {
+            return IconResource.Emoji(it, CategoryMapping.colorFor(effectiveCategory))
+        }
+        val categoryInfo = CategoryMapping.categories[effectiveCategory]
+            ?: CategoryMapping.categories["Others"]!!
+
+        return IconResource.VectorIcon(
+            icon = categoryInfo.icon,
+            // A user category keeps its own color; unknown names fall back to Others'.
+            tint = if (effectiveCategory in CategoryMapping.userStyles) CategoryMapping.colorFor(effectiveCategory)
+                else categoryInfo.color
+        )
+    }
+}
+
+/**
+ * Sealed class for different icon types
+ */
+sealed class IconResource {
+    data class DrawableResource(val resId: Int) : IconResource()
+    data class VectorIcon(val icon: ImageVector, val tint: Color) : IconResource()
+    /** A user-picked emoji for a custom category (#760); [tint] is the category color. */
+    data class Emoji(val emoji: String, val tint: Color) : IconResource()
+}
+
+/**
+ * Returns true if this category string represents a valid override
+ * (non-null, non-blank, not the "Uncategorized" sentinel).
+ */
+internal fun String?.isValidCategoryOverride(): Boolean =
+    !this.isNullOrBlank() && !this.equals("Uncategorized", ignoreCase = true)

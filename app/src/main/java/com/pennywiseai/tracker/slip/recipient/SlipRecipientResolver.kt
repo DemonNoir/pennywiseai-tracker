@@ -73,7 +73,7 @@ object SlipRecipientResolver {
             // Transfers/self-transfers are account movement, not shops. Including
             // them here pollutes merchant matching with the user's own name.
             .filter { it.transactionType != TransactionType.TRANSFER }
-            .filter { it.smsSender != "SLIP_SCAN" || it.description?.contains(TransactionEntity.REVIEW_TAG) != true }
+            .filter { it.smsSender != "SLIP_SCAN" || it.description?.contains("[รอตรวจสอบ]") != true }
             .filterNot { transaction -> allExcluded.any { isSamePartyName(transaction.merchantName, it) } }
             .mapNotNull { historyCandidate(it, normalizedOcr, normalizedRaw, bankName) }
 
@@ -106,7 +106,7 @@ object SlipRecipientResolver {
         return Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
             .replace(Regex("[\u0E31\u0E33-\u0E3A\u0E47-\u0E4E]"), "")
-            .replace(Regex("[^\\p{IsThai}A-Za-z0-9 ]"), "")
+            .replace(Regex("[^\u0E01-\u0E3A\u0E40-\u0E5BA-Za-z0-9 ]"), "")
             .lowercase()
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -116,6 +116,17 @@ object SlipRecipientResolver {
         val sender = normalize(senderName)
         val receiver = normalize(receiverName)
         return isSamePartyName(sender, receiver)
+    }
+
+    /** Learned names are applied only when the extracted recipient itself matches. */
+    fun matchesLearnedReceiver(learnedOriginal: String?, scannedReceiver: String?): Boolean {
+        val original = normalize(learnedOriginal)
+        val receiver = normalize(scannedReceiver)
+        if (original.isBlank() || receiver.isBlank()) return false
+        if (original == receiver) return true
+        if (original.length < 5 || receiver.length < 5) return false
+        val editScore = 1.0 - levenshtein(original, receiver).toDouble() / max(original.length, receiver.length)
+        return editScore >= AUTO_APPLY_SCORE
     }
 
     private fun isSamePartyName(leftName: String?, rightName: String?): Boolean {

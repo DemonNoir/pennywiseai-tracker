@@ -1,0 +1,1514 @@
+package com.pennywiseai.tracker.presentation.transactions
+
+import com.pennywiseai.tracker.data.mapper.withTransferAccount
+
+import com.pennywiseai.tracker.ui.UiText
+import com.pennywiseai.tracker.R
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import android.net.Uri
+import androidx.core.net.toUri
+import com.pennywiseai.tracker.data.currency.CurrencyConversionService
+import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
+import com.pennywiseai.tracker.data.database.entity.BudgetImpactType
+import com.pennywiseai.tracker.data.database.entity.CategoryEntity
+import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
+import com.pennywiseai.tracker.data.database.entity.LoanDirection
+import com.pennywiseai.tracker.data.database.entity.LoanEntity
+import com.pennywiseai.tracker.data.database.entity.TransactionEntity
+import com.pennywiseai.tracker.data.database.dao.ScanCorrectionDao
+import com.pennywiseai.tracker.data.database.entity.TransactionSplitEntity
+import com.pennywiseai.tracker.data.database.entity.TransactionType
+import com.pennywiseai.tracker.ui.components.SplitItem
+import com.pennywiseai.tracker.data.receipt.ReceiptManager
+import com.pennywiseai.tracker.data.repository.AccountBalanceRepository
+import com.pennywiseai.tracker.data.repository.BudgetGroupRepository
+import com.pennywiseai.tracker.data.repository.CategoryRepository
+import com.pennywiseai.tracker.data.repository.LoanRepository
+import com.pennywiseai.tracker.data.repository.MerchantAliasRepository
+import com.pennywiseai.tracker.data.repository.MerchantMappingRepository
+import com.pennywiseai.tracker.data.repository.mappingFits
+import com.pennywiseai.tracker.ui.components.pickerDefault
+import com.pennywiseai.tracker.utils.BalanceDiscrepancy
+import com.pennywiseai.tracker.utils.CurrencyFormatter
+import com.pennywiseai.tracker.domain.model.rule.ActionType
+import com.pennywiseai.tracker.domain.model.rule.ConditionOperator
+import com.pennywiseai.tracker.domain.model.rule.RuleAction
+import com.pennywiseai.tracker.domain.model.rule.RuleCondition
+import com.pennywiseai.tracker.domain.model.rule.TransactionField
+import com.pennywiseai.tracker.domain.model.rule.TransactionRule
+import com.pennywiseai.tracker.data.repository.TagRepository
+import com.pennywiseai.tracker.data.repository.TransactionGroupRepository
+import com.pennywiseai.tracker.data.repository.TransactionRepository
+import com.pennywiseai.tracker.data.database.entity.TransactionGroupEntity
+import com.pennywiseai.tracker.domain.loan.LoanCurrencyRules
+import com.pennywiseai.tracker.domain.usecase.DeleteTransactionUseCase
+import com.pennywiseai.tracker.core.Constants
+import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
+import com.pennywiseai.tracker.slip.parser.SlipParser
+import com.pennywiseai.tracker.slip.recipient.SlipRecipientResolver
+import com.pennywiseai.tracker.slip.recipient.SlipMerchantLearning
+import com.pennywiseai.tracker.slip.recipient.matchesBackfillRecipient
+import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.time.LocalDateTime
+import javax.inject.Inject
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@HiltViewModel
+class TransactionDetailViewModel @Inject constructor(
+    private val transactionRepository: TransactionRepository,
+    private val merchantMappingRepository: MerchantMappingRepository,
+    private val merchantAliasRepository: MerchantAliasRepository,
+    private val categoryRepository: CategoryRepository,
+    private val accountBalanceRepository: AccountBalanceRepository,
+    private val loanRepository: LoanRepository,
+    private val budgetGroupRepository: BudgetGroupRepository,
+    private val transactionGroupRepository: TransactionGroupRepository,
+    private val tagRepository: TagRepository,
+    private val currencyConversionService: CurrencyConversionService,
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val receiptManager: ReceiptManager,
+    private val scanCorrectionDao: ScanCorrectionDao,
+    private val slipMerchantLearning: SlipMerchantLearning,
+    private val slipOcrEngine: SlipOcrEngine,
+    private val deleteTransactionUseCase: DeleteTransactionUseCase,
+    private val ruleRepository: com.pennywiseai.tracker.domain.repository.RuleRepository,
+    private val detectBalanceDiscrepancy: com.pennywiseai.tracker.domain.usecase.DetectBalanceDiscrepancyUseCase,
+    private val goalRepository: com.pennywiseai.tracker.data.repository.GoalRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
+) : ViewModel() {
+    
+    private val _transaction = MutableStateFlow<TransactionEntity?>(null)
+    val transaction: StateFlow<TransactionEntity?> = _transaction.asStateFlow()
+
+    private val _primaryCurrency = MutableStateFlow("INR")
+    val primaryCurrency: StateFlow<String> = _primaryCurrency.asStateFlow()
+
+    private val _convertedAmount = MutableStateFlow<BigDecimal?>(null)
+    val convertedAmount: StateFlow<BigDecimal?> = _convertedAmount.asStateFlow()
+
+    private val _accountProfileId = MutableStateFlow<Long?>(null)
+    val accountProfileId: StateFlow<Long?> = _accountProfileId.asStateFlow()
+
+    // The reported balance is in the account's currency, which can differ from the
+    // transaction's (e.g. a USD card purchase on an INR account).
+    private val _accountCurrency = MutableStateFlow<String?>(null)
+    val accountCurrency: StateFlow<String?> = _accountCurrency.asStateFlow()
+
+    private val _isEditMode = MutableStateFlow(false)
+    val isEditMode: StateFlow<Boolean> = _isEditMode.asStateFlow()
+    
+    private val _editableTransaction = MutableStateFlow<TransactionEntity?>(null)
+    val editableTransaction: StateFlow<TransactionEntity?> = _editableTransaction.asStateFlow()
+    private val _merchantSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val merchantSuggestions: StateFlow<List<String>> = _merchantSuggestions.asStateFlow()
+    private val _isRescanningSlip = MutableStateFlow(false)
+    val isRescanningSlip: StateFlow<Boolean> = _isRescanningSlip.asStateFlow()
+
+    // Tags ----------------------------------------------------------------
+    // Read-only set of tag names on the currently loaded transaction.
+    val transactionTags: StateFlow<List<String>> = _transaction
+        .flatMapLatest { tx ->
+            if (tx == null) flowOf(emptyList())
+            else tagRepository.observeTagNamesForTransaction(tx.id)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // All known tag names, for autocomplete in the editor.
+    val allTagNames: StateFlow<List<String>> = tagRepository.observeAllTagNames()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Working copy of tags while in edit mode (persisted on save).
+    private val _editableTags = MutableStateFlow<List<String>>(emptyList())
+    val editableTags: StateFlow<List<String>> = _editableTags.asStateFlow()
+    
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
+    
+    private val _saveSuccess = MutableStateFlow(false)
+    val saveSuccess: StateFlow<Boolean> = _saveSuccess.asStateFlow()
+    
+    private val _errorMessage = MutableStateFlow<UiText?>(null)
+    val errorMessage: StateFlow<UiText?> = _errorMessage.asStateFlow()
+    
+    private val _applyToAllFromMerchant = MutableStateFlow(false)
+    val applyToAllFromMerchant: StateFlow<Boolean> = _applyToAllFromMerchant.asStateFlow()
+
+    // #752: "apply these tags to future transactions from this merchant" — saved
+    // as a rule (MERCHANT = name → ADD_TAG …) so the SMS paths handle it.
+    private val _applyTagsToAllFromMerchant = MutableStateFlow(false)
+    val applyTagsToAllFromMerchant: StateFlow<Boolean> = _applyTagsToAllFromMerchant.asStateFlow()
+    
+    private val _updateExistingTransactions = MutableStateFlow(false)
+    val updateExistingTransactions: StateFlow<Boolean> = _updateExistingTransactions.asStateFlow()
+
+    // Display alias for this merchant (#583). Empty = no alias / cleared.
+    private val _merchantAlias = MutableStateFlow("")
+    val merchantAlias: StateFlow<String> = _merchantAlias.asStateFlow()
+    // The alias that was loaded when edit mode opened, so save can tell
+    // "set/changed" from "cleared" from "untouched".
+    private var _originalMerchantAlias: String = ""
+
+    // Alias to render in the detail header for the loaded transaction's merchant
+    // (#583). Resolved here (the detail screen sits outside the merchant-display
+    // CompositionLocal provider) and reactive so it updates right after a save.
+    val currentMerchantAlias: StateFlow<String?> =
+        combine(
+            _transaction,
+            merchantAliasRepository.getAllAliases()
+        ) { txn, aliases ->
+            val raw = txn?.merchantName ?: return@combine null
+            aliases.firstOrNull { it.merchantName == raw }?.alias?.takeIf { it.isNotBlank() }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    
+    private val _existingTransactionCount = MutableStateFlow(0)
+    
+    private val _showDeleteDialog = MutableStateFlow(false)
+    val showDeleteDialog: StateFlow<Boolean> = _showDeleteDialog.asStateFlow()
+    
+    private val _isDeleting = MutableStateFlow(false)
+    val isDeleting: StateFlow<Boolean> = _isDeleting.asStateFlow()
+
+    private val _deleteSuccess = MutableStateFlow(false)
+    val deleteSuccess: StateFlow<Boolean> = _deleteSuccess.asStateFlow()
+    val existingTransactionCount: StateFlow<Int> = _existingTransactionCount.asStateFlow()
+
+    // Budget impact state (for INCOME transactions only)
+    private val _budgetImpactType = MutableStateFlow<BudgetImpactType?>(null)
+    val budgetImpactType: StateFlow<BudgetImpactType?> = _budgetImpactType.asStateFlow()
+
+    private val _budgetCategory = MutableStateFlow<String?>(null)
+    val budgetCategory: StateFlow<String?> = _budgetCategory.asStateFlow()
+
+    val activeBudgetCategories: StateFlow<List<String>> = budgetGroupRepository.getActiveGroups()
+        .map { groups ->
+            groups.map { it.categories.map { cat -> cat.categoryName } }.flatten().distinct().sorted()
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    // A refund can give back to any expense category, not only budgeted ones
+    // (#983) — Analytics and Home net it off whichever category it names.
+    // Budget categories stay first since they're the likely pick.
+    val refundCategories: StateFlow<List<String>> = combine(
+        activeBudgetCategories,
+        categoryRepository.getVisibleExpenseCategories()
+    ) { budget, expense -> (budget + expense.map { it.name }).distinct() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    // Transaction group state
+    val availableGroups: StateFlow<List<TransactionGroupEntity>> = transactionGroupRepository.getAllGroups()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val currentGroup: StateFlow<TransactionGroupEntity?> = _transaction
+        .flatMapLatest { tx ->
+            val groupId = tx?.groupId ?: return@flatMapLatest kotlinx.coroutines.flow.flowOf(null)
+            transactionGroupRepository.getAllGroups().map { groups -> groups.firstOrNull { it.id == groupId } }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _showGroupSheet = MutableStateFlow(false)
+    val showGroupSheet: StateFlow<Boolean> = _showGroupSheet.asStateFlow()
+
+    fun showGroupSheet() { _showGroupSheet.value = true }
+    fun hideGroupSheet() { _showGroupSheet.value = false }
+
+    fun addToGroup(groupId: Long) {
+        viewModelScope.launch {
+            val txId = _transaction.value?.id ?: return@launch
+            transactionGroupRepository.addTransactionToGroup(txId, groupId)
+            _showGroupSheet.value = false
+        }
+    }
+
+    fun removeFromGroup() {
+        viewModelScope.launch {
+            val txId = _transaction.value?.id ?: return@launch
+            transactionGroupRepository.removeTransactionFromGroup(txId)
+        }
+    }
+
+    fun createGroupAndAdd(name: String, note: String?) {
+        viewModelScope.launch {
+            val txId = _transaction.value?.id ?: return@launch
+            transactionGroupRepository.createGroupWithTransaction(name, note, txId)
+            _showGroupSheet.value = false
+        }
+    }
+
+    /**
+     * One-tap toggle for "exclude from analytics" (#451). Persists immediately —
+     * the transaction stays in history and counts toward the account balance, but
+     * spending trends, averages, category/budget breakdowns and AI summaries
+     * ignore it.
+     */
+    fun setExcludedFromAnalytics(excluded: Boolean) {
+        viewModelScope.launch {
+            val txn = _transaction.value ?: return@launch
+            if (txn.excludedFromAnalytics == excluded) return@launch
+            transactionRepository.updateTransaction(
+                txn.copy(excludedFromAnalytics = excluded, updatedAt = LocalDateTime.now())
+            )
+            _transaction.value = transactionRepository.getTransactionById(txn.id)
+            com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+        }
+    }
+
+    // Split-related state
+    private val _splits = MutableStateFlow<List<SplitItem>>(emptyList())
+    val splits: StateFlow<List<SplitItem>> = _splits.asStateFlow()
+
+    private val _originalSplits = MutableStateFlow<List<SplitItem>>(emptyList())
+
+    private val _showSplitEditor = MutableStateFlow(false)
+    val showSplitEditor: StateFlow<Boolean> = _showSplitEditor.asStateFlow()
+
+    // Bank-reported balance vs. what the ledger predicts (#734/#135); null = consistent.
+    private val _balanceDiscrepancy = MutableStateFlow<com.pennywiseai.tracker.utils.BalanceDiscrepancy?>(null)
+    val balanceDiscrepancy: StateFlow<com.pennywiseai.tracker.utils.BalanceDiscrepancy?> = _balanceDiscrepancy.asStateFlow()
+    private val _isAddingAdjustment = MutableStateFlow(false)
+    val isAddingAdjustment: StateFlow<Boolean> = _isAddingAdjustment.asStateFlow()
+
+    private val _hasSplits = MutableStateFlow(false)
+    val hasSplits: StateFlow<Boolean> = _hasSplits.asStateFlow()
+    
+    // Categories should be based on transaction type
+    val categories: StateFlow<List<CategoryEntity>> = combine(
+        _editableTransaction,
+        _transaction
+    ) { editable, original ->
+        val transaction = editable ?: original
+        transaction?.transactionType == TransactionType.INCOME
+    }.flatMapLatest { isIncome ->
+        // Picker: hidden categories are excluded from selection (#736).
+        if (isIncome) {
+            categoryRepository.getVisibleIncomeCategories()
+        } else {
+            categoryRepository.getVisibleExpenseCategories()
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+    
+    // Available accounts for linking (excluding hidden accounts)
+    private val sharedPrefs = context.getSharedPreferences("account_prefs", android.content.Context.MODE_PRIVATE)
+
+    val availableAccounts = accountBalanceRepository.getAllLatestBalances()
+        .map { balances ->
+            val hiddenAccounts = sharedPrefs.getStringSet("hidden_accounts", emptySet()) ?: emptySet()
+            balances
+                .filter { balance ->
+                    val key = "${balance.bankName}_${balance.accountLast4}"
+                    !hiddenAccounts.contains(key)
+                }
+                .map { balance ->
+                    AccountInfo(
+                        bankName = balance.bankName,
+                        accountLast4 = balance.accountLast4,
+                        displayName = balance.displayLabel,
+                        isCreditCard = balance.isCreditCard
+                    )
+                }
+                .distinctBy { "${it.bankName}_${it.accountLast4}" }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+    
+    data class AccountInfo(
+        val bankName: String,
+        val accountLast4: String,
+        val displayName: String,
+        val isCreditCard: Boolean
+    )
+    
+    fun loadTransaction(transactionId: Long) {
+        viewModelScope.launch {
+            val transaction = transactionRepository.getTransactionById(transactionId)
+            _transaction.value = transaction
+            transaction?.let {
+                determinePrimaryCurrency(it)
+                calculateConvertedAmount(it)
+                // Splits are a live Flow that never completes: collected on its own
+                // job, or nothing below would ever run for a split transaction —
+                // its loan chip came back as "Mark as loan" (#1032).
+                splitsJob?.cancel()
+                splitsJob = viewModelScope.launch { loadSplits(transactionId) }
+                loadReceiptUri(it)
+                // Clear stale loan state when the (re)loaded transaction has no
+                // loan — e.g. the loan was deleted elsewhere and we reload on
+                // resume (#444). Otherwise the loan chip would persist.
+                val loanId = it.loanId
+                if (loanId != null) loadLoan(loanId) else _loan.value = null
+                _budgetImpactType.value = it.budgetImpactType
+                _budgetCategory.value = it.budgetCategory
+                loadAccountProfileId(it)
+                _balanceDiscrepancy.value = runCatching { detectBalanceDiscrepancy.execute(it) }.getOrNull()
+            }
+        }
+    }
+
+    // Every visible category of both types: the adjustment sheet's picker
+    // filters by the adjustment's own type, which can differ from this one's.
+    val adjustmentCategories: StateFlow<List<CategoryEntity>> = categoryRepository.getVisibleCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Records the untracked amount behind a balance mismatch as a manual
+     * transaction dated just before this one, on the same account (#734).
+     * No balance row is written: the bank's reported balance already includes
+     * it, so the ledger must not move — the adjustment only explains the gap.
+     *
+     * [merchant] is what the user typed in the sheet (blank → "Balance
+     * adjustment"); [pickedCategory] is null when they left the picker alone,
+     * in which case the merchant's mapping (if it fits the type) or the
+     * sheet's default is used.
+     */
+    fun addBalanceAdjustment(merchant: String, pickedCategory: String?) {
+        val tx = _transaction.value ?: return
+        val d = _balanceDiscrepancy.value ?: return
+        // One adjustment per tap-burst: the flag disables the button, and the
+        // deterministic hash makes a racing second insert a no-op (IGNORE).
+        if (!_isAddingAdjustment.compareAndSet(expect = false, update = true)) return
+        viewModelScope.launch {
+            try {
+                val type = balanceAdjustmentType(d)
+                val name = merchant.trim()
+                val category = pickedCategory
+                    ?: name.takeIf { it.isNotEmpty() }
+                        ?.let { merchantMappingRepository.getCategoryForMerchant(it) }
+                        ?.takeIf { mappingFits(categoryRepository.getCategoryByName(it)?.isIncome, type) }
+                    ?: categoryRepository.getVisibleCategories().first().balanceAdjustmentDefaultCategory(type)
+                transactionRepository.insertTransaction(balanceAdjustment(tx, d, name, category))
+                _balanceDiscrepancy.value = detectBalanceDiscrepancy.execute(tx)
+                if (_balanceDiscrepancy.value == null) {
+                    com.pennywiseai.tracker.receiver.SmsBroadcastReceiver.cancelBalanceDiscrepancyNotification(context, tx)
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = UiText.Res(R.string.txn_detail_error_add_adjustment, listOf(e.message.toString()))
+            } finally {
+                _isAddingAdjustment.value = false
+            }
+        }
+    }
+
+    private suspend fun loadAccountProfileId(transaction: TransactionEntity) {
+        _accountCurrency.value = null
+        val bankName = transaction.bankName ?: return
+        val accountLast4 = transaction.accountNumber ?: return
+        val balance = accountBalanceRepository.getLatestBalance(bankName, accountLast4)
+        _accountProfileId.value = balance?.profileId
+        _accountCurrency.value = balance?.let {
+            CurrencyFormatter.resolveAccountCurrency(it.sourceType, it.currency, it.bankName)
+        }
+    }
+
+    private var splitsJob: kotlinx.coroutines.Job? = null
+
+    private suspend fun loadSplits(transactionId: Long) {
+        val hasSplits = transactionRepository.hasSplits(transactionId)
+        _hasSplits.value = hasSplits
+
+        if (hasSplits) {
+            transactionRepository.getSplitsForTransaction(transactionId)
+                .collect { splitEntities ->
+                    val splitItems = splitEntities.map { entity ->
+                        SplitItem(
+                            id = entity.id,
+                            category = entity.category,
+                            amount = entity.amount
+                        )
+                    }
+                    _splits.value = splitItems
+                    _originalSplits.value = splitItems
+                    _showSplitEditor.value = true
+                }
+        } else {
+            _splits.value = emptyList()
+            _originalSplits.value = emptyList()
+            _showSplitEditor.value = false
+        }
+    }
+
+    private suspend fun determinePrimaryCurrency(transaction: TransactionEntity) {
+        val isUnified = userPreferencesRepository.unifiedCurrencyMode.first()
+        val primaryCurrency = if (isUnified) {
+            userPreferencesRepository.displayCurrency.first()
+        } else {
+            val bankName = transaction.bankName
+            if (!bankName.isNullOrEmpty()) {
+                com.pennywiseai.tracker.utils.CurrencyFormatter.getBankBaseCurrency(bankName)
+            } else {
+                transaction.currency.takeIf { it.isNotEmpty() } ?: "INR"
+            }
+        }
+        _primaryCurrency.value = primaryCurrency
+    }
+
+    private suspend fun calculateConvertedAmount(transaction: TransactionEntity) {
+        val primaryCurrency = _primaryCurrency.value
+        if (transaction.currency.isNotEmpty() && !transaction.currency.equals(primaryCurrency, ignoreCase = true)) {
+            // Convert to the primary currency; null when no rate exists, so the
+            // detail screen shows no "≈" line rather than a misleading face
+            // value (#670).
+            _convertedAmount.value = currencyConversionService.convertAmountOrNull(
+                amount = transaction.amount,
+                fromCurrency = transaction.currency,
+                toCurrency = primaryCurrency
+            )
+        } else {
+            // No conversion needed if currencies are the same
+            _convertedAmount.value = null
+        }
+    }
+
+    fun enterEditMode() {
+        _editableTransaction.value = _transaction.value?.copy()
+        _isEditMode.value = true
+        loadMerchantSuggestions(_transaction.value)
+        _errorMessage.value = null
+        _pendingReceiptUri.value = null
+        _receiptRemoved.value = false
+
+        // Seed the editable tag list from the persisted tags.
+        _transaction.value?.let { txn ->
+            viewModelScope.launch {
+                _editableTags.value = tagRepository.getTagNamesForTransaction(txn.id)
+            }
+        }
+
+        // Restore split state from original splits
+        if (_hasSplits.value) {
+            _splits.value = _originalSplits.value
+            _showSplitEditor.value = true
+        }
+
+        // Load count of other transactions from same merchant + any saved alias
+        _transaction.value?.let { txn ->
+            viewModelScope.launch {
+                val count = transactionRepository.getOtherTransactionCountForMerchant(
+                    txn.merchantName,
+                    txn.id
+                )
+                _existingTransactionCount.value = count
+
+                val alias = merchantAliasRepository.getAliasForMerchant(txn.merchantName) ?: ""
+                _originalMerchantAlias = alias
+                _merchantAlias.value = alias
+            }
+        }
+    }
+    
+    fun exitEditMode() {
+        _editableTransaction.value = null
+        _isEditMode.value = false
+        _merchantSuggestions.value = emptyList()
+        _editableTags.value = emptyList()
+        _errorMessage.value = null
+        _applyToAllFromMerchant.value = false
+        _applyTagsToAllFromMerchant.value = false
+        _updateExistingTransactions.value = false
+        _existingTransactionCount.value = 0
+        _merchantAlias.value = ""
+        _originalMerchantAlias = ""
+        _pendingReceiptUri.value = null
+        _receiptRemoved.value = false
+
+        // Reset split state to original values
+        _splits.value = _originalSplits.value
+        _showSplitEditor.value = _hasSplits.value
+    }
+
+    fun toggleApplyToAllFromMerchant() {
+        _applyToAllFromMerchant.value = !_applyToAllFromMerchant.value
+    }
+
+    fun toggleApplyTagsToAllFromMerchant() {
+        _applyTagsToAllFromMerchant.value = !_applyTagsToAllFromMerchant.value
+    }
+
+    /**
+     * Ensures a rule tagging future transactions from [merchantName]. The rule
+     * has a stable id derived from the merchant (not its editable name), so a
+     * user's own rule can't be clobbered; an existing rule only gains the
+     * missing ADD_TAG actions — its conditions, other actions and active flag
+     * are left as the user set them.
+     */
+    private suspend fun upsertMerchantTagRule(merchantName: String, tags: List<String>) {
+        if (tags.isEmpty()) return
+        val ruleId = "merchant-tags:" + merchantName.trim().lowercase()
+        val existing = ruleRepository.getRuleById(ruleId)
+        if (existing == null) {
+            ruleRepository.insertRule(
+                TransactionRule(
+                    id = ruleId,
+                    name = "Tags for $merchantName",
+                    description = "Created from a transaction: tag everything from $merchantName",
+                    conditions = listOf(RuleCondition(TransactionField.MERCHANT, ConditionOperator.EQUALS, merchantName)),
+                    actions = tags.map { RuleAction(TransactionField.TAGS, ActionType.ADD_TAG, it) }
+                )
+            )
+            return
+        }
+        val already = existing.actions
+            .filter { it.field == TransactionField.TAGS && it.actionType == ActionType.ADD_TAG }
+            .map { it.value.lowercase() }
+            .toSet()
+        val missing = tags.filter { it.lowercase() !in already }
+            .map { RuleAction(TransactionField.TAGS, ActionType.ADD_TAG, it) }
+        if (missing.isNotEmpty()) {
+            ruleRepository.updateRule(
+                existing.copy(actions = existing.actions + missing, updatedAt = System.currentTimeMillis())
+            )
+        }
+    }
+
+    fun updateMerchantAlias(alias: String) {
+        _merchantAlias.value = alias
+    }
+    
+    fun toggleUpdateExistingTransactions() {
+        _updateExistingTransactions.value = !_updateExistingTransactions.value
+    }
+    
+    fun updateMerchantName(name: String) {
+        _editableTransaction.update { current ->
+            current?.copy(merchantName = name)
+        }
+        validateMerchantName(name)
+    }
+
+    private fun loadMerchantSuggestions(transaction: TransactionEntity?) {
+        if (transaction?.smsSender != "SLIP_SCAN" || transaction.smsBody.isNullOrBlank()) return
+        viewModelScope.launch {
+            val parsed = SlipParser.parse(transaction.smsBody)
+            val bank = parsed.bankName ?: transaction.bankName ?: "unknown"
+            _merchantSuggestions.value = scanCorrectionDao.getMerchantCorrectionsList()
+                .filter { matchesBackfillRecipient(it.originalValue, parsed.receiverName, parsed.senderName, it.bankName, bank) }
+                .map { it.correctedValue }
+                .distinct()
+                .filterNot { it.equals(transaction.merchantName, true) }
+        }
+    }
+
+    fun rescanSlip() {
+        val transaction = _transaction.value ?: return
+        val path = transaction.receiptPath ?: return
+        if (transaction.smsSender != "SLIP_SCAN" || _isRescanningSlip.value) return
+        viewModelScope.launch {
+            _isRescanningSlip.value = true
+            try {
+                slipOcrEngine.waitForReady()
+                val text = slipOcrEngine.getRawTextSync(Uri.fromFile(receiptManager.getReceiptFile(path)))
+                val parsed = SlipParser.parse(text)
+                val amount = parsed.amountBigDecimal ?: parsed.amount?.toBigDecimal()
+                _editableTransaction.update { current ->
+                    current?.copy(
+                        merchantName = parsed.receiverName?.takeIf { it.isNotBlank() } ?: current.merchantName,
+                        amount = amount?.takeIf { it > BigDecimal.ZERO } ?: current.amount,
+                        smsBody = text
+                    )
+                }
+                loadMerchantSuggestions(transaction.copy(smsBody = text))
+            } catch (e: Exception) {
+                _errorMessage.value = UiText.Res(R.string.txn_detail_slip_rescan_failed)
+            } finally {
+                _isRescanningSlip.value = false
+            }
+        }
+    }
+    
+    fun updateAmount(amountStr: String) {
+        val amount = amountStr.toBigDecimalOrNull()
+        if (amount != null && amount > BigDecimal.ZERO) {
+            _editableTransaction.update { current ->
+                current?.copy(amount = amount)
+            }
+            _errorMessage.value = null
+        } else if (amountStr.isNotEmpty()) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_amount_positive_number)
+        }
+    }
+    
+    fun updateTransactionType(type: TransactionType) {
+        if (type != TransactionType.INCOME) {
+            _budgetImpactType.value = null
+            _budgetCategory.value = null
+            _editableTransaction.update { current ->
+                current?.copy(transactionType = type, budgetImpactType = null, budgetCategory = null)
+            }
+        } else {
+            _editableTransaction.update { current ->
+                current?.copy(transactionType = type)
+            }
+        }
+    }
+    
+    fun updateCategory(category: String) {
+        _editableTransaction.update { current ->
+            current?.copy(category = category.ifEmpty { "Others" })
+        }
+    }
+
+    /**
+     * Creates a category on the fly from the transaction edit flow (#584) and
+     * selects it. If a category with the same name already exists it is reused
+     * rather than duplicated, so the action is safe to repeat.
+     *
+     * The new category's income/expense type is derived from the transaction
+     * being edited, not from any user toggle: the category picker is filtered by
+     * transaction type, so a mismatched category would be created, selected, and
+     * then immediately vanish from the list (leaving a blank chip). The dialog
+     * hides the type selector for this reason (lockType), and this is the safety
+     * net that guarantees consistency.
+     */
+    /**
+     * @param onResult invoked with `true` once the category is created/reused and
+     * selected, or `false` if it failed (e.g. same-name type conflict). The caller
+     * uses this to keep the add-category dialog open on failure so the user's typed
+     * name/color aren't lost and they can correct them in place.
+     */
+    fun createAndSelectCategory(name: String, color: String, icon: String? = null, parentId: Long? = null, onResult: (Boolean) -> Unit = {}) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) { onResult(false); return }
+        val isIncome = (_editableTransaction.value ?: _transaction.value)
+            ?.transactionType == TransactionType.INCOME
+        viewModelScope.launch {
+            try {
+                val existing = categoryRepository.getCategoryByName(trimmed)
+                if (existing != null && existing.isIncome != isIncome) {
+                    // A category with this name already exists but for the other
+                    // type; selecting it would filter it out of the picker and
+                    // blank the chip. Surface it instead of silently misbehaving.
+                    _errorMessage.value = UiText.Res(
+                        if (existing.isIncome) R.string.txn_detail_error_category_exists_income
+                        else R.string.txn_detail_error_category_exists_expense,
+                        listOf(trimmed)
+                    )
+                    onResult(false)
+                    return@launch
+                }
+                if (existing != null && parentId != null && existing.parentId != parentId) {
+                    // Reusing it would silently drop the parent the user picked.
+                    _errorMessage.value = UiText.Res(R.string.txn_detail_error_category_exists_other_parent, listOf(trimmed))
+                    onResult(false)
+                    return@launch
+                }
+                when {
+                    existing == null -> categoryRepository.createCategory(trimmed, color, isIncome, icon, parentId)
+                    // Re-adding a hidden category brings it back, so the selection
+                    // is one the picker actually offers. The cascading toggle also
+                    // restores its sub-categories / parent, like Settings does (#374).
+                    existing.isHidden -> categoryRepository.toggleCategoryHidden(existing.id)
+                }
+                updateCategory(trimmed)
+                onResult(true)
+            } catch (e: Exception) {
+                _errorMessage.value = UiText.Res(R.string.txn_detail_error_create_category, listOf(e.message.toString()))
+                onResult(false)
+            }
+        }
+    }
+    
+    fun updateDateTime(dateTime: LocalDateTime) {
+        _editableTransaction.update { current ->
+            current?.copy(dateTime = dateTime)
+        }
+    }
+    
+    fun updateDescription(description: String?) {
+        _editableTransaction.update { current ->
+            current?.copy(description = if (description.isNullOrEmpty()) null else description)
+        }
+    }
+
+    // Raw while typing; [normalizeReference] trims it on save. Never touches smsSender.
+    fun updateReference(reference: String) {
+        _editableTransaction.update { it?.copy(reference = reference) }
+    }
+
+    fun addTag(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        _editableTags.update { current ->
+            if (current.any { it.equals(trimmed, ignoreCase = true) }) current
+            else current + trimmed
+        }
+    }
+
+    fun removeTag(name: String) {
+        _editableTags.update { current ->
+            current.filterNot { it.equals(name, ignoreCase = true) }
+        }
+    }
+    
+    fun updateRecurringStatus(isRecurring: Boolean) {
+        _editableTransaction.update { current ->
+            current?.copy(isRecurring = isRecurring)
+        }
+    }
+    
+    fun updateAccountNumber(accountNumber: String?) {
+        _editableTransaction.update { current ->
+            current?.copy(accountNumber = if (accountNumber.isNullOrEmpty()) null else accountNumber)
+        }
+    }
+
+    /**
+     * The user picked an account from the dropdown. The account is keyed by
+     * (bankName, accountLast4), so selecting "HDFC ••1234" must update BOTH
+     * fields — otherwise a transaction that started on a different bank keeps
+     * its stale bankName and the balance lookup misses (#566, #570). The suffix
+     * is kept even when blank: a Cash account added without a number is
+     * ("Cash", ""), and treating "" as "no account" dropped it on save (#913).
+     */
+    fun selectAccount(account: String, bankName: String) {
+        _editableTransaction.update { it?.copy(accountNumber = account, bankName = bankName) }
+    }
+
+    fun updateFromAccount(account: String?, bankName: String? = null) =
+        updateTransferAccount(account, bankName, incoming = false)
+
+    fun updateToAccount(account: String?, bankName: String? = null) =
+        updateTransferAccount(account, bankName, incoming = true)
+
+    private fun updateTransferAccount(account: String?, bankName: String?, incoming: Boolean) {
+        _editableTransaction.update { current ->
+            current?.withTransferAccount(account, bankName, incoming)
+        }
+    }
+
+    fun updateProfileId(profileId: Long?) {
+        _editableTransaction.update { current ->
+            current?.copy(profileId = profileId)
+        }
+    }
+
+    fun updateBudgetImpactType(type: BudgetImpactType?) {
+        _budgetImpactType.value = type
+        // Extra budget only applies to budgeted categories; drop a refund-only pick on switch.
+        val kept = when {
+            type == null -> null
+            type == BudgetImpactType.ADD_TO_LIMIT && _budgetCategory.value !in activeBudgetCategories.value -> null
+            else -> _budgetCategory.value
+        }
+        _budgetCategory.value = kept
+        _editableTransaction.update { it?.copy(budgetImpactType = type, budgetCategory = kept) }
+    }
+
+    fun updateBudgetCategory(category: String?) {
+        _budgetCategory.value = category
+        _editableTransaction.update { it?.copy(budgetCategory = category) }
+    }
+
+    fun updateCurrency(currency: String) {
+        _editableTransaction.update { current ->
+            current?.copy(currency = currency)
+        }
+        // Recalculate converted amount when currency changes
+        _editableTransaction.value?.let { transaction ->
+            viewModelScope.launch {
+                calculateConvertedAmount(transaction)
+            }
+        }
+    }
+
+    // ========== Split Management Methods ==========
+
+    /**
+     * Enables split mode for the current transaction.
+     * Creates two initial splits: one with the current category and half the amount,
+     * and another with "Others" and the remaining amount.
+     */
+    fun enableSplitMode() {
+        val transaction = _editableTransaction.value ?: _transaction.value ?: return
+
+        // Splits are for spends: account expenses and credit-card purchases (#750).
+        if (transaction.transactionType !in SPLITTABLE_TYPES) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_splits_unavailable)
+            return
+        }
+
+        val currentCategory = transaction.category
+        val totalAmount = transaction.amount
+        val halfAmount = totalAmount.divide(BigDecimal(2), 2, java.math.RoundingMode.HALF_UP)
+        val remainingAmount = totalAmount - halfAmount
+
+        val initialSplits = listOf(
+            SplitItem(id = 0, category = currentCategory, amount = halfAmount),
+            SplitItem(id = 0, category = "Others", amount = remainingAmount)
+        )
+
+        _splits.value = initialSplits
+        _showSplitEditor.value = true
+    }
+
+    /**
+     * Updates the splits list.
+     */
+    fun updateSplits(newSplits: List<SplitItem>) {
+        _splits.value = newSplits
+    }
+
+    /**
+     * Removes all splits from the transaction, reverting to single category.
+     */
+    fun removeSplits() {
+        _splits.value = emptyList()
+        _showSplitEditor.value = false
+        _hasSplits.value = false
+    }
+
+    /**
+     * Validates that splits sum equals the transaction total (within tolerance).
+     * @return true if splits are valid, false otherwise
+     */
+    fun validateSplits(): Boolean {
+        val transaction = _editableTransaction.value ?: _transaction.value ?: return true
+        val currentSplits = _splits.value
+
+        if (currentSplits.isEmpty()) return true
+
+        // Minimum 2 splits required
+        if (currentSplits.size < 2) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_splits_min)
+            return false
+        }
+
+        // All splits must have positive amounts
+        if (currentSplits.any { it.amount <= BigDecimal.ZERO }) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_splits_positive)
+            return false
+        }
+
+        // Splits must sum to transaction total (within 0.01 tolerance)
+        val splitsTotal = currentSplits.fold(BigDecimal.ZERO) { acc, split -> acc + split.amount }
+        val difference = (transaction.amount - splitsTotal).abs()
+        val tolerance = BigDecimal("0.01")
+
+        if (difference > tolerance) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_splits_total)
+            return false
+        }
+
+        return true
+    }
+
+    /**
+     * Checks if the amount field should be editable.
+     * Amount is locked when splits exist.
+     */
+    fun isAmountEditable(): Boolean {
+        return !_showSplitEditor.value || _splits.value.isEmpty()
+    }
+
+    fun saveChanges() {
+        val toSave = _editableTransaction.value ?: return
+
+        // Validate before saving
+        if (toSave.merchantName.isBlank()) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_merchant_required)
+            return
+        }
+
+        if (toSave.amount <= BigDecimal.ZERO) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_amount_positive)
+            return
+        }
+
+        // Validate splits if present
+        if (_showSplitEditor.value && _splits.value.isNotEmpty()) {
+            if (!validateSplits()) {
+                return
+            }
+        }
+
+        // A loan's amounts are all in its own currency. Changing the currency of
+        // a transaction linked to a loan would silently mix currencies in the
+        // loan's totals, so require unlinking it first.
+        val original = _transaction.value
+        if (LoanCurrencyRules.blocksCurrencyChange(
+                linkedLoanId = original?.loanId,
+                originalCurrency = original?.currency.orEmpty(),
+                editedCurrency = toSave.currency
+            )
+        ) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_loan_currency_locked)
+            return
+        }
+
+        // Likewise its money direction: retyping a linked row between income and
+        // money out would turn the loan's principal into a repayment, or back (#876).
+        if (original != null && com.pennywiseai.tracker.domain.loan.LoanMath.blocksTypeChange(
+                original.loanId, original.transactionType, toSave.transactionType
+            )
+        ) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_loan_type_locked)
+            return
+        }
+
+        // Validate self-transfer for TRANSFER transactions
+        if (toSave.transactionType == TransactionType.TRANSFER &&
+            toSave.fromAccount != null &&
+            toSave.toAccount != null &&
+            toSave.fromAccount == toSave.toAccount &&
+            (toSave.fromBankName == null || toSave.toBankName == null || toSave.fromBankName == toSave.toBankName)) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_same_accounts)
+            return
+        }
+
+        viewModelScope.launch {
+            // Goal contributions keep their share in the transaction's currency (#914).
+            if (original != null && original.currency != toSave.currency &&
+                goalRepository.observeContributionsForTransaction(original.id).first().isNotEmpty()
+            ) {
+                _errorMessage.value = UiText.Res(R.string.goal_currency_locked_by_goal)
+                return@launch
+            }
+            // A split bill's shares (#346) are in its currency and sized to its
+            // amount. Read fresh: the split may have changed since this loaded.
+            val persisted = original?.let { transactionRepository.getTransactionById(it.id) }
+            val sharesTotal = persisted?.lentSharesTotal
+            if (persisted != null && sharesTotal != null) {
+                if (!persisted.currency.equals(toSave.currency, ignoreCase = true)) {
+                    _errorMessage.value = UiText.Res(R.string.txn_detail_error_loan_currency_locked)
+                    return@launch
+                }
+                // Only an expense can be split: as income the shares would be debt with no outlay behind it.
+                if (toSave.transactionType != TransactionType.EXPENSE) {
+                    _errorMessage.value = UiText.Res(R.string.split_error_type_locked)
+                    return@launch
+                }
+                if (toSave.amount < sharesTotal) {
+                    _errorMessage.value = UiText.Res(R.string.split_error_amount_below_shares)
+                    return@launch
+                }
+            }
+            _isSaving.value = true
+            try {
+                // Handle receipt changes
+                var newReceiptPath = toSave.receiptPath
+                val pendingUri = _pendingReceiptUri.value
+
+                if (_receiptRemoved.value || pendingUri != null) {
+                    // Delete old receipt file if it exists
+                    toSave.receiptPath?.let { receiptManager.deleteReceipt(it) }
+                    newReceiptPath = null
+                }
+
+                if (pendingUri != null) {
+                    newReceiptPath = receiptManager.saveReceipt(pendingUri)
+                }
+
+                // Reconcile the bank with the selected account so the balance
+                // lookup keys on the right (bankName, accountLast4) pair — even
+                // if the account number was hand-typed rather than picked from
+                // the dropdown (which already sets both). Only override when
+                // exactly one known account matches the last-4: don't guess when
+                // the same last-4 exists on multiple banks, or when it's a
+                // novel/unknown number. Clearing (accountNumber == null) keeps
+                // the existing bank untouched. Belt-and-braces with the picker's
+                // selectAccount so no edit path can desync (#566, #570).
+                val resolvedBankName = toSave.accountNumber
+                    ?.let { last4 -> availableAccounts.value.filter { it.accountLast4 == last4 } }
+                    ?.singleOrNull()
+                    ?.bankName
+                    ?: toSave.bankName
+
+                // Loan linkage (loanId / loanContribution) is owned by mark-as-loan
+                // and unmark, never the edit form. The editable copy was snapshotted
+                // when edit mode opened, so if the transaction was linked to a loan
+                // in between, saving `toSave` would clobber that link — the loan would
+                // still count the txn but the txn would show "Mark as loan" again
+                // (#688). Carry the current persisted values through the save.
+                val currentPersisted = _transaction.value
+                val normalizedTransaction = toSave.copy(
+                    // Keep the user's casing: "IRCTC" stays "IRCTC" (#876).
+                    merchantName = toSave.merchantName.trim(),
+                    reference = normalizeReference(toSave.reference),
+                    bankName = resolvedBankName,
+                    receiptPath = newReceiptPath,
+                    loanId = if (currentPersisted != null) currentPersisted.loanId else toSave.loanId,
+                    loanContribution = if (currentPersisted != null) currentPersisted.loanContribution else toSave.loanContribution,
+                    // Owned by the split sheet (#346), same reasoning.
+                    lentSharesTotal = if (persisted != null) persisted.lentSharesTotal else toSave.lentSharesTotal
+                )
+
+                // Pin opening anchors from the PRE-update snapshot for the affected
+                // manual accounts, so the recompute after the edit reflects the change
+                // (amount/date/account). No-op for SMS accounts. Transfer legs too:
+                // pinned after the update, a leg's opening would absorb the edit and
+                // its balance would never move (#913).
+                listOfNotNull(_transaction.value, normalizedTransaction).forEach { t ->
+                    for ((bank, acct) in listOf(t.bankName to t.accountNumber,
+                        t.fromBankName to t.fromAccount, t.toBankName to t.toAccount)) {
+                        if (bank != null && acct != null) accountBalanceRepository.ensureManualOpening(bank, acct)
+                    }
+                }
+
+                transactionRepository.updateTransaction(normalizedTransaction)
+                if (original != null && original.merchantName != normalizedTransaction.merchantName) {
+                    // A later manual edit owns this row; learned-name reset must not undo it.
+                    scanCorrectionDao.deleteMerchantProvenanceForTransaction(normalizedTransaction.id)
+                }
+
+                // Persist the edited tag set (create-or-select handled in repo).
+                tagRepository.setTagsForTransaction(normalizedTransaction.id, _editableTags.value)
+
+                // Reflect the edit on account balances (#636). One repository
+                // call owns every shape of change — type or amount edits on the
+                // same account, account moves (revert the old account, apply to
+                // the new), and TRANSFER conversions in either direction. It
+                // skips manual/cash accounts, whose derived balances the
+                // recompute below re-derives.
+                val originalTxn = _transaction.value
+                val oldBank = originalTxn?.bankName
+                val oldAccount = originalTxn?.accountNumber
+                val newBank = normalizedTransaction.bankName
+                val newAccount = normalizedTransaction.accountNumber
+                val accountChanged = oldBank != newBank || oldAccount != newAccount
+
+                val balanceRelevantChange = originalTxn != null && (
+                    accountChanged ||
+                    originalTxn.transactionType != normalizedTransaction.transactionType ||
+                    originalTxn.amount.compareTo(normalizedTransaction.amount) != 0 ||
+                    originalTxn.fromBankName != normalizedTransaction.fromBankName ||
+                    originalTxn.toBankName != normalizedTransaction.toBankName ||
+                    originalTxn.fromAccount != normalizedTransaction.fromAccount ||
+                    originalTxn.toAccount != normalizedTransaction.toAccount
+                )
+                if (balanceRelevantChange) {
+                    accountBalanceRepository.applyTransactionBalanceShift(
+                        original = originalTxn,
+                        updated = normalizedTransaction
+                    )
+                }
+
+                // Manual/cash accounts derive their balance from their transactions, so
+                // recompute the affected account(s) — this also covers amount/date edits
+                // that don't change the account (the incremental paths above only fire on
+                // an account change). No-op for SMS accounts.
+                if (newBank != null && newAccount != null) {
+                    accountBalanceRepository.recomputeManualBalance(newBank, newAccount)
+                }
+                if (accountChanged && oldBank != null && oldAccount != null) {
+                    accountBalanceRepository.recomputeManualBalance(oldBank, oldAccount)
+                }
+
+                // Save or remove splits
+                val currentSplits = _splits.value
+                if (_showSplitEditor.value && currentSplits.isNotEmpty()) {
+                    // Convert SplitItems to entities and save
+                    val splitEntities = currentSplits.map { item ->
+                        TransactionSplitEntity(
+                            id = item.id,
+                            transactionId = normalizedTransaction.id,
+                            category = item.category,
+                            amount = item.amount
+                        )
+                    }
+                    transactionRepository.saveSplits(normalizedTransaction.id, splitEntities)
+                    _hasSplits.value = true
+                    _originalSplits.value = currentSplits
+                } else if (_originalSplits.value.isNotEmpty()) {
+                    // Splits were removed, delete them from database
+                    transactionRepository.removeSplits(normalizedTransaction.id)
+                    _hasSplits.value = false
+                    _originalSplits.value = emptyList()
+                }
+
+                // The merchant-wide writes below key on the merchant as it was
+                // before this edit: future SMS still arrive under that name.
+                val merchantKey = merchantKeyForApply(original?.merchantName, normalizedTransaction.merchantName)
+
+                val originalParsedSlip = normalizedTransaction.smsBody
+                    ?.takeIf { originalTxn?.smsSender == "SLIP_SCAN" }
+                    ?.let { SlipParser.parse(it) }
+                val canLearnMerchantCorrection = originalTxn?.smsSender == "SLIP_SCAN" &&
+                    normalizedTransaction.transactionType != TransactionType.TRANSFER &&
+                    !SlipRecipientResolver.looksLikeSameParty(
+                        originalParsedSlip?.senderName,
+                        originalParsedSlip?.receiverName
+                    )
+                val originalSlipMerchant = originalParsedSlip?.receiverName ?: originalTxn?.merchantName
+                if (canLearnMerchantCorrection && !originalSlipMerchant.isNullOrBlank() &&
+                    originalSlipMerchant != normalizedTransaction.merchantName) {
+                    slipMerchantLearning.learn(
+                        transactionId = normalizedTransaction.id,
+                        rawReceiver = originalSlipMerchant,
+                        correctedName = normalizedTransaction.merchantName,
+                        bankName = normalizedTransaction.bankName ?: "unknown"
+                    )
+                }
+
+                // Save merchant mapping if checkbox is checked
+                if (_applyToAllFromMerchant.value) {
+                    merchantMappingRepository.setMapping(merchantKey, normalizedTransaction.category)
+                }
+
+                // #752: persist the tags for future transactions from this merchant.
+                // The transaction is already saved at this point, so a rule failure
+                // is reported on its own rather than failing the whole save.
+                var ruleError: UiText? = null
+                if (_applyTagsToAllFromMerchant.value) {
+                    try {
+                        upsertMerchantTagRule(merchantKey, _editableTags.value)
+                    } catch (e: Exception) {
+                        ruleError = UiText.Res(R.string.txn_detail_error_tag_rule, listOf(e.message.toString()))
+                    }
+                }
+
+                // Update existing transactions if checkbox is checked
+                if (_updateExistingTransactions.value) {
+                    transactionRepository.updateCategoryForMerchant(merchantKey, normalizedTransaction.category)
+                }
+
+                // Persist the merchant display alias (#583), keyed on the saved
+                // merchant name so it applies to every transaction from it. Only an
+                // edit to the alias field writes anything: renaming *this*
+                // transaction's merchant must not move or delete the alias other
+                // transactions from the old merchant still use.
+                val newMerchantName = normalizedTransaction.merchantName
+                val originalMerchantName = _transaction.value?.merchantName
+                val write = aliasWriteOnSave(
+                    originalMerchantName, newMerchantName, _originalMerchantAlias, _merchantAlias.value,
+                    existingAliasForMerchant = merchantAliasRepository.getAliasForMerchant(newMerchantName)
+                )
+                when (write) {
+                    is AliasWrite.Set -> merchantAliasRepository.setAlias(write.merchant, write.alias)
+                    is AliasWrite.Remove -> merchantAliasRepository.removeAlias(write.merchant)
+                    null -> Unit
+                }
+                // Whatever is stored for the saved merchant is now the truth.
+                val trimmedAlias = merchantAliasRepository.getAliasForMerchant(newMerchantName) ?: ""
+
+                _transaction.value = normalizedTransaction
+                loadReceiptUri(normalizedTransaction)
+                _pendingReceiptUri.value = null
+                _receiptRemoved.value = false
+                _saveSuccess.value = true
+                com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+                _isEditMode.value = false
+                _editableTransaction.value = null
+                // Surfaces the partial failure (#752) instead of a clean "updated".
+                _errorMessage.value = ruleError
+                _applyToAllFromMerchant.value = false
+                _applyTagsToAllFromMerchant.value = false
+                _updateExistingTransactions.value = false
+                _existingTransactionCount.value = 0
+                _merchantAlias.value = trimmedAlias
+                _originalMerchantAlias = trimmedAlias
+                _budgetImpactType.value = normalizedTransaction.budgetImpactType
+                _budgetCategory.value = normalizedTransaction.budgetCategory
+            } catch (e: Exception) {
+                _errorMessage.value = UiText.Res(R.string.txn_detail_error_save, listOf(e.message.toString()))
+            } finally {
+                _isSaving.value = false
+            }
+        }
+    }
+    
+    fun cancelEdit() {
+        exitEditMode()
+    }
+    
+    fun clearSaveSuccess() {
+        _saveSuccess.value = false
+    }
+    
+    private fun validateMerchantName(name: String) {
+        if (name.isBlank()) {
+            _errorMessage.value = UiText.Res(R.string.txn_detail_error_merchant_required)
+        } else {
+            _errorMessage.value = null
+        }
+    }
+    
+    fun getReportUrl(): String {
+        val txn = _transaction.value ?: return ""
+        val smsBody = txn.smsBody ?: "Transaction: ${txn.merchantName} - ${txn.amount}"
+        android.util.Log.d("TransactionDetailVM", "Generating report URL for transaction")
+        val url = SmsReportUrlBuilder.buildUrl(context, smsBody, txn.smsSender)
+        android.util.Log.d("TransactionDetailVM", "Report URL: ${url.take(200)}...")
+        return url
+    }
+    
+    fun showDeleteDialog() {
+        _showDeleteDialog.value = true
+    }
+    
+    fun hideDeleteDialog() {
+        _showDeleteDialog.value = false
+    }
+    
+    fun deleteTransaction() {
+        viewModelScope.launch {
+            _transaction.value?.let { txn ->
+                _isDeleting.value = true
+                _showDeleteDialog.value = false
+
+                try {
+                    txn.receiptPath?.let { receiptManager.deleteReceipt(it) }
+                    deleteTransactionUseCase(txn)
+                    _deleteSuccess.value = true
+                    com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+                } catch (e: Exception) {
+                    _errorMessage.value = UiText.Res(R.string.txn_detail_error_delete)
+                } finally {
+                    _isDeleting.value = false
+                }
+            }
+        }
+    }
+
+    // ========== Receipt Management ==========
+
+    private val _receiptUri = MutableStateFlow<Uri?>(null)
+    val receiptUri: StateFlow<Uri?> = _receiptUri.asStateFlow()
+
+    private val _pendingReceiptUri = MutableStateFlow<Uri?>(null)
+    val pendingReceiptUri: StateFlow<Uri?> = _pendingReceiptUri.asStateFlow()
+
+    private val _receiptRemoved = MutableStateFlow(false)
+    val receiptRemoved: StateFlow<Boolean> = _receiptRemoved.asStateFlow()
+
+    private val _showFullScreenReceipt = MutableStateFlow(false)
+    val showFullScreenReceipt: StateFlow<Boolean> = _showFullScreenReceipt.asStateFlow()
+
+    fun showFullScreenReceipt() { _showFullScreenReceipt.value = true }
+    fun hideFullScreenReceipt() { _showFullScreenReceipt.value = false }
+
+    fun updatePendingReceiptUri(uri: Uri?) {
+        _pendingReceiptUri.value = uri
+        _receiptRemoved.value = false
+    }
+
+    fun removeReceipt() {
+        _pendingReceiptUri.value = null
+        _receiptRemoved.value = true
+    }
+
+    fun createCameraUri(): Uri = receiptManager.createCameraUri()
+
+    // True when the transaction points at a receipt whose file isn't on this
+    // device, e.g. restored from a backup made without photos (#839).
+    private val _receiptMissing = MutableStateFlow(false)
+    val receiptMissing: StateFlow<Boolean> = _receiptMissing.asStateFlow()
+
+    private fun loadReceiptUri(transaction: TransactionEntity) {
+        _receiptMissing.value = false
+        transaction.receiptPath?.let { path ->
+            val file = receiptManager.getReceiptFile(path)
+            if (file.exists()) {
+                _receiptUri.value = file.toUri()
+            } else {
+                _receiptMissing.value = true
+            }
+        }
+    }
+
+    // ========== Loan Management ==========
+
+    private val _loan = MutableStateFlow<LoanEntity?>(null)
+    val loan: StateFlow<LoanEntity?> = _loan.asStateFlow()
+
+    private val _showMarkAsLoanSheet = MutableStateFlow(false)
+    val showMarkAsLoanSheet: StateFlow<Boolean> = _showMarkAsLoanSheet.asStateFlow()
+
+    val recentPersonNames: StateFlow<List<String>> = loanRepository.getRecentPersonNames()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun showMarkAsLoanSheet() { _showMarkAsLoanSheet.value = true }
+    fun hideMarkAsLoanSheet() { _showMarkAsLoanSheet.value = false }
+
+    private fun loadLoan(loanId: Long) {
+        viewModelScope.launch {
+            _loan.value = loanRepository.getLoanById(loanId)
+        }
+    }
+
+    fun createLoanFromTransaction(
+        personName: String,
+        direction: LoanDirection,
+        note: String?,
+        loanAmount: BigDecimal? = null
+    ) {
+        val txn = _transaction.value ?: return
+        // Clamp the user-supplied loan amount to (0, txn.amount]; fall back to the
+        // full transaction amount when blank or out of range.
+        val contribution = (loanAmount ?: txn.amount).let { input ->
+            when {
+                input <= BigDecimal.ZERO -> txn.amount
+                input > txn.amount -> txn.amount
+                else -> input
+            }
+        }
+        viewModelScope.launch {
+            try {
+                // Check for existing loan in the OPPOSITE direction first (this is a repayment)
+                val oppositeDirection = if (direction == LoanDirection.LENT) LoanDirection.BORROWED else LoanDirection.LENT
+                // Only while something is still owed: an active loan left at zero (the
+                // refresh never settles one, #876) would cap this payment to nothing and
+                // swallow the new debt it should open.
+                val oppositeLoan = loanRepository.findActiveLoanForPerson(personName, oppositeDirection, txn.currency)
+                    ?.takeIf { it.remainingAmount.signum() > 0 }
+
+                if (oppositeLoan != null) {
+                    // Record as repayment on the opposite loan, threading the
+                    // user-chosen partial amount so only that portion counts
+                    // toward the loan's remaining balance.
+                    loanRepository.recordRepayment(oppositeLoan.id, txn.id, contribution, note)
+                    _transaction.value = transactionRepository.getTransactionById(txn.id)
+                    _loan.value = loanRepository.getLoanById(oppositeLoan.id)
+                    _showMarkAsLoanSheet.value = false
+                    return@launch
+                }
+
+                // Check if an active loan already exists for this person + same direction
+                val existingLoan = loanRepository.findActiveLoanForPerson(personName, direction, txn.currency)
+                val loanId = if (existingLoan != null) {
+                    // Merge into existing loan with the user-chosen contribution.
+                    loanRepository.addToExistingLoan(existingLoan.id, contribution, txn.id, note)
+                    existingLoan.id
+                } else {
+                    // Create new loan; principal = user-chosen contribution.
+                    loanRepository.createLoan(
+                        personName = personName,
+                        direction = direction,
+                        amount = contribution,
+                        currency = txn.currency,
+                        note = note,
+                        sourceTransactionId = txn.id
+                    )
+                }
+                _transaction.value = transactionRepository.getTransactionById(txn.id)
+                _loan.value = loanRepository.getLoanById(loanId)
+                _showMarkAsLoanSheet.value = false
+            } catch (e: Exception) {
+                _errorMessage.value = UiText.Res(R.string.txn_detail_error_create_loan, listOf(e.message.toString()))
+            }
+        }
+    }
+
+    fun unlinkLoan() {
+        val txn = _transaction.value ?: return
+        val loanId = txn.loanId ?: return
+        viewModelScope.launch {
+            try {
+                loanRepository.unlinkTransaction(txn.id, loanId)
+                _transaction.value = transactionRepository.getTransactionById(txn.id)
+                _loan.value = null
+            } catch (e: Exception) {
+                _errorMessage.value = UiText.Res(R.string.txn_detail_error_unlink_loan, listOf(e.message.toString()))
+            }
+        }
+    }
+
+
+    companion object {
+        /** Types a transaction can be split across categories (#750). */
+        val SPLITTABLE_TYPES = setOf(TransactionType.EXPENSE, TransactionType.CREDIT)
+    }
+}
+
+/**
+ * The merchant "apply to all from X" writes key on: the name the transaction
+ * had before this edit, which is what the parser gives future SMS. Renaming
+ * the merchant in the same edit must not move the mapping, the tag rule or
+ * "update existing" to a name no SMS carries.
+ */
+internal fun merchantKeyForApply(originalMerchant: String?, savedMerchant: String): String =
+    originalMerchant ?: savedMerchant
+
+/** A typed reference number as stored: trimmed, and null when blank (#996). */
+internal fun normalizeReference(raw: String?): String? = raw?.trim()?.ifEmpty { null }
+
+internal sealed class AliasWrite {
+    data class Set(val merchant: String, val alias: String) : AliasWrite()
+    data class Remove(val merchant: String) : AliasWrite()
+}
+
+/**
+ * The alias change a save should make, or null for none. An edited alias field
+ * is written under the saved merchant. A renamed merchant on one transaction
+ * leaves every existing alias where it is (the old merchant's other
+ * transactions still use it); a merchant that was only re-cased on save keeps
+ * its alias under the new spelling.
+ */
+internal fun aliasWriteOnSave(
+    originalMerchant: String?,
+    merchant: String,
+    originalAlias: String,
+    editedAlias: String,
+    existingAliasForMerchant: String? = null
+): AliasWrite? {
+    val edited = editedAlias.trim()
+    val recasedOnly = originalMerchant != null && originalMerchant != merchant &&
+        originalMerchant.equals(merchant, ignoreCase = true)
+    return when {
+        edited != originalAlias.trim() -> if (edited.isEmpty()) AliasWrite.Remove(merchant) else AliasWrite.Set(merchant, edited)
+        // Same merchant, only re-cased on save: give the new spelling the alias too
+        // (the old key stays for its other, still all-caps, transactions).
+        // ...unless that spelling already has its own alias, which its other
+        // transactions use: never overwrite it.
+        recasedOnly && edited.isNotEmpty() && existingAliasForMerchant.isNullOrBlank() -> AliasWrite.Set(merchant, edited)
+        else -> null
+    }
+}
+
+
+/** A shortfall is money that left untracked; a surplus is money that came in. */
+internal fun balanceAdjustmentType(d: BalanceDiscrepancy): TransactionType =
+    if (d.delta.signum() < 0) TransactionType.EXPENSE else TransactionType.INCOME
+
+/** The adjustment sheet's default category: Others for an expense, Income for income. */
+internal fun List<CategoryEntity>.balanceAdjustmentDefaultCategory(type: TransactionType): String =
+    if (type == TransactionType.INCOME) pickerDefault("Income", isIncome = true)
+    else pickerDefault("Others", isIncome = false)
+
+/** The manual transaction that explains [d]'s gap, reported on [tx] (#734). */
+internal fun balanceAdjustment(
+    tx: TransactionEntity,
+    d: BalanceDiscrepancy,
+    merchant: String,
+    category: String
+): TransactionEntity {
+    val delta = d.delta
+    // Just before the reporting transaction, but never at/before the
+    // snapshot the detector starts from — or it would fall outside the
+    // window and the mismatch would never clear.
+    val since = d.since
+    val at = tx.dateTime.minusSeconds(1).let { if (since != null && !it.isAfter(since)) tx.dateTime else it }
+    return TransactionEntity(
+        amount = delta.abs(),
+        merchantName = merchant.trim().ifEmpty { "Balance adjustment" },
+        category = category,
+        transactionType = balanceAdjustmentType(d),
+        dateTime = at,
+        description = "Untracked amount so the app matches the bank's reported balance of " +
+            CurrencyFormatter.formatCurrency(d.reported, d.currency, maskIfHidden = false), // stored text
+        smsBody = null,
+        bankName = tx.bankName,
+        smsSender = null,
+        accountNumber = tx.accountNumber,
+        balanceAfter = null,
+        transactionHash = "manual_balance_adjustment_${tx.id}",
+        currency = d.currency
+    )
+}

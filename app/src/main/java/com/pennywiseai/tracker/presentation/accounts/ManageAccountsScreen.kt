@@ -1,0 +1,2623 @@
+package com.pennywiseai.tracker.presentation.accounts
+
+import com.pennywiseai.tracker.utils.AppDates
+
+import com.pennywiseai.tracker.data.preferences.BankAccountMergeStore
+
+import com.pennywiseai.tracker.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.items
+import com.pennywiseai.tracker.ui.effects.overScrollVertical
+import com.pennywiseai.tracker.ui.effects.rememberOverscrollFlingBehavior
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.pennywiseai.tracker.utils.CurrencyFormatter
+import com.pennywiseai.tracker.ui.components.SupportDevelopmentDialog
+import com.pennywiseai.tracker.ui.components.SupportNudgeCard
+import com.pennywiseai.tracker.ui.components.ConnectedChoiceRow
+import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
+import com.pennywiseai.tracker.ui.components.PennyWiseEmptyState
+import com.pennywiseai.tracker.ui.components.cards.SectionHeaderV2
+import com.pennywiseai.tracker.ui.theme.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import androidx.compose.ui.text.style.TextOverflow
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import java.math.BigDecimal
+import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
+import com.pennywiseai.tracker.data.database.entity.ProfileEntity
+import com.pennywiseai.tracker.domain.model.displayName
+import com.pennywiseai.tracker.domain.model.getAccountType
+import com.pennywiseai.tracker.domain.model.icon
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManageAccountsScreen(
+    onNavigateBack: () -> Unit,
+    onNavigateToAddAccount: () -> Unit,
+    onNavigateToBalanceHistory: (bankName: String, accountLast4: String) -> Unit,
+    viewModel: ManageAccountsViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var selectedAccount by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var selectedAccountEntity by remember { mutableStateOf<com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity?>(null) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var accountToDelete by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showHiddenAccounts by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var accountToEdit by remember { mutableStateOf<com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity?>(null) }
+    // Account merge (#368) — single screen-level entry point; the sheet handles
+    // source + target selection + confirmation in one self-contained flow.
+    var showMergeSheet by remember { mutableStateOf(false) }
+    val isProEntitled by viewModel.isProEntitled.collectAsState()
+    var showUpgradeSheet by remember { mutableStateOf(false) }
+    var showSupportDialog by remember { mutableStateOf(false) }
+    val pendingProfileReassign by viewModel.pendingProfileReassign.collectAsState()
+    val dismissedDuplicates = remember { mutableStateListOf<String>() }
+    val accountDuplicate = BankAccountMergeStore
+        .duplicatePairs(uiState.accounts)
+        .firstOrNull { (source, target) ->
+            BankAccountMergeStore.mappingKey(source.bankName, source.currency, source.accountLast4) !in dismissedDuplicates &&
+                !viewModel.isAccountHidden(source.bankName, source.accountLast4) &&
+                !viewModel.isAccountHidden(target.bankName, target.accountLast4)
+        }
+
+    val scrollBehaviorSmall = TopAppBarDefaults.pinnedScrollBehavior()
+    val scrollBehaviorLarge = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val hazeState = remember { HazeState() }
+
+    // Ignoring moves the account into the collapsed "Ignored Accounts" section, so
+    // expand it and offer an immediate Undo — otherwise it looks like it vanished.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val undoLabel = stringResource(R.string.manage_accounts_undo)
+    val ignoreAccount: (AccountBalanceEntity) -> Unit = { account ->
+        viewModel.toggleAccountVisibility(account.bankName, account.accountLast4)
+        showHiddenAccounts = true
+        val label = AccountBalanceEntity.accountLabel(
+            account.alias?.takeIf { it.isNotBlank() } ?: account.bankName,
+            account.accountLast4
+        )
+        scope.launch {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            val result = snackbarHostState.showSnackbar(
+                message = context.getString(R.string.manage_accounts_ignored_snackbar, label),
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Short
+            )
+            // Skip if it was already un-ignored from the menu meanwhile.
+            if (result == SnackbarResult.ActionPerformed &&
+                viewModel.isAccountHidden(account.bankName, account.accountLast4)
+            ) {
+                viewModel.toggleAccountVisibility(account.bankName, account.accountLast4)
+            }
+        }
+    }
+
+    // Loan accounts (#792) reuse the bank-account card: AccountItem reads isLoan for
+    // the "Outstanding" label and leaves out the low-balance alert.
+    val loanAccountItem: @Composable (AccountBalanceEntity, Boolean) -> Unit = { account, isHidden ->
+        AccountItem(
+            account = account,
+            isHidden = isHidden,
+            onToggleVisibility = {
+                if (isHidden) viewModel.toggleAccountVisibility(account.bankName, account.accountLast4)
+                else ignoreAccount(account)
+            },
+            onUpdateBalance = {
+                selectedAccount = account.bankName to account.accountLast4
+                selectedAccountEntity = account
+                showUpdateDialog = true
+            },
+            onViewHistory = { onNavigateToBalanceHistory(account.bankName, account.accountLast4) },
+            onDeleteAccount = {
+                accountToDelete = account.bankName to account.accountLast4
+                showDeleteConfirmDialog = true
+            },
+            onEditAccount = {
+                accountToEdit = account
+                showEditDialog = true
+            },
+            onSetProfile = { profileId ->
+                viewModel.setAccountProfile(account.bankName, account.accountLast4, profileId)
+            },
+            onSetAlias = { alias ->
+                viewModel.setAccountAlias(account.bankName, account.accountLast4, alias)
+            }
+        )
+    }
+
+    // Editing can rename the account, which moves its ignored key: drop any pending
+    // Undo so it can't silently no-op against the old name. The account stays in
+    // the expanded Ignored section, so "Stop ignoring" is still one tap away.
+    LaunchedEffect(showEditDialog) {
+        if (showEditDialog) snackbarHostState.currentSnackbarData?.dismiss()
+    }
+
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehaviorLarge.nestedScrollConnection),
+        containerColor = Color.Transparent,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        topBar = {
+            CustomTitleTopAppBar(
+                scrollBehaviorSmall = scrollBehaviorSmall,
+                scrollBehaviorLarge = scrollBehaviorLarge,
+                title = stringResource(R.string.manage_accounts_title),
+                hasBackButton = true,
+                navigationContent = {
+                    IconButton(onClick = onNavigateBack, shapes = IconButtonDefaults.shapes()) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accounts_back))
+                    }
+                },
+                actionContent = {
+                    // Show Merge only when there are at least 2 accounts to choose between.
+                    // Pro-only feature — free users see the icon (so the feature is
+                    // discoverable) but the tap routes to the paywall instead.
+                    if (uiState.accounts.size >= 2) {
+                        IconButton(onClick = {
+                            if (isProEntitled) showMergeSheet = true
+                            else showUpgradeSheet = true
+                        }, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Default.Merge, contentDescription = stringResource(R.string.merge_accounts_title))
+                        }
+                    }
+                },
+                hazeState = hazeState
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onNavigateToAddAccount,
+                containerColor = MaterialTheme.colorScheme.primary
+            ) {
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_account_title))
+            }
+        }
+    ) { paddingValues ->
+        if (uiState.accounts.isEmpty()) {
+            // Empty State
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                PennyWiseEmptyState(
+                    icon = Icons.Default.AccountBalance,
+                    headline = stringResource(R.string.manage_accounts_empty_title),
+                    description = stringResource(R.string.manage_accounts_empty_description)
+                )
+            }
+        } else {
+            val lazyListState = rememberLazyListState()
+            LazyColumn(
+                state = lazyListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .hazeSource(hazeState)
+                    .background(MaterialTheme.colorScheme.background)
+                    .overScrollVertical(),
+                contentPadding = PaddingValues(
+                    start = Dimensions.Padding.content,
+                    end = Dimensions.Padding.content,
+                    top = Dimensions.Padding.content + paddingValues.calculateTopPadding(),
+                    bottom = 0.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                flingBehavior = rememberOverscrollFlingBehavior { lazyListState }
+            ) {
+                // Show success message if available
+                uiState.successMessage?.let { message ->
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(Dimensions.Padding.content),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.sm))
+                                Text(
+                                    text = message.asString(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // F-Droid tip nudge after a merge — persists past the transient
+                // success banner; tapping opens the tip jar and dismisses it.
+                if (uiState.showSupportNudge) {
+                    item {
+                        SupportNudgeCard(onClick = {
+                            showSupportDialog = true
+                            viewModel.dismissSupportNudge()
+                        })
+                    }
+                }
+
+                // Show error message if available
+                uiState.errorMessage?.let { message ->
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(Dimensions.Padding.content),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Error,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.sm))
+                                Text(
+                                    text = message.asString(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                // Loan accounts (#792) get their own section; the rest split into
+                // bank accounts and credit cards as before.
+                val (loanAccounts, nonLoanAccounts) = uiState.accounts.partition { it.isLoan }
+                val (hiddenLoanAccounts, visibleLoanAccounts) = loanAccounts.partition {
+                    viewModel.isAccountHidden(it.bankName, it.accountLast4)
+                }
+
+                // Separate visible and hidden accounts
+                val visibleRegularAccounts = nonLoanAccounts.filter {
+                    !it.isCreditCard && !viewModel.isAccountHidden(it.bankName, it.accountLast4)
+                }
+                val visibleCreditCards = nonLoanAccounts.filter {
+                    it.isCreditCard && !viewModel.isAccountHidden(it.bankName, it.accountLast4)
+                }
+                val hiddenRegularAccounts = nonLoanAccounts.filter {
+                    !it.isCreditCard && viewModel.isAccountHidden(it.bankName, it.accountLast4)
+                }
+                val hiddenCreditCards = nonLoanAccounts.filter {
+                    it.isCreditCard && viewModel.isAccountHidden(it.bankName, it.accountLast4)
+                }
+                val allRegularAccounts = nonLoanAccounts.filter { !it.isCreditCard }
+                
+                // Regular Bank Accounts Section (Visible Only)
+                if (visibleRegularAccounts.isNotEmpty()) {
+                    item {
+                        SectionHeaderV2(title = stringResource(R.string.manage_accounts_section_bank))
+                    }
+
+                    items(visibleRegularAccounts) { account ->
+                        AccountItem(
+                            account = account,
+                            linkedCards = uiState.linkedCards[account.accountLast4] ?: emptyList(),
+                            isHidden = false,
+                            isUnanchored = (account.bankName to account.accountLast4) in uiState.unanchoredAccounts,
+                            onToggleVisibility = { ignoreAccount(account) },
+                            onUpdateBalance = {
+                                selectedAccount = account.bankName to account.accountLast4
+                                selectedAccountEntity = account
+                                showUpdateDialog = true
+                            },
+                            onViewHistory = {
+                                onNavigateToBalanceHistory(account.bankName, account.accountLast4)
+                            },
+                            onUnlinkCard = { cardId ->
+                                viewModel.unlinkCard(cardId)
+                            },
+                            onDeleteAccount = {
+                                accountToDelete = account.bankName to account.accountLast4
+                                showDeleteConfirmDialog = true
+                            },
+                            onEditAccount = {
+                                accountToEdit = account
+                                showEditDialog = true
+                            },
+                            onSetProfile = { profileId ->
+                                viewModel.setAccountProfile(account.bankName, account.accountLast4, profileId)
+                            },
+                            onSetAlias = { alias ->
+                                viewModel.setAccountAlias(account.bankName, account.accountLast4, alias)
+                            },
+                            onSetLowBalanceThreshold = { threshold ->
+                                viewModel.setLowBalanceThreshold(account.bankName, account.accountLast4, threshold)
+                            }
+                        )
+                    }
+                }
+
+                // Orphaned Cards Section
+                if (uiState.orphanedCards.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        SectionHeaderV2(title = stringResource(R.string.manage_accounts_section_unlinked_cards))
+                    }
+                    
+                    items(uiState.orphanedCards) { card ->
+                        OrphanedCardItem(
+                            card = card,
+                            accounts = allRegularAccounts,
+                            onLinkToAccount = { accountLast4 ->
+                                viewModel.linkCardToAccount(card.id, accountLast4)
+                            },
+                            onDeleteCard = { cardId ->
+                                viewModel.deleteCard(cardId)
+                            },
+                            onUpdateCard = { bankName, cardType, nickname ->
+                                viewModel.updateCardDetails(card.id, bankName, cardType, nickname)
+                            }
+                        )
+                    }
+                }
+
+                // Credit Cards Section (Visible Only)
+                if (visibleCreditCards.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        SectionHeaderV2(title = stringResource(R.string.manage_accounts_section_credit_cards))
+                    }
+
+                    items(visibleCreditCards) { card ->
+                        CreditCardItem(
+                            card = card,
+                            isHidden = false,
+                            onToggleVisibility = { ignoreAccount(card) },
+                            onUpdateBalance = {
+                                selectedAccount = card.bankName to card.accountLast4
+                                selectedAccountEntity = card
+                                showUpdateDialog = true
+                            },
+                            onViewHistory = {
+                                onNavigateToBalanceHistory(card.bankName, card.accountLast4)
+                            },
+                            onDeleteAccount = {
+                                accountToDelete = card.bankName to card.accountLast4
+                                showDeleteConfirmDialog = true
+                            },
+                            onEditAccount = {
+                                accountToEdit = card
+                                showEditDialog = true
+                            },
+                            onSetStatementDay = { day ->
+                                viewModel.setStatementDay(card.bankName, card.accountLast4, day)
+                            }
+                        )
+                    }
+                }
+
+                // Loan Accounts Section (Visible Only). Bank loans, not the Lent/Borrowed Loans screen.
+                if (visibleLoanAccounts.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        SectionHeaderV2(title = stringResource(R.string.manage_accounts_section_loan_accounts))
+                    }
+
+                    items(visibleLoanAccounts) { account -> loanAccountItem(account, false) }
+                }
+
+                // Hidden Accounts Section (Collapsible)
+                if (hiddenRegularAccounts.isNotEmpty() || hiddenCreditCards.isNotEmpty() || hiddenLoanAccounts.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showHiddenAccounts = !showHiddenAccounts },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(Dimensions.Padding.content),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                                ) {
+                                    Icon(
+                                        Icons.Default.VisibilityOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.manage_accounts_hidden_header, hiddenRegularAccounts.size + hiddenCreditCards.size + hiddenLoanAccounts.size),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(
+                                    if (showHiddenAccounts) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (showHiddenAccounts) stringResource(R.string.accounts_collapse) else stringResource(R.string.accounts_expand),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    if (showHiddenAccounts) {
+                        // Hidden Bank Accounts
+                        items(hiddenRegularAccounts) { account ->
+                            AccountItem(
+                                account = account,
+                                linkedCards = uiState.linkedCards[account.accountLast4] ?: emptyList(),
+                                isHidden = true,
+                                isUnanchored = (account.bankName to account.accountLast4) in uiState.unanchoredAccounts,
+                                onToggleVisibility = {
+                                    viewModel.toggleAccountVisibility(account.bankName, account.accountLast4)
+                                },
+                                onUpdateBalance = {
+                                    selectedAccount = account.bankName to account.accountLast4
+                                    selectedAccountEntity = account
+                                    showUpdateDialog = true
+                                },
+                                onViewHistory = {
+                                    onNavigateToBalanceHistory(account.bankName, account.accountLast4)
+                                },
+                                onUnlinkCard = { cardId ->
+                                    viewModel.unlinkCard(cardId)
+                                },
+                                onDeleteAccount = {
+                                    accountToDelete = account.bankName to account.accountLast4
+                                    showDeleteConfirmDialog = true
+                                },
+                                onEditAccount = {
+                                    accountToEdit = account
+                                    showEditDialog = true
+                                },
+                                onSetProfile = { profileId ->
+                                    viewModel.setAccountProfile(account.bankName, account.accountLast4, profileId)
+                                },
+                                onSetAlias = { alias ->
+                                    viewModel.setAccountAlias(account.bankName, account.accountLast4, alias)
+                                },
+                                onSetLowBalanceThreshold = { threshold ->
+                                    viewModel.setLowBalanceThreshold(account.bankName, account.accountLast4, threshold)
+                                }
+                            )
+                        }
+
+                        items(hiddenLoanAccounts) { account -> loanAccountItem(account, true) }
+
+                        // Hidden Credit Cards
+                        items(hiddenCreditCards) { card ->
+                            CreditCardItem(
+                                card = card,
+                                isHidden = true,
+                                onToggleVisibility = {
+                                    viewModel.toggleAccountVisibility(card.bankName, card.accountLast4)
+                                },
+                                onUpdateBalance = {
+                                    selectedAccount = card.bankName to card.accountLast4
+                                    selectedAccountEntity = card
+                                    showUpdateDialog = true
+                                },
+                                onViewHistory = {
+                                    onNavigateToBalanceHistory(card.bankName, card.accountLast4)
+                                },
+                                onDeleteAccount = {
+                                    accountToDelete = card.bankName to card.accountLast4
+                                    showDeleteConfirmDialog = true
+                                },
+                                onEditAccount = {
+                                    accountToEdit = card
+                                    showEditDialog = true
+                                },
+                                onSetStatementDay = { day ->
+                                    viewModel.setStatementDay(card.bankName, card.accountLast4, day)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Update Balance Dialog
+    if (showUpdateDialog && selectedAccount != null && selectedAccountEntity != null) {
+        if (selectedAccountEntity!!.isCreditCard) {
+            // Credit Card Update Dialog
+            UpdateCreditCardDialog(
+                bankName = selectedAccount!!.first,
+                accountLast4 = selectedAccount!!.second,
+                currentOutstanding = selectedAccountEntity!!.balance,
+                currentLimit = selectedAccountEntity!!.creditLimit ?: BigDecimal.ZERO,
+                onDismiss = {
+                    showUpdateDialog = false
+                    selectedAccount = null
+                    selectedAccountEntity = null
+                },
+                onConfirm = { newBalance, newLimit ->
+                    viewModel.updateCreditCard(
+                        selectedAccount!!.first,
+                        selectedAccount!!.second,
+                        newBalance,
+                        newLimit
+                    )
+                    showUpdateDialog = false
+                    selectedAccount = null
+                    selectedAccountEntity = null
+                }
+            )
+        } else {
+            // Regular Account Update Dialog
+            UpdateBalanceDialog(
+                bankName = selectedAccount!!.first,
+                accountLast4 = selectedAccount!!.second,
+                onDismiss = {
+                    showUpdateDialog = false
+                    selectedAccount = null
+                    selectedAccountEntity = null
+                },
+                onConfirm = { newBalance ->
+                    viewModel.updateAccountBalance(
+                        selectedAccount!!.first,
+                        selectedAccount!!.second,
+                        newBalance
+                    )
+                    showUpdateDialog = false
+                    selectedAccount = null
+                    selectedAccountEntity = null
+                }
+            )
+        }
+    }
+    
+    // Delete Account Confirmation Dialog
+    if (showDeleteConfirmDialog && accountToDelete != null) {
+        DeleteAccountConfirmDialog(
+            bankName = accountToDelete!!.first,
+            accountLast4 = accountToDelete!!.second,
+            onDismiss = {
+                showDeleteConfirmDialog = false
+                accountToDelete = null
+            },
+            onConfirm = {
+                viewModel.deleteAccount(accountToDelete!!.first, accountToDelete!!.second)
+                showDeleteConfirmDialog = false
+                accountToDelete = null
+            }
+        )
+    }
+
+    // Edit Account Dialog
+    if (showEditDialog && accountToEdit != null) {
+        EditAccountDialog(
+            account = accountToEdit!!,
+            onDismiss = {
+                showEditDialog = false
+                accountToEdit = null
+            },
+            onConfirm = { newBankName, newBalance, newCreditLimit, newCurrency, newType ->
+                viewModel.editAccount(
+                    oldBankName = accountToEdit!!.bankName,
+                    accountLast4 = accountToEdit!!.accountLast4,
+                    newBankName = newBankName,
+                    newBalance = newBalance,
+                    newCreditLimit = newCreditLimit,
+                    newType = newType,
+                    newCurrency = newCurrency
+                )
+                showEditDialog = false
+                accountToEdit = null
+            }
+        )
+    }
+
+    if (!showMergeSheet && !showDeleteConfirmDialog && !showEditDialog && !showUpdateDialog &&
+        !showUpgradeSheet && !showSupportDialog && pendingProfileReassign == null && accountDuplicate != null) {
+        val (source, target) = accountDuplicate
+        val duplicateKey = BankAccountMergeStore.mappingKey(source.bankName, source.currency, source.accountLast4)
+        DuplicateAccountDialog(
+            source = source,
+            target = target,
+            onMerge = {
+                dismissedDuplicates.add(duplicateKey)
+                viewModel.repairDuplicateAccounts(source, target)
+            },
+            onDismiss = { dismissedDuplicates.add(duplicateKey) }
+        )
+    }
+
+    // Merge accounts sheet (#368)
+    if (showMergeSheet) {
+        MergeAccountsSheet(
+            accounts = uiState.accounts,
+            countTransactionsOn = { bankName, last4 ->
+                viewModel.countTransactionsOn(bankName, last4)
+            },
+            onConfirm = { source, target ->
+                viewModel.mergeAccounts(source, target)
+                showMergeSheet = false
+            },
+            onDismiss = { showMergeSheet = false }
+        )
+    }
+
+    if (showUpgradeSheet) {
+        com.pennywiseai.tracker.presentation.paywall.UpgradeSheet(
+            onDismiss = { showUpgradeSheet = false },
+        )
+    }
+
+    if (showSupportDialog) {
+        SupportDevelopmentDialog(onDismiss = { showSupportDialog = false })
+    }
+
+    // Offer to move existing transactions that carry an explicit, mismatched
+    // profile after the account's profile changes (#420).
+    pendingProfileReassign?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissPendingProfileReassign() },
+            title = { Text(stringResource(R.string.manage_accounts_reassign_title)) },
+            text = {
+                Text(
+                    pluralStringResource(R.plurals.manage_accounts_reassign_message, pending.transactionCount, pending.transactionCount)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.applyPendingProfileReassign() }, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(R.string.manage_accounts_reassign_move))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissPendingProfileReassign() }, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(R.string.manage_accounts_reassign_keep))
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun CreditCardItem(
+    card: com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity,
+    isHidden: Boolean,
+    onToggleVisibility: () -> Unit,
+    onUpdateBalance: () -> Unit,
+    onViewHistory: () -> Unit,
+    onDeleteAccount: () -> Unit,
+    onEditAccount: () -> Unit = {},
+    onSetStatementDay: (Int?) -> Unit = {}
+) {
+    var showStatementDayDialog by remember { mutableStateOf(false) }
+    val isManualAccount = card.sourceType == "MANUAL"
+    val available = (card.creditLimit ?: BigDecimal.ZERO) - card.balance
+    val utilization = if (card.creditLimit != null && card.creditLimit > BigDecimal.ZERO) {
+        ((card.balance.toDouble() / card.creditLimit.toDouble()) * 100).toInt()
+    } else {
+        0
+    }
+    
+    val utilizationColor = when {
+        utilization > 70 -> MaterialTheme.colorScheme.error
+        utilization > 30 -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isHidden) {
+                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Dimensions.Padding.content),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            // Credit Card Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CreditCard,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Column {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = card.bankName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (isHidden) {
+                                Icon(
+                                    Icons.Default.VisibilityOff,
+                                    contentDescription = stringResource(R.string.manage_accounts_hidden_badge),
+                                    modifier = Modifier.size(Dimensions.Icon.small),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        // Masked card number on its own line below the name (#465).
+                        Text(
+                            text = "••${card.accountLast4}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // Credit Card Details
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                // Outstanding Balance
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.manage_accounts_outstanding),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = CurrencyFormatter.formatCurrency(card.balance, card.currency),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = if (card.balance > BigDecimal.ZERO) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
+                    )
+                }
+                
+                // Available Credit
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.manage_accounts_available),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = CurrencyFormatter.formatCurrency(available, card.currency),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                
+                // Credit Limit with Utilization
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.manage_accounts_credit_limit),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = CurrencyFormatter.formatCurrency(card.creditLimit ?: BigDecimal.ZERO, card.currency),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = stringResource(R.string.manage_accounts_utilization_used, utilization),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = utilizationColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            // Action Buttons - Primary action + overflow menu
+            var showMenu by remember { mutableStateOf(false) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Primary action
+                OutlinedButton(
+                    onClick = if (isManualAccount) onEditAccount else onUpdateBalance,
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(Dimensions.Icon.small)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(if (isManualAccount) stringResource(R.string.manage_accounts_action_edit) else stringResource(R.string.manage_accounts_action_update))
+                }
+
+                // Overflow menu
+                Box {
+                    IconButton(onClick = { showMenu = true }, shapes = IconButtonDefaults.shapes()) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = stringResource(R.string.manage_accounts_more_options)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        // SMS-tracked accounts reach the edit dialog (name, currency,
+                        // type) from here; manual ones have it as the primary button.
+                        if (!isManualAccount) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.manage_accounts_action_edit)) },
+                                onClick = {
+                                    showMenu = false
+                                    onEditAccount()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.manage_accounts_menu_history)) },
+                            onClick = {
+                                showMenu = false
+                                onViewHistory()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (isHidden) stringResource(R.string.manage_accounts_menu_show) else stringResource(R.string.manage_accounts_menu_hide)) },
+                            onClick = {
+                                showMenu = false
+                                onToggleVisibility()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    if (isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (card.statementDay != null) stringResource(R.string.manage_accounts_menu_statement_date, card.statementDay)
+                                    else stringResource(R.string.manage_accounts_menu_set_statement_date)
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                showStatementDayDialog = true
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.CalendarMonth,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.accounts_action_delete)) },
+                            onClick = {
+                                showMenu = false
+                                onDeleteAccount()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            },
+                            colors = MenuDefaults.itemColors(
+                                textColor = MaterialTheme.colorScheme.error
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showStatementDayDialog) {
+        StatementDayPickerDialog(
+            currentDay = card.statementDay,
+            onDismiss = { showStatementDayDialog = false },
+            onConfirm = { day ->
+                onSetStatementDay(day)
+                showStatementDayDialog = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StatementDayPickerDialog(
+    currentDay: Int?,
+    onDismiss: () -> Unit,
+    onConfirm: (Int?) -> Unit
+) {
+    var selectedDay by remember { mutableIntStateOf(currentDay ?: 1) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.manage_accounts_statement_dialog_title)) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.manage_accounts_statement_dialog_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(Spacing.md))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    IconButton(
+                        onClick = { if (selectedDay > 1) selectedDay-- },
+                        shapes = IconButtonDefaults.shapes()
+                    ) {
+                        Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.manage_accounts_decrease))
+                    }
+                    Text(
+                        text = "$selectedDay",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.padding(horizontal = Spacing.lg)
+                    )
+                    IconButton(
+                        onClick = { if (selectedDay < 28) selectedDay++ },
+                        shapes = IconButtonDefaults.shapes()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.manage_accounts_increase))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(selectedDay) }, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_save))
+            }
+        },
+        dismissButton = {
+            if (currentDay != null) {
+                TextButton(onClick = { onConfirm(null) }, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(R.string.manage_accounts_action_clear))
+                }
+            } else {
+                TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(R.string.accounts_action_cancel))
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun AccountItem(
+    account: com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity,
+    linkedCards: List<com.pennywiseai.tracker.data.database.entity.CardEntity> = emptyList(),
+    isHidden: Boolean,
+    isUnanchored: Boolean = false,
+    onToggleVisibility: () -> Unit,
+    onUpdateBalance: () -> Unit,
+    onViewHistory: () -> Unit,
+    onUnlinkCard: (cardId: Long) -> Unit = {},
+    onDeleteAccount: () -> Unit = {},
+    onEditAccount: () -> Unit = {},
+    onSetProfile: (Long) -> Unit = {},
+    onSetAlias: (String?) -> Unit = {},
+    onSetLowBalanceThreshold: (BigDecimal?) -> Unit = {}
+) {
+    val isManualAccount = account.sourceType == "MANUAL"
+    var showAliasDialog by remember { mutableStateOf(false) }
+    var showThresholdDialog by remember { mutableStateOf(false) }
+    // Low-balance alert: only for non-credit accounts with a threshold set, when the
+    // current balance has fallen at or below it. (Credit cards invert this — their
+    // "low" concept is available limit, not balance — so they're excluded.)
+    val isLowBalance = !account.isLiability &&
+        account.lowBalanceThreshold != null &&
+        account.balance <= account.lowBalanceThreshold
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                isLowBalance -> MaterialTheme.colorScheme.errorContainer.copy(
+                    alpha = if (isHidden) 0.4f else 0.7f
+                )
+                isHidden -> MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f)
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Dimensions.Padding.content),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            // Account Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = if (account.isLoan) AccountType.LOAN.icon else Icons.Default.AccountBalance,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    val alias = account.alias?.takeIf { it.isNotBlank() }
+                    Column {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = alias ?: account.bankName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                // Ellipsize a long name instead of pushing the badges
+                                // (and the masked number below) off-screen.
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (account.profileId == ProfileEntity.BUSINESS_ID) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    shape = MaterialTheme.shapes.extraSmall
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.manage_accounts_business_badge),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            if (isHidden) {
+                                Icon(
+                                    Icons.Default.VisibilityOff,
+                                    contentDescription = stringResource(R.string.manage_accounts_hidden_badge),
+                                    modifier = Modifier.size(Dimensions.Icon.small),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        // Masked account number on its own line below the name. Inlining it
+                        // next to a long bank name squeezed it into a per-character vertical
+                        // stack; this keeps it as a clean second line. (#465)
+                        Text(
+                            text = if (alias != null) {
+                                AccountBalanceEntity.accountLabel(account.bankName, account.accountLast4)
+                            } else {
+                                AccountBalanceEntity.accountLabel("", account.accountLast4).trim()
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Balance
+                Column(
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Text(
+                        text = CurrencyFormatter.formatCurrency(
+                            account.balance,
+                            // Resolve so the list matches Account Detail — SMS-tracked
+                            // non-INR accounts show their parser currency, not stored INR.
+                            CurrencyFormatter.resolveAccountCurrency(
+                                sourceType = account.sourceType,
+                                storedCurrency = account.currency,
+                                bankName = account.bankName
+                            )
+                        ),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = when {
+                            isLowBalance -> stringResource(R.string.manage_accounts_low_balance)
+                            account.isLoan -> stringResource(R.string.manage_accounts_outstanding)
+                            else -> stringResource(R.string.manage_accounts_balance)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isLowBalance) FontWeight.Medium else null,
+                        color = if (isLowBalance) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+
+            // No SMS for this account ever stated a balance, so the figure is
+            // 0 ± its transactions. Point at Update Balance; it goes once set (#982).
+            if (isUnanchored && !account.isLiability) {
+                Surface(
+                    onClick = onUpdateBalance,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = Dimensions.Component.minTouchTarget),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(Dimensions.Icon.small),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            text = stringResource(R.string.manage_accounts_estimated_balance_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+
+            // Linked Cards Section
+            if (linkedCards.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.padding(top = Spacing.sm)
+                ) {
+                    Text(
+                        text = stringResource(R.string.manage_accounts_linked_cards),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = Spacing.xs)
+                    )
+                    linkedCards.forEach { card ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = Spacing.xs),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CreditCard,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(Dimensions.Icon.small),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Column {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                                        ) {
+                                            Text(
+                                                text = "••${card.cardLast4}",
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            if (!card.isActive) {
+                                                Text(
+                                                    text = stringResource(R.string.manage_accounts_card_inactive),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                        // Show last transaction date if available
+                                        if (card.lastBalanceDate != null) {
+                                            Text(
+                                                text = stringResource(R.string.manage_accounts_card_updated, card.lastBalanceDate.format(AppDates.dayMonthFormatter())),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                                IconButton(
+                                    onClick = { onUnlinkCard(card.id) },
+                                    modifier = Modifier.size(Dimensions.Icon.medium),
+                                    shapes = IconButtonDefaults.shapes()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.LinkOff,
+                                        contentDescription = stringResource(R.string.manage_accounts_unlink_card),
+                                        modifier = Modifier.size(Dimensions.Icon.small),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Action Buttons - Primary action + overflow menu
+            var showMenu by remember { mutableStateOf(false) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Primary action
+                OutlinedButton(
+                    onClick = if (isManualAccount) onEditAccount else onUpdateBalance,
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(Dimensions.Icon.small)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(if (isManualAccount) stringResource(R.string.manage_accounts_action_edit) else stringResource(R.string.manage_accounts_update_balance))
+                }
+
+                // Overflow menu
+                Box {
+                    IconButton(onClick = { showMenu = true }, shapes = IconButtonDefaults.shapes()) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = stringResource(R.string.manage_accounts_more_options)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        // SMS-tracked accounts reach the edit dialog (name, currency,
+                        // type) from here; manual ones have it as the primary button.
+                        if (!isManualAccount) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.manage_accounts_action_edit)) },
+                                onClick = {
+                                    showMenu = false
+                                    onEditAccount()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.manage_accounts_menu_history)) },
+                            onClick = {
+                                showMenu = false
+                                onViewHistory()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (isHidden) stringResource(R.string.manage_accounts_menu_show) else stringResource(R.string.manage_accounts_menu_hide)) },
+                            onClick = {
+                                showMenu = false
+                                onToggleVisibility()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    if (isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (account.profileId == ProfileEntity.BUSINESS_ID) stringResource(R.string.manage_accounts_menu_mark_personal) else stringResource(R.string.manage_accounts_menu_mark_business)) },
+                            onClick = {
+                                showMenu = false
+                                val newProfileId = if (account.profileId == ProfileEntity.BUSINESS_ID)
+                                    ProfileEntity.PERSONAL_ID else ProfileEntity.BUSINESS_ID
+                                onSetProfile(newProfileId)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    if (account.profileId == ProfileEntity.BUSINESS_ID) Icons.Default.Person else Icons.Default.Business,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (account.alias.isNullOrBlank()) stringResource(R.string.manage_accounts_menu_set_alias) else stringResource(R.string.manage_accounts_menu_rename)) },
+                            onClick = {
+                                showMenu = false
+                                showAliasDialog = true
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.DriveFileRenameOutline,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        // Only non-credit accounts — credit cards' "low" concept is
+                        // available limit, not balance, so the alert (and this entry)
+                        // don't apply (matches the isLowBalance exclusion above). Same
+                        // for loans, whose balance is owed.
+                        if (!account.isLiability) {
+                            DropdownMenuItem(
+                                text = { Text(if (account.lowBalanceThreshold == null) stringResource(R.string.manage_accounts_low_balance_alert) else stringResource(R.string.manage_accounts_menu_edit_low_balance_alert)) },
+                                onClick = {
+                                    showMenu = false
+                                    showThresholdDialog = true
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.NotificationsActive,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.accounts_action_delete)) },
+                            onClick = {
+                                showMenu = false
+                                onDeleteAccount()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            },
+                            colors = MenuDefaults.itemColors(
+                                textColor = MaterialTheme.colorScheme.error
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAliasDialog) {
+        AccountAliasDialog(
+            currentAlias = account.alias,
+            accountLabel = AccountBalanceEntity.accountLabel(account.bankName, account.accountLast4),
+            onDismiss = { showAliasDialog = false },
+            onConfirm = { newAlias ->
+                onSetAlias(newAlias)
+                showAliasDialog = false
+            }
+        )
+    }
+
+    if (showThresholdDialog) {
+        LowBalanceThresholdDialog(
+            currentThreshold = account.lowBalanceThreshold,
+            accountLabel = AccountBalanceEntity.accountLabel(account.bankName, account.accountLast4),
+            currency = CurrencyFormatter.resolveAccountCurrency(
+                account.sourceType, account.currency, account.bankName
+            ),
+            currentBalance = account.balance,
+            onDismiss = { showThresholdDialog = false },
+            onConfirm = { threshold ->
+                onSetLowBalanceThreshold(threshold)
+                showThresholdDialog = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LowBalanceThresholdDialog(
+    currentThreshold: BigDecimal?,
+    accountLabel: String,
+    currency: String,
+    currentBalance: BigDecimal,
+    onDismiss: () -> Unit,
+    onConfirm: (BigDecimal?) -> Unit
+) {
+    var text by remember { mutableStateOf(currentThreshold?.toPlainString().orEmpty()) }
+    val parsed = text.trim().toBigDecimalOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.manage_accounts_low_balance_alert)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    text = accountLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = stringResource(R.string.manage_accounts_low_balance_alert_description, CurrencyFormatter.formatCurrency(currentBalance, currency)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text(stringResource(R.string.manage_accounts_threshold_label, currency)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(parsed) },
+                enabled = parsed != null && parsed >= BigDecimal.ZERO,
+                shapes = ButtonDefaults.shapes()
+            ) { Text(stringResource(R.string.accounts_action_save)) }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                if (currentThreshold != null) {
+                    TextButton(onClick = { onConfirm(null) }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.manage_accounts_action_clear)) }
+                }
+                TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.accounts_action_cancel)) }
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AccountAliasDialog(
+    currentAlias: String?,
+    accountLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String?) -> Unit
+) {
+    var aliasText by remember { mutableStateOf(currentAlias.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.manage_accounts_rename_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    text = accountLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = aliasText,
+                    onValueChange = { aliasText = it },
+                    label = { Text(stringResource(R.string.manage_accounts_alias_label)) },
+                    placeholder = { Text(stringResource(R.string.manage_accounts_alias_placeholder)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = stringResource(R.string.manage_accounts_alias_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(aliasText.trim().ifBlank { null }) }, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_cancel))
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UpdateBalanceDialog(
+    bankName: String,
+    accountLast4: String,
+    onDismiss: () -> Unit,
+    onConfirm: (BigDecimal) -> Unit
+) {
+    var balanceText by remember { mutableStateOf("") }
+    var isValid by remember { mutableStateOf(false) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(stringResource(R.string.manage_accounts_update_balance))
+                Text(
+                    text = AccountBalanceEntity.accountLabel(bankName, accountLast4),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            TextField(
+                value = balanceText,
+                onValueChange = { text ->
+                    if (text.isEmpty() || text.matches(Regex("^\\d*\\.?\\d*$"))) {
+                        balanceText = text
+                        isValid = text.isNotBlank() && text.toDoubleOrNull() != null
+                    }
+                },
+                label = { Text(stringResource(R.string.manage_accounts_new_balance)) },
+                placeholder = { Text("0.00") },
+                leadingIcon = {
+                    Text(
+                        text = CurrencyFormatter.getCurrencySymbol(CurrencyFormatter.getBankBaseCurrency(bankName)),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal
+                ),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    balanceText.toBigDecimalOrNull()?.let { balance ->
+                        onConfirm(balance)
+                    }
+                },
+                enabled = isValid,
+                shapes = ButtonDefaults.shapes()
+            ) {
+                Text(stringResource(R.string.manage_accounts_action_update))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_cancel))
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UpdateCreditCardDialog(
+    bankName: String,
+    accountLast4: String,
+    currentOutstanding: BigDecimal,
+    currentLimit: BigDecimal,
+    onDismiss: () -> Unit,
+    onConfirm: (BigDecimal, BigDecimal) -> Unit
+) {
+    var outstandingText by remember { mutableStateOf(currentOutstanding.toString()) }
+    var limitText by remember { mutableStateOf(currentLimit.toString()) }
+    var isValid by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(outstandingText, limitText) {
+        isValid = outstandingText.isNotBlank() && 
+                  outstandingText.toDoubleOrNull() != null &&
+                  limitText.isNotBlank() && 
+                  limitText.toDoubleOrNull() != null
+    }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(stringResource(R.string.manage_accounts_update_credit_card))
+                Text(
+                    text = AccountBalanceEntity.accountLabel(bankName, accountLast4),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.md)
+            ) {
+                TextField(
+                    value = outstandingText,
+                    onValueChange = { text ->
+                        if (text.isEmpty() || text.matches(Regex("^\\d*\\.?\\d*$"))) {
+                            outstandingText = text
+                        }
+                    },
+                    label = { Text(stringResource(R.string.manage_accounts_outstanding_balance)) },
+                    placeholder = { Text("0.00") },
+                    leadingIcon = {
+                        Text(
+                            text = CurrencyFormatter.getCurrencySymbol(CurrencyFormatter.getBankBaseCurrency(bankName)),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    supportingText = {
+                        Text(stringResource(R.string.manage_accounts_outstanding_balance_hint))
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal
+                    ),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                TextField(
+                    value = limitText,
+                    onValueChange = { text ->
+                        if (text.isEmpty() || text.matches(Regex("^\\d*\\.?\\d*$"))) {
+                            limitText = text
+                        }
+                    },
+                    label = { Text(stringResource(R.string.manage_accounts_credit_limit)) },
+                    placeholder = { Text("50000.00") },
+                    leadingIcon = {
+                        Text(
+                            text = CurrencyFormatter.getCurrencySymbol(CurrencyFormatter.getBankBaseCurrency(bankName)),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    supportingText = {
+                        Text(stringResource(R.string.manage_accounts_credit_limit_hint))
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal
+                    ),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                // Show available credit
+                val outstanding = outstandingText.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                val limit = limitText.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                if (limit > BigDecimal.ZERO) {
+                    val available = limit - outstanding
+                    val utilization = ((outstanding.toDouble() / limit.toDouble()) * 100).toInt()
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(Spacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.manage_accounts_available_credit_label),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    text = CurrencyFormatter.formatCurrency(available, CurrencyFormatter.getBankBaseCurrency(bankName)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.manage_accounts_utilization_label),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    text = "$utilization%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = when {
+                                        utilization > 70 -> MaterialTheme.colorScheme.error
+                                        utilization > 30 -> MaterialTheme.colorScheme.tertiary
+                                        else -> MaterialTheme.colorScheme.primary
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val outstanding = outstandingText.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    val limit = limitText.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    onConfirm(outstanding, limit)
+                },
+                enabled = isValid,
+                shapes = ButtonDefaults.shapes()
+            ) {
+                Text(stringResource(R.string.manage_accounts_action_update))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun OrphanedCardItem(
+    card: com.pennywiseai.tracker.data.database.entity.CardEntity,
+    accounts: List<com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity>,
+    onLinkToAccount: (String) -> Unit,
+    onDeleteCard: (Long) -> Unit,
+    onUpdateCard: (
+        bankName: String,
+        cardType: com.pennywiseai.tracker.data.database.entity.CardType,
+        nickname: String?
+    ) -> Unit = { _, _, _ -> }
+) {
+    var showLinkDialog by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var expandedSource by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expandedSource = !expandedSource },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(Dimensions.Padding.content)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CreditCard,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${card.bankName} ••${card.cardLast4}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = if (card.cardType == com.pennywiseai.tracker.data.database.entity.CardType.CREDIT) stringResource(R.string.manage_accounts_unlinked_credit_card) else stringResource(R.string.manage_accounts_unlinked_debit_card),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // Show last known balance if available
+                    if (card.lastBalance != null) {
+                        Text(
+                            text = stringResource(R.string.manage_accounts_last_balance, CurrencyFormatter.formatCurrency(card.lastBalance, card.currency)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    // Show source SMS that triggered card detection
+                    if (card.lastBalanceSource != null) {
+                        Text(
+                            text = if (expandedSource) {
+                                stringResource(R.string.manage_accounts_card_sms, card.lastBalanceSource)
+                            } else {
+                                stringResource(R.string.manage_accounts_card_sms_truncated, card.lastBalanceSource.take(80))
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = if (expandedSource) Int.MAX_VALUE else 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.sm))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { showLinkDialog = true },
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Icon(
+                        Icons.Default.Link,
+                        contentDescription = null,
+                        modifier = Modifier.size(Dimensions.Icon.small)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(stringResource(R.string.manage_accounts_action_link))
+                }
+
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { showEditDialog = true },
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(Dimensions.Icon.small)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(stringResource(R.string.manage_accounts_action_edit))
+                }
+
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onDeleteCard(card.id) },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(Dimensions.Icon.small)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(stringResource(R.string.accounts_action_delete))
+                }
+            }
+        }
+    }
+    
+    if (showLinkDialog) {
+        LinkCardDialog(
+            card = card,
+            accounts = accounts.filter { it.bankName == card.bankName },
+            onDismiss = { showLinkDialog = false },
+            onConfirm = { accountLast4 ->
+                onLinkToAccount(accountLast4)
+                showLinkDialog = false
+            }
+        )
+    }
+
+    if (showEditDialog) {
+        EditCardDialog(
+            card = card,
+            onDismiss = { showEditDialog = false },
+            onConfirm = { bankName, cardType, nickname ->
+                onUpdateCard(bankName, cardType, nickname)
+                showEditDialog = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditCardDialog(
+    card: com.pennywiseai.tracker.data.database.entity.CardEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (
+        bankName: String,
+        cardType: com.pennywiseai.tracker.data.database.entity.CardType,
+        nickname: String?
+    ) -> Unit
+) {
+    var bankName by remember { mutableStateOf(card.bankName) }
+    var cardType by remember { mutableStateOf(card.cardType) }
+    var nickname by remember { mutableStateOf(card.nickname.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.manage_accounts_edit_card_title)) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.md)
+            ) {
+                Text(
+                    text = "••${card.cardLast4}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = bankName,
+                    onValueChange = { bankName = it },
+                    label = { Text(stringResource(R.string.manage_accounts_bank_label)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Text(
+                        text = stringResource(R.string.manage_accounts_card_type_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    ConnectedChoiceRow(
+                        options = listOf(
+                            com.pennywiseai.tracker.data.database.entity.CardType.DEBIT,
+                            com.pennywiseai.tracker.data.database.entity.CardType.CREDIT
+                        ),
+                        selected = cardType,
+                        onSelect = { cardType = it },
+                        label = { type ->
+                            stringResource(
+                                if (type == com.pennywiseai.tracker.data.database.entity.CardType.CREDIT) {
+                                    R.string.manage_accounts_card_type_credit
+                                } else {
+                                    R.string.manage_accounts_card_type_debit
+                                }
+                            )
+                        }
+                    )
+                }
+                OutlinedTextField(
+                    value = nickname,
+                    onValueChange = { nickname = it },
+                    label = { Text(stringResource(R.string.manage_accounts_nickname_label)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(bankName, cardType, nickname.ifBlank { null })
+                },
+                enabled = bankName.isNotBlank(),
+                shapes = ButtonDefaults.shapes()
+            ) { Text(stringResource(R.string.accounts_action_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.accounts_action_cancel)) }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LinkCardDialog(
+    card: com.pennywiseai.tracker.data.database.entity.CardEntity,
+    accounts: List<com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity>,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var selectedAccount by remember { mutableStateOf<String?>(null) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(stringResource(R.string.manage_accounts_link_card_title))
+                Text(
+                    text = "${card.bankName} ••${card.cardLast4}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+            ) {
+                if (accounts.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.manage_accounts_link_no_accounts, card.bankName),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.manage_accounts_link_select_account),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    accounts.forEach { account ->
+                        Surface(
+                            onClick = { selectedAccount = account.accountLast4 },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (selectedAccount == account.accountLast4) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                            shape = MaterialTheme.shapes.small,
+                            border = BorderStroke(
+                                1.dp,
+                                if (selectedAccount == account.accountLast4) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                }
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(Spacing.sm),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    if (account.accountLast4 != AccountBalanceEntity.WALLET_ACCOUNT_MARKER) {
+                                        Text(
+                                            text = "••${account.accountLast4}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    Text(
+                                        text = CurrencyFormatter.formatCurrency(account.balance, account.currency),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (selectedAccount == account.accountLast4) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(Dimensions.Icon.medium)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { selectedAccount?.let(onConfirm) },
+                enabled = selectedAccount != null,
+                shapes = ButtonDefaults.shapes()
+            ) {
+                Text(stringResource(R.string.manage_accounts_action_link))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun DeleteAccountConfirmDialog(
+    bankName: String,
+    accountLast4: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error
+            )
+        },
+        title = {
+            Text(stringResource(R.string.manage_accounts_delete_title))
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+            ) {
+                Text(
+                    text = stringResource(R.string.manage_accounts_delete_message),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(Spacing.sm),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.AccountBalance,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Column {
+                            Text(
+                                text = bankName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = stringResource(R.string.manage_accounts_account_ending_in, accountLast4),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = stringResource(R.string.manage_accounts_delete_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                shapes = ButtonDefaults.shapes()
+            ) {
+                Text(stringResource(R.string.accounts_action_delete))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_cancel))
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditAccountDialog(
+    account: com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (bankName: String, balance: BigDecimal, creditLimit: BigDecimal?, currency: String, type: AccountType) -> Unit
+) {
+    var bankNameText by remember { mutableStateOf(account.bankName) }
+    var balanceText by remember { mutableStateOf(account.balance.toString()) }
+    var creditLimitText by remember { mutableStateOf(account.creditLimit?.toString() ?: "") }
+    // Pre-fill with the *resolved* currency (what the account actually displays), not
+    // the raw stored value — an SMS-tracked non-INR account stores the INR default but
+    // shows the parser currency. Seeding from the raw value would let an unrelated edit
+    // silently lock the account to INR.
+    var currencyText by remember {
+        mutableStateOf(
+            CurrencyFormatter.resolveAccountCurrency(
+                sourceType = account.sourceType,
+                storedCurrency = account.currency,
+                bankName = account.bankName
+            )
+        )
+    }
+    var showCurrencyMenu by remember { mutableStateOf(false) }
+    // Editable for every account, SMS-created ones included (#792).
+    var selectedType by remember { mutableStateOf(account.getAccountType()) }
+    var showTypeMenu by remember { mutableStateOf(false) }
+    val isCreditForm = selectedType == AccountType.CREDIT
+    var isValid by remember { mutableStateOf(false) }
+
+    LaunchedEffect(bankNameText, balanceText, creditLimitText, isCreditForm) {
+        isValid = bankNameText.isNotBlank() &&
+                  balanceText.isNotBlank() &&
+                  balanceText.toDoubleOrNull() != null &&
+                  (if (isCreditForm) creditLimitText.isNotBlank() && creditLimitText.toDoubleOrNull() != null else true)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(stringResource(R.string.manage_accounts_edit_account_title))
+                Text(
+                    text = selectedType.displayName(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md)
+            ) {
+                // Bank Name (Editable)
+                TextField(
+                    value = bankNameText,
+                    onValueChange = { bankNameText = it },
+                    label = { Text(stringResource(R.string.manage_accounts_bank_name_label)) },
+                    leadingIcon = {
+                        Icon(
+                            selectedType.icon,
+                            contentDescription = null
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Account Number (Read-only)
+                TextField(
+                    value = AccountBalanceEntity.accountLabel("", account.accountLast4).trim(),
+                    onValueChange = {},
+                    label = { Text(stringResource(R.string.manage_accounts_account_number_label)) },
+                    enabled = false,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        disabledIndicatorColor = Color.Transparent,
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    leadingIcon = {
+                        Icon(Icons.Default.Lock, contentDescription = stringResource(R.string.manage_accounts_read_only))
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Currency (editable — lets an existing account switch currency)
+                Column {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCurrencyMenu = true },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.add_account_currency_label),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$currencyText   ${CurrencyFormatter.getCurrencySymbol(currencyText)}",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = showCurrencyMenu,
+                        onDismissRequest = { showCurrencyMenu = false }
+                    ) {
+                        CurrencyFormatter.getSupportedCurrencies().sorted().forEach { code ->
+                            DropdownMenuItem(
+                                text = { Text("$code   ${CurrencyFormatter.getCurrencySymbol(code)}") },
+                                onClick = {
+                                    currencyText = code
+                                    showCurrencyMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Account type (#792). Changing it only changes how the balance is
+                // counted from now on; past transactions are not rewritten.
+                Column {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showTypeMenu = true },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.add_account_type_label),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    selectedType.icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(Dimensions.Icon.small)
+                                )
+                                Text(
+                                    text = selectedType.displayName(),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = showTypeMenu,
+                        onDismissRequest = { showTypeMenu = false }
+                    ) {
+                        AccountType.entries.forEach { type ->
+                            DropdownMenuItem(
+                                text = { Text(type.displayName()) },
+                                leadingIcon = { Icon(type.icon, contentDescription = null) },
+                                onClick = {
+                                    selectedType = type
+                                    showTypeMenu = false
+                                }
+                            )
+                        }
+                    }
+                    if (selectedType != account.getAccountType()) {
+                        Text(
+                            text = stringResource(R.string.manage_accounts_type_note),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = Spacing.xs)
+                        )
+                    }
+                }
+
+                if (isCreditForm) {
+                    // Outstanding Balance (Credit Card)
+                    TextField(
+                        value = balanceText,
+                        onValueChange = { text ->
+                            if (text.isEmpty() || text.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                balanceText = text
+                            }
+                        },
+                        label = { Text(stringResource(R.string.manage_accounts_outstanding_balance)) },
+                        placeholder = { Text("0.00") },
+                        leadingIcon = {
+                            Text(
+                                text = CurrencyFormatter.getCurrencySymbol(account.currency),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        supportingText = {
+                            Text(stringResource(R.string.manage_accounts_outstanding_balance_hint))
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Credit Limit
+                    TextField(
+                        value = creditLimitText,
+                        onValueChange = { text ->
+                            if (text.isEmpty() || text.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                creditLimitText = text
+                            }
+                        },
+                        label = { Text(stringResource(R.string.manage_accounts_credit_limit)) },
+                        placeholder = { Text("50000.00") },
+                        leadingIcon = {
+                            Text(
+                                text = CurrencyFormatter.getCurrencySymbol(account.currency),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        supportingText = {
+                            Text(stringResource(R.string.manage_accounts_credit_limit_hint))
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Show available credit preview
+                    val outstanding = balanceText.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    val limit = creditLimitText.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    if (limit > BigDecimal.ZERO) {
+                        val available = limit - outstanding
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(Spacing.sm),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.manage_accounts_available_credit_label),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    text = CurrencyFormatter.formatCurrency(available, account.currency),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Account Balance (Regular Account)
+                    TextField(
+                        value = balanceText,
+                        onValueChange = { text ->
+                            if (text.isEmpty() || text.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                balanceText = text
+                            }
+                        },
+                        label = {
+                            Text(
+                                if (selectedType == AccountType.LOAN) stringResource(R.string.manage_accounts_outstanding_balance)
+                                else stringResource(R.string.manage_accounts_account_balance_label)
+                            )
+                        },
+                        supportingText = if (selectedType == AccountType.LOAN) {
+                            { Text(stringResource(R.string.manage_accounts_loan_outstanding_hint)) }
+                        } else null,
+                        placeholder = { Text("0.00") },
+                        leadingIcon = {
+                            Text(
+                                text = CurrencyFormatter.getCurrencySymbol(account.currency),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val balance = balanceText.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    val creditLimit = if (isCreditForm) {
+                        creditLimitText.toBigDecimalOrNull()
+                    } else null
+                    onConfirm(bankNameText, balance, creditLimit, currencyText, selectedType)
+                },
+                enabled = isValid,
+                shapes = ButtonDefaults.shapes()
+            ) {
+                Text(stringResource(R.string.accounts_action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.accounts_action_cancel))
+            }
+        }
+    )
+}

@@ -1,0 +1,375 @@
+package com.pennywiseai.tracker.ui.components
+
+import com.pennywiseai.tracker.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.pennywiseai.tracker.ui.theme.Dimensions
+import com.pennywiseai.tracker.ui.theme.Spacing
+import com.pennywiseai.tracker.utils.CurrencyFormatter
+import java.math.BigDecimal
+import com.pennywiseai.tracker.ui.icons.categoryLabel
+
+data class SplitItem(
+    val id: Long = 0,
+    val category: String,
+    val amount: BigDecimal
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SplitEditor(
+    totalAmount: BigDecimal,
+    currency: String,
+    splits: List<SplitItem>,
+    availableCategories: List<String>,
+    onSplitsChanged: (List<SplitItem>) -> Unit,
+    onRemoveSplits: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val splitsTotal = splits.fold(BigDecimal.ZERO) { acc, split -> acc + split.amount }
+    val remaining = totalAmount - splitsTotal
+    val isBalanced = remaining.abs() <= BigDecimal("0.01")
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+            .animateContentSize(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.split_editor_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                TextButton(
+                    onClick = onRemoveSplits,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Text(stringResource(R.string.split_editor_remove_all))
+                }
+            }
+
+            // Split rows
+            splits.forEachIndexed { index, split ->
+                SplitRow(
+                    split = split,
+                    availableCategories = availableCategories.filter { cat ->
+                        cat == split.category || splits.none { it.category == cat }
+                    },
+                    onCategoryChanged = { newCategory ->
+                        val newSplits = splits.toMutableList()
+                        newSplits[index] = split.copy(category = newCategory)
+                        onSplitsChanged(newSplits)
+                    },
+                    onAmountChanged = { newAmount ->
+                        val newSplits = splits.toMutableList()
+                        newSplits[index] = split.copy(amount = newAmount)
+                        onSplitsChanged(newSplits)
+                    },
+                    onRemove = {
+                        if (splits.size > 2) {
+                            val newSplits = splits.toMutableList()
+                            newSplits.removeAt(index)
+                            onSplitsChanged(newSplits)
+                        }
+                    },
+                    canRemove = splits.size > 2,
+                    currency = currency
+                )
+            }
+
+            // Add split button
+            OutlinedButton(
+                onClick = {
+                    val usedCategories = splits.map { it.category }.toSet()
+                    val nextCategory = availableCategories.firstOrNull { it !in usedCategories } ?: "Others"
+                    val newSplit = SplitItem(
+                        id = 0,
+                        category = nextCategory,
+                        amount = remaining.coerceAtLeast(BigDecimal.ZERO)
+                    )
+                    onSplitsChanged(splits + newSplit)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = availableCategories.size > splits.size,
+                shapes = ButtonDefaults.shapes()
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(Dimensions.Icon.small))
+                Spacer(modifier = Modifier.width(Spacing.xs))
+                Text(stringResource(R.string.split_editor_add))
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.xs))
+
+            // Total validation row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isBalanced) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = stringResource(R.string.split_editor_balanced),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(Dimensions.Icon.medium)
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = stringResource(R.string.split_editor_not_balanced),
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(Dimensions.Icon.medium)
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.split_editor_total),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = CurrencyFormatter.formatCurrency(splitsTotal, currency),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isBalanced) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
+                    )
+                    if (!isBalanced) {
+                        Text(
+                            text = if (remaining > BigDecimal.ZERO) {
+                                stringResource(R.string.split_editor_remaining, CurrencyFormatter.formatCurrency(remaining, currency))
+                            } else {
+                                stringResource(R.string.split_editor_over, CurrencyFormatter.formatCurrency(remaining.abs(), currency))
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SplitRow(
+    split: SplitItem,
+    availableCategories: List<String>,
+    onCategoryChanged: (String) -> Unit,
+    onAmountChanged: (BigDecimal) -> Unit,
+    onRemove: () -> Unit,
+    canRemove: Boolean,
+    currency: String,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var amountText by remember(split.amount) {
+        mutableStateOf(if (split.amount == BigDecimal.ZERO) "" else split.amount.stripTrailingZeros().toPlainString())
+    }
+
+    // Category on its own full-width line, amount + remove beneath it. Side by
+    // side the dropdown was ~a third of the row, so anything longer than
+    // "Shopping" was clipped mid-word ("Bills & Util") once selected.
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+    ) {
+        // Category dropdown
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            TextField(
+                value = categoryLabel(split.category),
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                modifier = Modifier
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodyMedium,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                shape = RoundedCornerShape(12.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                )
+            )
+
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                availableCategories.forEach { category ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = categoryLabel(category),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        onClick = {
+                            onCategoryChanged(category)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Amount field
+            TextField(
+                value = amountText,
+                onValueChange = { newValue ->
+                    val filtered = newValue.filter { it.isDigit() || it == '.' }
+                    if (filtered.count { it == '.' } <= 1) {
+                        amountText = filtered
+                        val parsedAmount = filtered.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                        onAmountChanged(parsedAmount)
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                textStyle = MaterialTheme.typography.bodyMedium,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                prefix = {
+                    Text(
+                        text = CurrencyFormatter.getCurrencySymbol(currency),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                )
+            )
+
+            // Remove button
+            IconButton(
+                onClick = onRemove,
+                enabled = canRemove,
+                modifier = Modifier.size(Dimensions.Component.minTouchTarget),
+                shapes = IconButtonDefaults.shapes()
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = stringResource(R.string.split_editor_remove),
+                    tint = if (canRemove) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    },
+                    modifier = Modifier.size(Dimensions.Icon.medium)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Card showing split breakdown in view mode (read-only).
+ */
+@Composable
+fun SplitBreakdownCard(
+    splits: List<SplitItem>,
+    currency: String,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            Text(
+                text = stringResource(R.string.split_breakdown_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            splits.forEach { split ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = categoryLabel(split.category),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = CurrencyFormatter.formatCurrency(split.amount, currency),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}

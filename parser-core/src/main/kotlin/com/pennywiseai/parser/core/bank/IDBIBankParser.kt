@@ -1,0 +1,211 @@
+package com.pennywiseai.parser.core.bank
+
+import java.math.BigDecimal
+
+/**
+ * Parser for IDBI Bank SMS messages
+ *
+ * Supported formats:
+ * - Debit: "Your account has been successfully debited with Rs 59.00"
+ * - UPI: "IDBI Bank Acct XX1234 debited for Rs 1040.00"
+ * - AutoPay/Mandate transactions
+ * - Balance information
+ *
+ * Common senders: IDBIBK, IDBIBANK, variations with DLT patterns
+ */
+class IDBIBankParser : BaseIndianBankParser() {
+
+    override fun getBankName() = "IDBI Bank"
+
+    override fun canHandle(sender: String): Boolean {
+        val normalizedSender = sender.uppercase()
+        return normalizedSender.contains("IDBIBK") ||
+                normalizedSender.contains("IDBIBANK") ||
+                normalizedSender.contains("IDBI") ||
+                // DLT patterns for transactions (-S suffix)
+                normalizedSender.matches(Regex("^[A-Z]{2}-IDBIBK-S$")) ||
+                normalizedSender.matches(Regex("^[A-Z]{2}-IDBI-S$")) ||
+                // Legacy patterns
+                normalizedSender.matches(Regex("^[A-Z]{2}-IDBIBK$")) ||
+                normalizedSender.matches(Regex("^[A-Z]{2}-IDBI$")) ||
+                // Direct sender IDs
+                normalizedSender == "IDBIBK" ||
+                normalizedSender == "IDBIBANK"
+    }
+
+    override fun extractAmount(message: String): BigDecimal? {
+        // Pattern 1: "debited with Rs 59.00"
+        val debitWithPattern = Regex(
+            """debited\s+with\s+(?:Rs\.?|INR|₹)\s*([0-9,]+(?:\.\d{2})?)""",
+            RegexOption.IGNORE_CASE
+        )
+        debitWithPattern.find(message)?.let { match ->
+            val amount = match.groupValues[1].replace(",", "")
+            return try {
+                BigDecimal(amount)
+            } catch (e: NumberFormatException) {
+                null
+            }
+        }
+
+        // Pattern 2: "debited for Rs 1040.00" or "debited for INR 1040.00"
+        val debitForPattern = Regex(
+            """debited\s+for\s+(?:Rs\.?|INR|₹)\s*([0-9,]+(?:\.\d{2})?)""",
+            RegexOption.IGNORE_CASE
+        )
+        debitForPattern.find(message)?.let { match ->
+            val amount = match.groupValues[1].replace(",", "")
+            return try {
+                BigDecimal(amount)
+            } catch (e: NumberFormatException) {
+                null
+            }
+        }
+
+        // Pattern 3: "credited with Rs XXX", "credited for INR XXX", or "credited by Rs. XXX"
+        val creditPattern = Regex(
+            """credited\s+(?:with|for|by)\s+(?:Rs\.?|INR|₹)\s*([0-9,]+(?:\.\d{2})?)""",
+            RegexOption.IGNORE_CASE
+        )
+        creditPattern.find(message)?.let { match ->
+            val amount = match.groupValues[1].replace(",", "")
+            return try {
+                BigDecimal(amount)
+            } catch (e: NumberFormatException) {
+                null
+            }
+        }
+
+        // Fall back to base class patterns
+        return super.extractAmount(message)
+    }
+
+    override fun extractMerchant(message: String, sender: String): String? {
+        // Pattern 1: "towards <merchant> for"
+        val towardsPattern = Regex(
+            """towards\s+([^.\n]+?)\s+for""",
+            RegexOption.IGNORE_CASE
+        )
+        towardsPattern.find(message)?.let { match ->
+            val merchant = cleanMerchantName(match.groupValues[1].trim())
+            if (isValidMerchantName(merchant)) {
+                return merchant
+            }
+        }
+
+        // Pattern 2: UPI Debit: "Bal Rs <bal> <merchant> credited." or "; <merchant> credited."
+        // Example: "IDBI Bank Acct XX1234 debited for Rs 500.00 on 31-Oct-26; Bal Rs 50000.00 TEST MERCHANT credited. UPI:..."
+        val creditedMerchantPattern = Regex(
+            """(?:(?:;\s*)?Bal\s+(?:Rs\.?|INR|₹)?\s*[0-9,]+(?:\.\d{1,2})?\s+|;\s*)([^.\n]+?)\s+credited\.""",
+            RegexOption.IGNORE_CASE
+        )
+        creditedMerchantPattern.find(message)?.let { match ->
+            val merchant = cleanMerchantName(match.groupValues[1].trim())
+            if (isValidMerchantName(merchant)) {
+                return merchant
+            }
+        }
+
+        // Pattern 3: UPI Credit: "from <sender>. UPI:" or "from <sender> UPI:"
+        // Example: "Dear Customer, Acct XX1234 is credited with Rs 500.00 on 24-Oct-26 from JOHN DOE. UPI:..."
+        val fromUpiPattern = Regex(
+            """from\s+([^.\n]+?)(?:\.\s*UPI|\s+UPI)""",
+            RegexOption.IGNORE_CASE
+        )
+        fromUpiPattern.find(message)?.let { match ->
+            val merchant = cleanMerchantName(match.groupValues[1].trim())
+            if (isValidMerchantName(merchant)) {
+                return merchant
+            }
+        }
+
+        // Pattern 4: AutoPay/Mandate specific
+        if (message.contains("AutoPay", ignoreCase = true) ||
+            message.contains("MANDATE", ignoreCase = true)
+        ) {
+            // Extract merchant name before "for" if it's AutoPay
+            val merchantPattern = Regex(
+                """towards\s+([^.\n]+?)\s+for\s+\w*MANDATE""",
+                RegexOption.IGNORE_CASE
+            )
+            merchantPattern.find(message)?.let { match ->
+                return cleanMerchantName(match.groupValues[1].trim())
+            }
+        }
+
+        // Fall back to base class patterns
+        return super.extractMerchant(message, sender)
+    }
+
+    override fun extractAccountLast4(message: String): String? {
+        super.extractAccountLast4(message)?.let { return it }
+        // Pattern 1: "Acct XX1234" or "IDBI Bank Acct XX1234" or "A/c NN84608" or "a/c XXXX4608"
+        val acctPatterns = listOf(
+            Regex("""IDBI\s+Bank\s+Acct\s+([X*\d]+)""", RegexOption.IGNORE_CASE),
+            Regex("""Acct\s+([X*\d]+)""", RegexOption.IGNORE_CASE),
+            Regex("""(?:A/c|a/c)\s+([A-Za-z0-9*X]+)""", RegexOption.IGNORE_CASE)
+        )
+
+        for (pattern in acctPatterns) {
+            pattern.find(message)?.let { match ->
+                extractLast4Digits(match.groupValues[1])?.let { return it }
+            }
+        }
+
+        return null
+    }
+
+    override fun extractReference(message: String): String? {
+        // Pattern 1: "RRN 519766155631" or "Ref no 630212702154"
+        val rrnPattern = Regex(
+            """(?:RRN|Ref\s+no)\s+([A-Za-z0-9]+)""",
+            RegexOption.IGNORE_CASE
+        )
+        rrnPattern.find(message)?.let { match ->
+            return match.groupValues[1]
+        }
+
+        // Pattern 2: "UPI:521687538121"
+        val upiPattern = Regex(
+            """UPI:([A-Za-z0-9]+)""",
+            RegexOption.IGNORE_CASE
+        )
+        upiPattern.find(message)?.let { match ->
+            return match.groupValues[1]
+        }
+
+        // Fall back to base class
+        return super.extractReference(message)
+    }
+
+    override fun extractBalance(message: String): BigDecimal? {
+        // Pattern: "Bal Rs 3694.38" or "Avl Bal Rs. 16,252.65" or "Bal INR 16252.65" or "Bal Rs 50000"
+        val balancePattern = Regex(
+            """(?:Avl\s+Bal|Bal)\s+(?:Rs\.?|INR|₹)?\s*([0-9,]+(?:\.\d{1,2})?)""",
+            RegexOption.IGNORE_CASE
+        )
+        balancePattern.find(message)?.let { match ->
+            val balanceStr = match.groupValues[1].replace(",", "")
+            return try {
+                BigDecimal(balanceStr)
+            } catch (e: NumberFormatException) {
+                null
+            }
+        }
+
+        // Fall back to base class
+        return super.extractBalance(message)
+    }
+
+    override fun isTransactionMessage(message: String): Boolean {
+        val lowerMessage = message.lowercase()
+
+        // Skip UPI block instructions (not a transaction)
+        if (lowerMessage.contains("to block upi") && lowerMessage.contains("send sms")) {
+            // This is just instruction text, don't skip the entire message
+        }
+
+        // Fall back to base class for standard checks
+        return super.isTransactionMessage(message)
+    }
+}

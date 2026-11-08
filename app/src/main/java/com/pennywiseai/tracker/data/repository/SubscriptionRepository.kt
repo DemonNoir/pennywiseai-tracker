@@ -1,0 +1,356 @@
+package com.pennywiseai.tracker.data.repository
+
+import com.pennywiseai.tracker.data.database.entity.currentNameFor
+import com.pennywiseai.tracker.data.database.dao.SubscriptionDao
+import com.pennywiseai.tracker.data.database.entity.SubscriptionEntity
+import com.pennywiseai.tracker.data.database.entity.TransactionEntity
+import com.pennywiseai.tracker.data.database.entity.SubscriptionState
+import com.pennywiseai.tracker.data.database.entity.SubscriptionDirection
+import com.pennywiseai.tracker.domain.spending.RecurringCharge
+import com.pennywiseai.parser.core.bank.HDFCBankParser
+import com.pennywiseai.parser.core.bank.IndianBankParser
+import com.pennywiseai.parser.core.bank.SBIBankParser
+import com.pennywiseai.parser.core.bank.FederalBankParser
+import com.pennywiseai.parser.core.MandateInfo
+import com.pennywiseai.tracker.ui.icons.CategoryMapping
+import kotlinx.coroutines.flow.Flow
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import javax.inject.Inject
+import javax.inject.Singleton
+import android.util.Log
+
+@Singleton
+class SubscriptionRepository @Inject constructor(
+    private val subscriptionDao: SubscriptionDao,
+    private val categoryDao: com.pennywiseai.tracker.data.database.dao.CategoryDao
+) {
+    
+    companion object {
+        private const val TAG = "SubscriptionRepository"
+    }
+    
+    fun getAllSubscriptions(): Flow<List<SubscriptionEntity>> = 
+        subscriptionDao.getAllSubscriptions()
+    
+    fun getActiveSubscriptions(): Flow<List<SubscriptionEntity>> =
+        subscriptionDao.getActiveSubscriptions()
+
+    fun getEndedSubscriptions(): Flow<List<SubscriptionEntity>> =
+        subscriptionDao.getSubscriptionsByState(SubscriptionState.ENDED)
+    
+    fun getUpcomingSubscriptions(daysAhead: Int = 7): Flow<List<SubscriptionEntity>> {
+        val futureDate = LocalDate.now().plusDays(daysAhead.toLong())
+        return subscriptionDao.getUpcomingSubscriptions(futureDate)
+    }
+    
+    suspend fun getSubscriptionById(id: Long): SubscriptionEntity? = 
+        subscriptionDao.getSubscriptionById(id)
+    
+    suspend fun insertSubscription(subscription: SubscriptionEntity): Long = 
+        subscriptionDao.insertSubscription(subscription)
+    
+    suspend fun updateSubscription(subscription: SubscriptionEntity) = 
+        subscriptionDao.updateSubscription(subscription)
+    
+    suspend fun updateSubscriptionState(id: Long, state: SubscriptionState) = 
+        subscriptionDao.updateSubscriptionState(id, state)
+    
+    suspend fun hideSubscription(id: Long) {
+        Log.d(TAG, "Hiding subscription with ID: $id")
+        updateSubscriptionState(id, SubscriptionState.HIDDEN)
+    }
+    
+    suspend fun unhideSubscription(id: Long) =
+        updateSubscriptionState(id, SubscriptionState.ACTIVE)
+
+    /**
+     * Marks a subscription as ENDED. Unlike HIDDEN, an ENDED subscription
+     * is treated as terminal: new mandate SMS for the same merchant/amount
+     * will not auto-reactivate it. The user can still manually reactivate
+     * via [reactivateSubscription].
+     */
+    suspend fun markAsEnded(id: Long) {
+        Log.d(TAG, "Marking subscription with ID: $id as ENDED")
+        updateSubscriptionState(id, SubscriptionState.ENDED)
+    }
+
+    /**
+     * Manual escape hatch: revert ENDED → ACTIVE. Same code path as
+     * unhideSubscription but separated for symmetry with markAsEnded so
+     * callers can express intent clearly.
+     */
+    suspend fun reactivateSubscription(id: Long) =
+        updateSubscriptionState(id, SubscriptionState.ACTIVE)
+    
+    suspend fun deleteSubscription(id: Long) = 
+        subscriptionDao.deleteSubscriptionById(id)
+    
+    /**
+     * Creates or updates a subscription from HDFC E-Mandate info
+     */
+    suspend fun createOrUpdateFromEMandate(
+        eMandateInfo: HDFCBankParser.EMandateInfo,
+        bankName: String = "HDFC Bank",
+        smsBody: String? = null
+    ): Long = createOrUpdateFromMandate(eMandateInfo, bankName, smsBody)
+    
+    /**
+     * Active EXPENSE subscriptions billed by [merchantName] in [currency]. Merchant
+     * names compare by [RecurringCharge.merchantKey], so case and punctuation
+     * don't matter.
+     */
+    suspend fun activeExpenseSubscriptionsFor(
+        merchantName: String,
+        currency: String
+    ): List<SubscriptionEntity> =
+        subscriptionDao.getSubscriptionsByStateList(SubscriptionState.ACTIVE).filter {
+            it.direction == SubscriptionDirection.EXPENSE &&
+                it.currency.equals(currency, ignoreCase = true) &&
+                RecurringCharge.sameMerchant(it.merchantName, merchantName)
+        }
+
+    /**
+     * The active subscription [charge] pays, if any — a spend (a refund never
+     * pays a bill) at the same merchant, currency and amount (±5%), landing
+     * close enough to the due date ([RecurringCharge.canPayCycle]).
+     */
+    suspend fun matchTransactionToSubscription(charge: TransactionEntity): SubscriptionEntity? =
+        if (charge.transactionType !in RecurringCharge.SPEND_TYPES) null
+        else activeExpenseSubscriptionsFor(charge.merchantName, charge.currency).firstOrNull {
+            RecurringCharge.sameAmount(it.amount, charge.amount) &&
+                RecurringCharge.canPayCycle(it.nextPaymentDate, charge.dateTime.toLocalDate())
+        }
+
+    /**
+     * A bank charge paid [subscription]'s cycle: stamp `lastPaidAt` (drives the
+     * "Paid" badge) and advance the schedule by its billing cycle (#371). Both
+     * only move forward, so re-scanning an older SMS can't rewind the schedule.
+     * Reads the current row rather than trusting [subscription], which may be a
+     * snapshot taken before a reminder or manual payment moved the dates; call
+     * inside a transaction so the read and write stay together.
+     */
+    suspend fun recordCharge(subscription: SubscriptionEntity, chargeDate: LocalDate) {
+        val current = subscriptionDao.getSubscriptionById(subscription.id) ?: return
+        val advanced = advance(chargeDate, current.billingCycle)
+        val next = current.nextPaymentDate?.takeIf { it.isAfter(advanced) } ?: advanced
+        val paidAt = current.lastPaidAt?.takeIf { it.isAfter(chargeDate) } ?: chargeDate
+        subscriptionDao.markPaid(current.id, paidAt, next)
+    }
+
+    /**
+     * Cycle-aware date advance. Months/years use real calendar arithmetic
+     * (so "Monthly" lands on the same day-of-month next month, not strictly
+     * +30 days). Unknown cycles fall back to monthly so a stale or hand-
+     * inserted row never silently advances by 0 days.
+     */
+    fun advance(date: LocalDate, billingCycle: String, reverse: Boolean = false): LocalDate {
+        val sign = if (reverse) -1L else 1L
+        return when (billingCycle.uppercase()) {
+            "WEEKLY" -> date.plusWeeks(sign)
+            "MONTHLY" -> date.plusMonths(sign)
+            "QUARTERLY" -> date.plusMonths(3L * sign)
+            "SEMI-ANNUAL", "SEMI ANNUAL", "SEMIANNUAL" -> date.plusMonths(6L * sign)
+            "ANNUAL", "YEARLY" -> date.plusYears(sign)
+            else -> date.plusMonths(sign)
+        }
+    }
+
+    /** Active INCOME subscriptions due on or before [date] (#371). */
+    suspend fun getDueIncomeSubscriptions(date: LocalDate = LocalDate.now()): List<SubscriptionEntity> =
+        subscriptionDao.getDueIncomeSubscriptions(date)
+
+    /** Direct DAO passthrough — used by the income-autopay phantom creator. */
+    suspend fun updateNextPaymentDate(subscriptionId: Long, nextPaymentDate: LocalDate) =
+        subscriptionDao.updateNextPaymentDate(subscriptionId, nextPaymentDate)
+
+    /**
+     * Skips the active bill's cycle due [dueDate]: advances it one cycle, unless it
+     * was paid, skipped, edited or ended since. Returns whether it moved.
+     */
+    suspend fun skipCycle(subscription: SubscriptionEntity, dueDate: LocalDate): Boolean =
+        subscriptionDao.advanceIfDue(
+            subscription.id, dueDate, advance(dueDate, subscription.billingCycle), SubscriptionState.ACTIVE
+        ) > 0
+
+    /** See [SubscriptionDao.markPaid]. */
+    suspend fun markPaid(subscriptionId: Long, paidAt: LocalDate, nextPaymentDate: LocalDate) =
+        subscriptionDao.markPaid(subscriptionId, paidAt, nextPaymentDate)
+    
+    
+    /**
+     * Creates or updates a subscription from Indian Bank Mandate info
+     */
+    suspend fun createOrUpdateFromIndianBankMandate(
+        mandateInfo: IndianBankParser.IndianMandateInfo,
+        bankName: String = "Indian Bank",
+        smsBody: String? = null
+    ): Long = createOrUpdateFromMandate(mandateInfo, bankName, smsBody)
+    
+    /**
+     * Creates or updates a subscription from SBI UPI-Mandate info
+     */
+    suspend fun createOrUpdateFromSBIMandate(
+        upiMandateInfo: SBIBankParser.UPIMandateInfo,
+        bankName: String = "SBI",
+        smsBody: String? = null
+    ): Long = createOrUpdateFromMandate(upiMandateInfo, bankName, smsBody)
+
+    /**
+     * Creates or updates a subscription from Federal Bank E-Mandate info
+     */
+    suspend fun createOrUpdateFromFederalBankMandate(
+        mandateInfo: FederalBankParser.EMandateInfo,
+        bankName: String = "Federal Bank",
+        smsBody: String? = null
+    ): Long = createOrUpdateFromMandate(mandateInfo, bankName, smsBody)
+
+    /**
+     * Creates or updates a subscription from any MandateInfo implementation.
+     * This is the unified method that can handle mandates from any bank.
+     */
+    suspend fun createOrUpdateFromMandate(
+        mandateInfo: MandateInfo,
+        bankName: String,
+        smsBody: String? = null
+    ): Long {
+        val nextPaymentDate = mandateInfo.nextDeductionDate?.let { dateStr ->
+            try {
+                // Use the date format specified by the mandate implementation
+                LocalDate.parse(dateStr, DateTimeFormatter.ofPattern(mandateInfo.dateFormat))
+            } catch (e: Exception) {
+                // Fallback to 30 days from now if parsing fails
+                LocalDate.now().plusDays(30)
+            }
+        } ?: LocalDate.now().plusDays(30)
+
+        // For banks that provide UMN (HDFC, SBI, Federal), use it as primary identifier
+        val existing = if (mandateInfo.umn != null) {
+            subscriptionDao.getSubscriptionByUmn(mandateInfo.umn!!)
+        } else {
+            // For other banks or when no UMN, use merchant and amount matching
+            subscriptionDao.getSubscriptionByMerchantAndAmount(
+                mandateInfo.merchant,
+                mandateInfo.amount
+            )
+        }
+
+        Log.d(TAG, "Unified Mandate lookup - Bank: $bankName, Merchant: ${mandateInfo.merchant}, " +
+                  "Amount: ${mandateInfo.amount}, UMN: ${mandateInfo.umn}, " +
+                  "Next Date: $nextPaymentDate, Existing: ${existing?.let { "ID=${it.id}, State=${it.state}, " +
+                  "StoredDate=${it.nextPaymentDate}" } ?: "NOT FOUND"}")
+
+        val subscription = if (existing != null) {
+            // ENDED is terminal — the user explicitly cancelled and we never
+            // auto-reactivate or overwrite. Return the ID untouched so any
+            // downstream linking still resolves but the row stays cancelled.
+            //
+            // Tradeoff: if the user genuinely re-subscribes to the same
+            // service at the same price, the new mandate gets silently
+            // absorbed into the ENDED row instead of resurrecting it. That's
+            // intentional — auto-reactivation would defeat the whole point
+            // of the ENDED state — and recovery is one tap: open the
+            // Cancelled section on the subscriptions screen → Reactivate.
+            if (existing.state == SubscriptionState.ENDED) {
+                Log.d(TAG, "Subscription ${existing.id} is ENDED — leaving untouched.")
+                return existing.id
+            }
+
+            // Check if this is a hidden subscription that should be reactivated
+            // Only reactivate if the new payment date is LATER than the stored date
+            val shouldReactivate = existing.state == SubscriptionState.HIDDEN &&
+                                  nextPaymentDate.isAfter(existing.nextPaymentDate) &&
+                                  nextPaymentDate.isAfter(LocalDate.now())
+
+            Log.d(TAG, "Subscription state check - Hidden: ${existing.state == SubscriptionState.HIDDEN}, " +
+                      "New date after stored: ${nextPaymentDate.isAfter(existing.nextPaymentDate)}, " +
+                      "New date is future: ${nextPaymentDate.isAfter(LocalDate.now())}, " +
+                      "Should reactivate: $shouldReactivate")
+
+            // If hidden and payment date hasn't changed, don't update
+            if (existing.state == SubscriptionState.HIDDEN && !shouldReactivate) {
+                // Return the existing ID without any updates
+                Log.d(TAG, "Subscription ${existing.id} is HIDDEN and won't be reactivated " +
+                          "(payment date not newer). Skipping update.")
+                return existing.id
+            }
+
+            // Update existing subscription (reactivate if needed)
+            if (shouldReactivate) {
+                Log.i(TAG, "REACTIVATING subscription ${existing.id} - ${existing.merchantName} " +
+                          "(old date: ${existing.nextPaymentDate}, new date: $nextPaymentDate)")
+            }
+            existing.copy(
+                amount = mandateInfo.amount,
+                nextPaymentDate = nextPaymentDate,
+                merchantName = mandateInfo.merchant,
+                umn = mandateInfo.umn ?: existing.umn, // Update UMN if provided
+                // Capture the debiting account from the mandate SMS when present,
+                // but never clobber an account the user assigned manually (#570).
+                accountLast4 = mandateInfo.accountLast4 ?: existing.accountLast4,
+                state = if (shouldReactivate) SubscriptionState.ACTIVE else existing.state,
+                smsBody = smsBody ?: existing.smsBody, // Update SMS body if provided
+                updatedAt = java.time.LocalDateTime.now()
+            )
+        } else {
+            // Create new subscription
+            Log.d(TAG, "Creating NEW subscription - Bank: $bankName, Merchant: ${mandateInfo.merchant}, " +
+                      "Amount: ${mandateInfo.amount}, Date: $nextPaymentDate")
+            SubscriptionEntity(
+                merchantName = mandateInfo.merchant,
+                amount = mandateInfo.amount,
+                nextPaymentDate = nextPaymentDate,
+                state = SubscriptionState.ACTIVE,
+                bankName = bankName,
+                accountLast4 = mandateInfo.accountLast4,
+                umn = mandateInfo.umn,
+                // Checked against the table too, like transactions: a name the mirror
+                // hadn't caught up with yet (process start) is repaired here (#823).
+                category = categoryDao.getAllCategoriesList().currentNameFor(determineCategory(mandateInfo.merchant)),
+                smsBody = smsBody
+            )
+        }
+
+        return subscriptionDao.insertSubscription(subscription)
+    }
+
+    private fun determineCategory(merchantName: String): String {
+        // Use unified category mapping
+        return com.pennywiseai.tracker.data.mapper.BuiltinCategoryNames.current(CategoryMapping.getCategory(merchantName))
+    }
+
+    /**
+     * The active subscription this charge may pay at a new price, when it didn't
+     * match exactly: same merchant and currency, due within 5 days of the
+     * charge, at between half and double the old amount. Only a suggestion: the
+     * user confirms it from the alert before [recordPriceChange] runs.
+     */
+    suspend fun priceChangedSubscriptionFor(charge: TransactionEntity): SubscriptionEntity? =
+        if (charge.transactionType !in RecurringCharge.SPEND_TYPES) null
+        else activeExpenseSubscriptionsFor(charge.merchantName, charge.currency).firstOrNull {
+            RecurringCharge.isPriceChange(it.amount, it.nextPaymentDate, charge.amount, charge.dateTime.toLocalDate())
+        }
+
+    /** [recordCharge] for a charge at a new price: the subscription now bills [newAmount]. */
+    suspend fun recordPriceChange(subscription: SubscriptionEntity, newAmount: BigDecimal, chargeDate: LocalDate) {
+        val current = subscriptionDao.getSubscriptionById(subscription.id) ?: return
+        subscriptionDao.updateSubscription(
+            current.copy(amount = newAmount, updatedAt = java.time.LocalDateTime.now())
+        )
+        recordCharge(current, chargeDate)
+    }
+
+    /**
+     * Whether any subscription — active, hidden or ended — already covers
+     * [merchantName] in [currency], so a dismissed or cancelled one isn't
+     * suggested again.
+     */
+    suspend fun hasAnySubscriptionFor(merchantName: String, currency: String): Boolean =
+        SubscriptionState.entries.any { state ->
+            subscriptionDao.getSubscriptionsByStateList(state).any {
+                it.currency.equals(currency, ignoreCase = true) &&
+                    RecurringCharge.sameMerchant(it.merchantName, merchantName)
+            }
+        }
+}

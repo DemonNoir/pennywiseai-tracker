@@ -1,0 +1,9 @@
+What's new in 1.2:
+
+• Save bank SMS automatically: set up a Shortcuts "Message" automation and PennyWise books the transaction for you. The in-app guide walks you through it
+• Ask PennyWise AI about your money, fully on your iPhone (iOS 26 with Apple Intelligence). It can also draft transactions, which you confirm before anything is saved
+• Messages from banks PennyWise doesn't know yet can be read by on-device AI, then checked before they're saved
+• Back Tap and Shortcuts: log an expense in a couple of taps
+• Totals in different currencies are converted to your display currency instead of being mixed
+• Budgets show how many days are left in the period
+• Fixes: app lock now shows on launch, plus corrected money totals, links and layout

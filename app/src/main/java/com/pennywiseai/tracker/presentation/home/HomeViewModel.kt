@@ -1,0 +1,2096 @@
+package com.pennywiseai.tracker.presentation.home
+
+import com.pennywiseai.tracker.data.preferences.HomeSection
+import com.pennywiseai.tracker.data.preferences.HomeSectionLayout
+import android.content.Context
+import android.util.Log
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkInfo
+import androidx.work.workDataOf
+import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
+import com.pennywiseai.tracker.data.database.entity.BudgetImpactType
+import com.pennywiseai.tracker.data.database.entity.ProfileEntity
+import com.pennywiseai.tracker.data.database.entity.SubscriptionDirection
+import com.pennywiseai.tracker.data.database.entity.SubscriptionEntity
+import com.pennywiseai.tracker.data.database.entity.TransactionEntity
+import com.pennywiseai.tracker.data.manager.InAppUpdateManager
+import com.pennywiseai.tracker.data.manager.InAppReviewManager
+import com.pennywiseai.tracker.data.currency.CurrencyConversionService
+import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
+import com.pennywiseai.tracker.domain.model.BudgetCycle
+import com.pennywiseai.tracker.domain.spending.Bill
+import com.pennywiseai.tracker.domain.spending.SafeToSpend
+import com.pennywiseai.tracker.domain.spending.SpendForecast
+import com.pennywiseai.tracker.domain.spending.SubscriptionCost
+import com.pennywiseai.tracker.presentation.common.buildProfileAccountKeys
+import com.pennywiseai.tracker.presentation.common.filterAccountsByProfile
+import com.pennywiseai.tracker.presentation.common.filterTransactionsByProfile
+import com.pennywiseai.tracker.data.repository.AccountBalanceRepository
+import com.pennywiseai.tracker.data.repository.ProfileRepository
+import com.pennywiseai.tracker.data.repository.LlmRepository
+import com.pennywiseai.tracker.data.database.entity.LoanEntity
+import com.pennywiseai.tracker.data.database.entity.TransactionType
+import com.pennywiseai.tracker.data.database.entity.BudgetGroupType
+import com.pennywiseai.tracker.data.repository.BudgetCategorySpending
+import com.pennywiseai.tracker.data.repository.BudgetGroupRepository
+import com.pennywiseai.tracker.data.repository.aggregateBudgetCategorySpending
+import com.pennywiseai.tracker.data.repository.BudgetGroupSpending
+import com.pennywiseai.tracker.data.repository.BudgetGroupSpendingRaw
+import com.pennywiseai.tracker.data.repository.BudgetOverallSummary
+import com.pennywiseai.tracker.data.repository.LoanRepository
+import com.pennywiseai.tracker.data.repository.SubscriptionRepository
+import com.pennywiseai.tracker.data.repository.CategoryRepository
+import com.pennywiseai.tracker.data.database.entity.nameForBuiltin
+import com.pennywiseai.tracker.data.repository.TransactionGroupRepository
+import com.pennywiseai.tracker.data.repository.TransactionRepository
+import com.pennywiseai.tracker.R
+import com.pennywiseai.tracker.domain.usecase.ProcessSlipUseCase
+import com.pennywiseai.tracker.slip.parser.ParsedSlip
+import com.pennywiseai.tracker.slip.scanner.SlipForegroundScanner
+import com.pennywiseai.tracker.slip.worker.SlipAutoScanWorker
+import com.pennywiseai.tracker.utils.Money
+import com.pennywiseai.tracker.widget.WidgetRefresher
+import com.pennywiseai.tracker.utils.forTotals
+import com.pennywiseai.tracker.utils.sumByCurrency
+import com.pennywiseai.tracker.worker.OptimizedSmsReaderWorker
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.temporal.ChronoUnit
+import com.pennywiseai.tracker.domain.usecase.DeleteTransactionUseCase
+import com.pennywiseai.tracker.domain.usecase.RestoreTransactionUseCase
+import javax.inject.Inject
+
+/**
+ * Accounts that make up Home's spendable "bank" total: not credit cards or loan
+ * accounts (their balance is owed, #792), and not zero-balance accounts.
+ */
+internal fun spendableAccounts(balances: List<AccountBalanceEntity>): List<AccountBalanceEntity> =
+    balances.filter { !it.isLiability && it.balance != BigDecimal.ZERO }
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val transactionRepository: TransactionRepository,
+    private val transactionGroupRepository: TransactionGroupRepository,
+    private val subscriptionRepository: SubscriptionRepository,
+    private val accountBalanceRepository: AccountBalanceRepository,
+    private val budgetGroupRepository: BudgetGroupRepository,
+    private val loanRepository: LoanRepository,
+    goalRepository: com.pennywiseai.tracker.data.repository.GoalRepository,
+    private val llmRepository: LlmRepository,
+    private val currencyConversionService: CurrencyConversionService,
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val profileRepository: ProfileRepository,
+    private val inAppUpdateManager: InAppUpdateManager,
+    private val inAppReviewManager: InAppReviewManager,
+    private val deleteTransactionUseCase: DeleteTransactionUseCase,
+    private val restoreTransactionUseCase: RestoreTransactionUseCase,
+    private val processSlipUseCase: ProcessSlipUseCase,
+    slipForegroundScanner: SlipForegroundScanner,
+    @ApplicationContext private val context: Context,
+    entitlementGate: com.pennywiseai.tracker.billing.EntitlementGate,
+    private val categoryRepository: CategoryRepository,
+    private val recurringSuggestionsUseCase: com.pennywiseai.tracker.domain.usecase.RecurringSuggestionsUseCase,
+) : ViewModel() {
+
+    /**
+     * Drives the subtle Pro chip in the home top bar — hidden when the
+     * user is already entitled so we never push to existing buyers.
+     */
+    val isProEntitled: StateFlow<Boolean> = entitlementGate.isProEntitled
+    
+    private val sharedPrefs = context.getSharedPreferences("account_prefs", Context.MODE_PRIVATE)
+    private val _uiState = MutableStateFlow(HomeUiState())
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    
+    private val _deletedTransaction = MutableStateFlow<TransactionEntity?>(null)
+    val deletedTransaction: StateFlow<TransactionEntity?> = _deletedTransaction.asStateFlow()
+
+    // SMS scanning work progress tracking
+    private val _smsScanWorkInfo = MutableStateFlow<WorkInfo?>(null)
+    val smsScanWorkInfo: StateFlow<WorkInfo?> = _smsScanWorkInfo.asStateFlow()
+    val slipScanProgress = slipForegroundScanner.progress
+
+    /**
+     * Groups for the Home "Groups" section (#664). Groups were only reachable
+     * through Settings / the recent list's incidental group cards; an empty
+     * list keeps the section (and its Home footprint) entirely absent.
+     */
+    val groupSummaries: StateFlow<List<com.pennywiseai.tracker.data.repository.GroupSummary>> =
+        transactionGroupRepository.observeGroupSummaries()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Active goals for the Home "Goals" card (#914): soonest due first, Reached last; empty hides the card. */
+    val goals: StateFlow<List<com.pennywiseai.tracker.data.repository.GoalProgress>> =
+        goalRepository.observeActiveGoals()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Home section order + visibility (#770); default until DataStore emits. */
+    val homeSectionLayout: StateFlow<List<Pair<HomeSection, Boolean>>> =
+        userPreferencesRepository.homeSectionLayout
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeSectionLayout.DEFAULT)
+
+    fun moveHomeSection(section: HomeSection, delta: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.updateHomeSectionLayout { layout ->
+                val from = layout.indexOfFirst { it.first == section }
+                val to = from + delta
+                if (from < 0 || to !in layout.indices) layout
+                else layout.toMutableList().also { java.util.Collections.swap(it, from, to) }
+            }
+        }
+    }
+
+    fun setHomeSectionVisible(section: HomeSection, visible: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.updateHomeSectionLayout { layout ->
+                layout.map { if (it.first == section) section to visible else it }
+            }
+        }
+    }
+
+    /**
+     * The user's current budget cycle window (start, end). Recomputed whenever
+     * the start day pref changes — used everywhere the home surface used to
+     * do `now.withDayOfMonth(1)..now.withDayOfMonth(lengthOfMonth())`. Exposed
+     * as a StateFlow so the greeting card / breakdown dialog can read the
+     * same window the data is bucketed against.
+     */
+    private val _currentCycleWindow = MutableStateFlow(
+        BudgetCycle.currentCycle(LocalDate.now(), BudgetCycle.DEFAULT_START_DAY)
+    )
+    val currentCycleWindow: StateFlow<Pair<LocalDate, LocalDate>> = _currentCycleWindow.asStateFlow()
+
+    // Store currency breakdown maps for quick access when switching currencies
+    private var currentMonthBreakdownMap: Map<String, TransactionRepository.MonthlyBreakdown> = emptyMap()
+    private var lastMonthBreakdownMap: Map<String, TransactionRepository.MonthlyBreakdown> = emptyMap()
+
+    // The previous SpendForecast.USUAL_PERIODS complete cycles, most recent first, for
+    // the forecast's "usual". The first one is lastMonthBreakdownMap.
+    private var previousCycleBreakdownMaps: List<Map<String, TransactionRepository.MonthlyBreakdown>> = emptyList()
+    // The previous cycle cut at today's day-of-cycle, for the "vs this time last month" chip.
+    private var lastMonthSamePointBreakdownMap: Map<String, TransactionRepository.MonthlyBreakdown> = emptyMap()
+
+    // Per-currency LENT-loan settlement loss for each of those cycles, folded into "usual"
+    // the same way currentMonthLoanLossByCurrency is folded into this cycle's spend.
+    private var previousCycleLoanLoss: List<Map<String, BigDecimal>> = emptyList()
+
+    // Per-currency total loss from LENT loans settled this month. Folded into the displayed
+    // currentMonthExpenses so a settlement loss shows up as money the user actually lost.
+    private var currentMonthLoanLossByCurrency: Map<String, BigDecimal> = emptyMap()
+
+    // Per-currency principal lent during this month for currently-active LENT loans.
+    // Resolved against the selected/display currency in updateUIStateForCurrency so the
+    // Lent pill stays in sync when the user switches currency tabs.
+    private var currentMonthLentByCurrency: Map<String, BigDecimal> = emptyMap()
+
+    // Track if user has manually selected a currency to prevent auto-reset
+    private var hasUserSelectedCurrency = false
+
+    // Cached base currency for use in sort comparators (updated from preferences)
+    private var baseCurrency = ""
+
+    // Cache the latest account balances as a StateFlow so that combine blocks
+    // re-emit when account profiles change (e.g. via Manage Accounts).
+    // null = not loaded yet (avoids emitting stale empty data on cold launch)
+    private val _cachedAccountBalances = MutableStateFlow<List<AccountBalanceEntity>?>(null)
+    private val cachedAccountBalances: List<AccountBalanceEntity> get() = _cachedAccountBalances.value ?: emptyList()
+
+    // Visible spendable accounts in their own currency (not pre-converted), for Safe to spend.
+    private val spendableRaw = MutableStateFlow<List<AccountBalanceEntity>>(emptyList())
+
+    // Today's date as a flow, so day-based figures move on when Home is resumed on a new day.
+    private val today = MutableStateFlow(LocalDate.now())
+
+    /**
+     * Declared above init{} deliberately: Kotlin initialises properties in declaration
+     * order, and init calls refreshSharePrompt(). Leaving this further down the class
+     * means the flow does not exist yet when that runs.
+     */
+    private val _showSharePrompt = MutableStateFlow(false)
+    val showSharePrompt: StateFlow<Boolean> = _showSharePrompt.asStateFlow()
+
+    /** The one-time Home card pointing engaged free users to Pro (#945). */
+    val showProHomeCard: StateFlow<Boolean> = combine(
+        entitlementGate.resolvedProEntitlement,
+        userPreferencesRepository.proHomeCardHandled,
+        transactionRepository.observeActiveTransactionCount(),
+        _showSharePrompt,
+    ) { isPro, handled, count, sharePromptShowing ->
+        shouldShowProHomeCard(
+            isPro = isPro,
+            handled = handled,
+            installedAtMillis = context.packageManager
+                .getPackageInfo(context.packageName, 0).firstInstallTime,
+            nowMillis = System.currentTimeMillis(),
+            transactionCount = count,
+            sharePromptShowing = sharePromptShowing,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * The one-time "start budgets on payday?" card: the day the salary seems to land, offered
+     * only while the budget cycle is still the calendar month (day 1) and the card hasn't been
+     * accepted or dismissed. Null hides it. Detection reruns on any change to those months'
+     * transactions (a salary arriving with a later scan, or one recategorized as Salary).
+     */
+    val paydaySuggestion: StateFlow<Int?> = combine(
+        userPreferencesRepository.paydaySuggestionHandled,
+        userPreferencesRepository.budgetCycleStartDay,
+    ) { handled, cycleDay -> !handled && cycleDay == 1 }
+        .distinctUntilChanged()
+        .flatMapLatest { eligible ->
+            if (!eligible) return@flatMapLatest flowOf(null)
+            // Complete months only: a stray credit early in the current month would
+            // otherwise be that month's "salary" and break the agreement check.
+            val thisMonth = YearMonth.now()
+            combine(
+                transactionRepository.getTransactionsBetweenDates(
+                    thisMonth.minusMonths(PAYDAY_HISTORY_MONTHS).atDay(1).atStartOfDay(),
+                    thisMonth.atDay(1).atStartOfDay().minusNanos(1)
+                ),
+                categoryRepository.getAllCategories(),
+            ) { transactions, categories ->
+                // By built-in identity, so a translated or renamed Salary category still matches.
+                detectPayday(transactions, categories.nameForBuiltin("Salary"))?.takeIf { it != 1 }
+            }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * The compact "possible recurring bills" card: the untracked repeating payments
+     * found in history, or null to hide it. Dismissing hides it for 30 days, and
+     * after that it comes back only for a suggestion it hasn't shown before.
+     */
+    val recurringSuggestions: StateFlow<List<com.pennywiseai.tracker.domain.spending.RecurringSuggestion>?> = combine(
+        recurringSuggestionsUseCase.suggestions,
+        userPreferencesRepository.recurringHomeCardSeen,
+        userPreferencesRepository.recurringHomeCardDismissedAt,
+    ) { suggestions, seen, dismissedAt ->
+        val quiet = dismissedAt != null &&
+            System.currentTimeMillis() - dismissedAt < RECURRING_CARD_QUIET_MILLIS
+        suggestions.takeIf { list -> !quiet && list.any { it.key !in seen } }
+    }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun dismissRecurringSuggestions(shown: List<com.pennywiseai.tracker.domain.spending.RecurringSuggestion>) {
+        viewModelScope.launch {
+            userPreferencesRepository.dismissRecurringHomeCard(shown.map { it.key }, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Home's "Safe to spend": visible spendable accounts (minus the ones the user left
+     * out) less active subscriptions due before the cycle ends, capped at what's left
+     * in the overall budget ([safeToSpendCap]). Netted per currency;
+     * in unified mode each figure is converted to the display currency first, and one
+     * with no rate stays in its own currency as a separate line. Null hides the card.
+     */
+    val safeToSpend: StateFlow<SafeToSpendUi?> = combine(
+        spendableRaw,
+        subscriptionRepository.getActiveSubscriptions(),
+        userPreferencesRepository.safeToSpendExcludedAccounts,
+        combine(
+            _currentCycleWindow,
+            today,
+            _uiState.map { it.budgetSummary }.distinctUntilChanged(),
+        ) { window, day, budgets -> Triple(window.second, day, budgets?.safeToSpendCap(day)) },
+        combine(
+            userPreferencesRepository.unifiedCurrencyMode,
+            userPreferencesRepository.displayCurrency,
+            _uiState.map { it.selectedCurrency }.distinctUntilChanged(),
+            currencyConversionService.getAllRatesFlow(),
+        ) { unified, display, selected, _ -> if (unified) display to true else selected to false },
+    ) { accounts, subscriptions, excluded, (periodEnd, today, budgetLeft), (primaryCurrency, unified) ->
+        if (accounts.isEmpty()) return@combine null
+        suspend fun Money.forTotal(): Money =
+            if (!unified || currency == primaryCurrency) this
+            else currencyConversionService.convertAmountOrNull(amount, currency, primaryCurrency)
+                ?.let { Money(it, primaryCurrency) } ?: this // no rate: keep it apart (#670)
+        val bills = SafeToSpend.billsInWindow(SafeToSpend.billsFrom(subscriptions), today, periodEnd)
+        val results = SafeToSpend.calculate(
+            balances = countedInSafeToSpend(accounts, excluded).map { Money(it.balance, it.currency).forTotal() },
+            bills = bills.map { it.copy(amount = it.amount.forTotal()) },
+            today = today,
+            periodEnd = periodEnd,
+            budgetLeft = budgetLeft,
+        )
+        val primary = results.firstOrNull { it.currency == primaryCurrency }
+            ?: SafeToSpend.calculate(listOf(Money.zero(primaryCurrency)), emptyList(), today, periodEnd).single()
+        SafeToSpendUi(primary, results - primary, periodEnd, accounts, excluded, bills)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Called when Home resumes. On a new day, move the cycle window (if it rolled over)
+     * and re-run the day-based figures: forecast and Safe to spend.
+     */
+    fun refreshDate() {
+        val now = LocalDate.now()
+        if (now == today.value) return
+        today.value = now
+        viewModelScope.launch {
+            _currentCycleWindow.value = BudgetCycle.currentCycle(now, userPreferencesRepository.budgetCycleStartDay.first())
+            updateUIStateForCurrency(_uiState.value.selectedCurrency, _uiState.value.availableCurrencies)
+        }
+    }
+
+    fun setSafeToSpendAccountIncluded(account: AccountBalanceEntity, included: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSafeToSpendAccountIncluded(safeToSpendKey(account), included)
+        }
+    }
+
+    init {
+        loadUnifiedModePreferences()
+        loadUserName()
+        refreshSharePrompt()
+        // Mirror the "count card spend as expense" pref into UI state so the
+        // "Money in motion" card can hide its Credit chip when it's on (#705).
+        viewModelScope.launch {
+            userPreferencesRepository.countCreditCardAsExpense.collect { on ->
+                _uiState.value = _uiState.value.copy(countCreditCardAsExpense = on)
+            }
+        }
+        // Load base currency FIRST so selectedCurrency is set before data loads
+        viewModelScope.launch {
+            val base = userPreferencesRepository.baseCurrency.first()
+            baseCurrency = base
+            // In unified mode every figure is converted into the display currency, so
+            // start there — starting on the base currency would label converted
+            // amounts with the wrong symbol (e.g. USD values shown as ₹).
+            val initial = if (userPreferencesRepository.unifiedCurrencyMode.first()) {
+                userPreferencesRepository.displayCurrency.first()
+            } else base
+            _uiState.value = _uiState.value.copy(
+                selectedCurrency = initial,
+                availableCurrencies = listOf(initial)
+            )
+            loadHomeData()
+        }
+        // Keep listening for base currency changes
+        loadBaseCurrency()
+        observeSelectedProfile()
+        observeProfiles()
+        observeBudgetCycle()
+    }
+
+    /**
+     * Recompute the current cycle window whenever the user's start day changes
+     * (or once on first emission). Cheap: just two `LocalDate` reads + arithmetic.
+     */
+    private fun observeBudgetCycle() {
+        // Followed live: a shake or the eye anywhere in the app updates Home too.
+        userPreferencesRepository.isBalanceHidden
+            .onEach { hidden -> _uiState.value = _uiState.value.copy(isBalanceHidden = hidden) }
+            .launchIn(viewModelScope)
+
+        userPreferencesRepository.budgetCycleStartDay
+            .onEach { startDay ->
+                _currentCycleWindow.value = BudgetCycle.currentCycle(LocalDate.now(), startDay)
+            }
+            .launchIn(viewModelScope)
+    }
+
+    /** Hides or shows amounts app-wide; remembered across launches. */
+    fun toggleBalanceVisibility() {
+        viewModelScope.launch { userPreferencesRepository.toggleBalanceHidden() }
+    }
+
+    private fun loadUserName() {
+        userPreferencesRepository.userPreferences
+            .onEach { prefs ->
+                _uiState.value = _uiState.value.copy(
+                    userName = prefs.userName,
+                    profileImageUri = prefs.profileImageUri,
+                    profileBackgroundColor = prefs.profileBackgroundColor
+                )
+            }
+            .launchIn(viewModelScope)
+    }
+
+    private fun loadBaseCurrency() {
+        var previousBaseCurrency: String? = null
+        userPreferencesRepository.baseCurrency
+            .onEach { newBaseCurrency ->
+                // Only update if the baseCurrency ACTUALLY CHANGED (not just re-emitted)
+                if (newBaseCurrency == previousBaseCurrency) return@onEach
+                previousBaseCurrency = newBaseCurrency
+                this@HomeViewModel.baseCurrency = newBaseCurrency
+
+                val currentSelected = _uiState.value.selectedCurrency
+                val availableCurrencies = _uiState.value.availableCurrencies
+                // Unified mode pins the selection to the display currency.
+                if (userPreferencesRepository.unifiedCurrencyMode.first()) return@onEach
+                if (baseCurrency != currentSelected && !hasUserSelectedCurrency) {
+                    if (availableCurrencies.isEmpty() || availableCurrencies.contains(baseCurrency)) {
+                        selectCurrency(baseCurrency)
+                        hasUserSelectedCurrency = false  // Reset since this was auto-selection
+                    }
+                }
+            }
+            .launchIn(viewModelScope)
+    }
+
+    private fun observeSelectedProfile() {
+        userPreferencesRepository.selectedProfileId
+            .onEach { profileId ->
+                _uiState.value = _uiState.value.copy(selectedProfileId = profileId)
+                // Guard against cold-launch race: if balances aren't cached yet, the combine
+                // blocks that include _cachedAccountBalances will apply the filter automatically
+                // once balances load. Only call refreshAccountBalances() eagerly when the cache
+                // is already populated (i.e. on user-driven profile switches after launch).
+                if (_cachedAccountBalances.value != null) {
+                    refreshAccountBalances()
+                }
+            }
+            .launchIn(viewModelScope)
+    }
+
+    private fun observeProfiles() {
+        profileRepository.observeAllProfiles()
+            .onEach { profiles ->
+                _uiState.value = _uiState.value.copy(profiles = profiles)
+            }
+            .launchIn(viewModelScope)
+    }
+
+    fun updateSelectedProfile(profileId: Long?) {
+        viewModelScope.launch {
+            userPreferencesRepository.updateSelectedProfileId(profileId)
+        }
+    }
+
+    private fun filterTransactions(transactions: List<TransactionEntity>): List<TransactionEntity> {
+        return filterTransactionsByProfile(
+            transactions,
+            _uiState.value.selectedProfileId,
+            buildProfileAccountKeys(cachedAccountBalances)
+        )
+    }
+
+    private fun filterVisibleBalances(
+        allBalances: List<AccountBalanceEntity>,
+        hiddenAccounts: Set<String>
+    ): List<AccountBalanceEntity> {
+        return filterAccountsByProfile(allBalances, hiddenAccounts, _uiState.value.selectedProfileId)
+    }
+
+    private fun computeBreakdownByCurrency(
+        transactions: List<TransactionEntity>,
+        countCreditAsExpense: Boolean = false
+    ): Map<String, TransactionRepository.MonthlyBreakdown> {
+        // "Exclude from analytics" transactions stay in history & account balances
+        // but must not count toward the home card's income/spend figures — same as
+        // the Analytics screen, budgets and AI summaries already do (#451). Loan
+        // exclusion already happened upstream in loadHomeData(); forTotals() is
+        // idempotent, so this stays correct if that upstream filter ever moves.
+        return transactions
+            .forTotals()
+            .groupBy { it.currency }.mapValues { (_, txs) ->
+            // A "Refund" (INCOME + DEDUCT_SPENT) is the reversal of a previous
+            // expense, so it should shrink "Spent this month" and not appear as
+            // new income. "Extra budget" (ADD_TO_LIMIT) is real money in — leave
+            // it in the income total.
+            val refundTotal = txs
+                .filter {
+                    it.transactionType == TransactionType.INCOME &&
+                        it.budgetImpactType == BudgetImpactType.DEDUCT_SPENT
+                }
+                .fold(BigDecimal.ZERO) { acc, tx -> acc + tx.amount }
+            val income = txs
+                .filter {
+                    it.transactionType == TransactionType.INCOME &&
+                        it.budgetImpactType != BudgetImpactType.DEDUCT_SPENT
+                }
+                .fold(BigDecimal.ZERO) { acc, tx -> acc + tx.amount }
+            val rawExpenses = txs
+                .filter {
+                    it.transactionType == TransactionType.EXPENSE ||
+                        // Fold credit-card spend into expenses when the user opted in (#705).
+                        (countCreditAsExpense && it.transactionType == TransactionType.CREDIT)
+                }
+                .fold(BigDecimal.ZERO) { acc, tx -> acc + tx.amount }
+            val expenses = (rawExpenses - refundTotal).coerceAtLeast(BigDecimal.ZERO)
+            TransactionRepository.MonthlyBreakdown(
+                total = income - expenses,
+                income = income,
+                expenses = expenses
+            )
+        }
+    }
+
+    /**
+     * Net daily expense map for the sparkline: EXPENSE adds, Refund (INCOME +
+     * DEDUCT_SPENT) subtracts. Loan-linked transactions are excluded. Amounts are
+     * converted into [selectedCurrency] when [isUnified] is true and the txn's
+     * native currency differs; otherwise only txns already in [selectedCurrency]
+     * are considered. The caller is responsible for clamping the cumulative at
+     * zero so refunds don't make the running total go negative.
+     */
+    private suspend fun buildDailyNetExpense(
+        transactions: List<TransactionEntity>,
+        isUnified: Boolean,
+        selectedCurrency: String
+    ): Map<LocalDate, BigDecimal> {
+        val daily = mutableMapOf<LocalDate, BigDecimal>()
+        for (raw in transactions) {
+            val tx = raw.forTotals() ?: continue  // keep the trend line consistent with the income/spend figures (#451)
+            if (!isUnified && tx.currency != selectedCurrency) continue
+
+            val sign = when {
+                tx.transactionType == TransactionType.EXPENSE -> BigDecimal.ONE
+                tx.transactionType == TransactionType.INCOME &&
+                    tx.budgetImpactType == BudgetImpactType.DEDUCT_SPENT -> BigDecimal.ONE.negate()
+                else -> continue
+            }
+
+            val amount = if (isUnified && tx.currency != selectedCurrency) {
+                currencyConversionService.convertAmountOrNull(tx.amount, tx.currency, selectedCurrency)
+                    ?: continue // never-rated pair — skip, don't face-value (#670)
+            } else {
+                tx.amount
+            }
+            val day = tx.dateTime.toLocalDate()
+            daily[day] = (daily[day] ?: BigDecimal.ZERO) + amount.multiply(sign)
+        }
+        return daily
+    }
+
+    private fun loadUnifiedModePreferences() {
+        viewModelScope.launch {
+            combine(
+                userPreferencesRepository.unifiedCurrencyMode,
+                userPreferencesRepository.displayCurrency
+            ) { unifiedMode, displayCurrency ->
+                unifiedMode to displayCurrency
+            }.collect { (unifiedMode, displayCurrency) ->
+                val previousMode = _uiState.value.isUnifiedMode
+                val previousCurrency = _uiState.value.selectedCurrency
+
+                _uiState.value = _uiState.value.copy(isUnifiedMode = unifiedMode)
+
+                if (unifiedMode && (previousMode != unifiedMode || previousCurrency != displayCurrency)) {
+                    // Switch to unified mode: aggregate all currencies
+                    selectCurrency(displayCurrency)
+                }
+            }
+        }
+    }
+
+    private fun loadHomeData() {
+        viewModelScope.launch {
+            // Load current cycle breakdown by currency (filtered by business/personal).
+            // Loan-linked transactions are excluded — loan principal is shown separately
+            // as "Lent this cycle", and settlement losses are folded into expenses below.
+            //
+            // flatMapLatest on the cycle window so a start-day change (e.g. Settings
+            // → "25th" while the screen is open) cancels the in-flight query and
+            // re-fetches against the new window — without this, the captured
+            // cycleStart would go stale. `today` too: resuming on a new day inside the
+            // same cycle leaves the window unchanged, and the old end date would keep
+            // today's spending out of "Spent this month".
+            combine(_currentCycleWindow, today) { (cycleStart, _), day -> cycleStart to day }
+                .distinctUntilChanged()
+                .flatMapLatest { (cycleStart, day) ->
+                    transactionRepository.getTransactionsBetweenDates(cycleStart, day)
+                }
+                .combine(userPreferencesRepository.selectedProfileId) { transactions, profileId ->
+                    transactions to profileId
+                }
+                .combine(_cachedAccountBalances.filterNotNull()) { (transactions, profileId), balances ->
+                    filterTransactionsByProfile(transactions, profileId, buildProfileAccountKeys(balances))
+                        .forTotals()
+                }
+                .combine(userPreferencesRepository.countCreditCardAsExpense) { nonLoan, creditAsExpense ->
+                    computeBreakdownByCurrency(nonLoan, creditAsExpense)
+                }
+                .collect { breakdownByCurrency ->
+                    updateBreakdownForSelectedCurrency(breakdownByCurrency, isCurrentMonth = true)
+                }
+        }
+        
+        viewModelScope.launch {
+            // Load account balances — combined with unified mode preferences so that
+            // individual account entities are pre-converted when unified mode is on.
+            combine(
+                accountBalanceRepository.getAllLatestBalances(),
+                userPreferencesRepository.unifiedCurrencyMode,
+                userPreferencesRepository.displayCurrency,
+                // Re-run conversion whenever exchange rates change, so a balance that
+                // first rendered raw (rates not fetched yet, or device was offline)
+                // self-heals the moment the rate lands instead of staying mislabelled.
+                currencyConversionService.getAllRatesFlow()
+            ) { allBalances, isUnified, displayCurrency, _ ->
+                Triple(allBalances, isUnified, displayCurrency)
+            }.collect { (allBalances, isUnified, displayCurrency) ->
+                // Cache the raw (unfiltered) balances for refreshAccountBalances/refreshHiddenAccounts
+                _cachedAccountBalances.value = allBalances
+
+                // Get hidden accounts from SharedPreferences
+                val hiddenAccounts = sharedPrefs.getStringSet("hidden_accounts", emptySet()) ?: emptySet()
+
+                // Filter out hidden accounts and apply business filter
+                val balances = filterVisibleBalances(allBalances, hiddenAccounts)
+                // Separate credit cards from regular accounts (hide zero balance accounts).
+                // Loan accounts land in neither: they are owed, not spendable (#792).
+                val rawRegularAccounts = spendableAccounts(balances)
+                spendableRaw.value = rawRegularAccounts
+                val rawCreditCards = balances.filter { it.isCreditCard }
+
+                // Check if we have multiple currencies and refresh exchange rates if needed
+                val accountCurrencies = rawRegularAccounts.map { it.currency }.distinct()
+                val creditCardCurrencies = rawCreditCards.map { it.currency }.distinct()
+                val allAccountCurrencies = (accountCurrencies + creditCardCurrencies).distinct()
+
+                if (allAccountCurrencies.size > 1 && allAccountCurrencies.isNotEmpty()) {
+                    currencyConversionService.refreshExchangeRatesForAccount(allAccountCurrencies)
+                }
+
+                val selectedCurrency = if (isUnified) displayCurrency else _uiState.value.selectedCurrency
+
+                // Pre-convert individual account entities when unified mode is on
+                val regularAccounts = convertAccountEntities(rawRegularAccounts, selectedCurrency, isUnified)
+                val creditCards = convertAccountEntities(rawCreditCards, selectedCurrency, isUnified)
+
+                // Only balances already in selectedCurrency are totalled; anything else (native
+                // mode, or no rate yet) is left out and flagged, never added raw (₹ + $ ≠ anything).
+                val totals = balanceTotals(regularAccounts, creditCards, selectedCurrency)
+                val totalBalanceInSelectedCurrency = totals.balance
+                val totalAvailableCreditInSelectedCurrency = totals.availableCredit
+                val hasApproximateBalance = totals.hasOtherCurrencies
+
+                // Update available currencies to include account currencies
+                val currentAvailableCurrencies = _uiState.value.availableCurrencies.toSet()
+                val updatedAvailableCurrencies = (currentAvailableCurrencies + allAccountCurrencies)
+                    .sortedWith { a, b ->
+                        when {
+                            a == baseCurrency -> -1
+                            b == baseCurrency -> 1
+                            else -> a.compareTo(b)
+                        }
+                    }
+
+                // Balance is ready as soon as we have account data.
+                // Conversion failures are non-blocking — convertAmount returns the
+                // original amount as fallback, so no account is silently dropped.
+
+                _uiState.value = _uiState.value.copy(
+                    accountBalances = regularAccounts,  // Pre-converted in unified mode
+                    creditCards = creditCards,           // Pre-converted in unified mode
+                    totalBalance = totalBalanceInSelectedCurrency,
+                    totalAvailableCredit = totalAvailableCreditInSelectedCurrency,
+                    availableCurrencies = updatedAvailableCurrencies,
+                    isBalanceReady = true,
+                    isApproximateBalance = hasApproximateBalance
+                )
+            }
+        }
+
+        viewModelScope.launch {
+            // Load current cycle transactions by type (currency-filtered, business-filtered).
+            // Re-fires on cycle-window change via flatMapLatest.
+            _currentCycleWindow
+                .flatMapLatest { (cycleStart, cycleEnd) ->
+                    transactionRepository.getTransactionsBetweenDates(
+                        startDate = cycleStart,
+                        endDate = cycleEnd
+                    )
+                }
+                .combine(userPreferencesRepository.selectedProfileId) { transactions, profileId ->
+                    transactions to profileId
+                }
+                .combine(_cachedAccountBalances.filterNotNull()) { (transactions, profileId), balances ->
+                    filterTransactionsByProfile(transactions, profileId, buildProfileAccountKeys(balances))
+                }
+                .collect { transactions ->
+                    updateTransactionTypeTotals(transactions)
+                }
+        }
+
+        viewModelScope.launch {
+            // Track principal lent during the current cycle — surfaced separately from
+            // "Spent this cycle" so loan outflows don't masquerade as everyday spending.
+            // Stored per-currency so updateUIStateForCurrency can resolve the right value
+            // whenever the user switches currency tabs or unified mode toggles.
+            _currentCycleWindow
+                .flatMapLatest { (cycleStart, cycleEnd) ->
+                    val start = cycleStart.atStartOfDay()
+                    val end = cycleEnd.atTime(java.time.LocalTime.MAX)
+                    loanRepository.getActiveLentTransactionsInPeriod(start, end)
+                }
+                .combine(userPreferencesRepository.selectedProfileId) { lentTxns, profileId ->
+                    lentTxns to profileId
+                }
+                .combine(_cachedAccountBalances.filterNotNull()) { (lentTxns, profileId), balances ->
+                    val keys = buildProfileAccountKeys(balances)
+                    filterTransactionsByProfile(lentTxns, profileId, keys)
+                }
+                .collect { filtered ->
+                    currentMonthLentByCurrency = filtered.groupBy { it.currency }.mapValues { (_, txs) ->
+                        // Honour partial-loan tagging: only the loan_contribution
+                        // portion of a transaction (when set) counts toward
+                        // "Lent this cycle"; falls back to the full amount for
+                        // legacy / full-amount transactions.
+                        txs.fold(BigDecimal.ZERO) { acc, tx -> acc + (tx.loanContribution ?: tx.amount) }
+                    }
+                    updateUIStateForCurrency(_uiState.value.selectedCurrency, _uiState.value.availableCurrencies)
+                }
+        }
+
+        viewModelScope.launch {
+            // Track losses on LENT loans settled this cycle. Each loss feeds back into the
+            // displayed "Spent this cycle" via updateUIStateForCurrency.
+            //
+            // LoanEntity has no profile column, so the profile filter is applied via the
+            // source EXPENSE transaction (same bank+account → same profile).
+            _currentCycleWindow
+                .flatMapLatest { (cycleStart, cycleEnd) ->
+                    val start = cycleStart.atStartOfDay()
+                    val end = cycleEnd.atTime(java.time.LocalTime.MAX)
+                    loanRepository.getLentLoansSettledInPeriod(start, end)
+                }
+                .combine(userPreferencesRepository.selectedProfileId) { settledLoans, profileId ->
+                    settledLoans to profileId
+                }
+                .combine(_cachedAccountBalances.filterNotNull()) { (settledLoans, profileId), balances ->
+                    Triple(settledLoans, profileId, balances)
+                }
+                // A collect, not a trailing combine: a flow with no collector never runs,
+                // so settlement losses silently stopped reaching "Spent" after #571.
+                .collect { (settledLoans, profileId, balances) ->
+                    val keys = buildProfileAccountKeys(balances)
+                    currentMonthLoanLossByCurrency = loanRepository.settlementLossByCurrency(settledLoans) {
+                        filterTransactionsByProfile(listOf(it), profileId, keys).isNotEmpty()
+                    }
+                    updateUIStateForCurrency(_uiState.value.selectedCurrency, _uiState.value.availableCurrencies)
+                }
+        }
+
+        viewModelScope.launch {
+            // Load previous-cycle breakdown by currency (filtered by business/personal)
+            // "Last month" here means "previous cycle" so the comparison lines up with the
+            // custom start day (a user on the 25th-of-month cycle sees 25th→24th vs
+            // 25th→24th, not 1st→today vs 1st→today).
+            //
+            // One query covers the last SpendForecast.USUAL_PERIODS cycles so the
+            // forecast's "usual" uses exactly this spend definition too.
+            _currentCycleWindow
+                .flatMapLatest { current ->
+                    val startDay = userPreferencesRepository.budgetCycleStartDay.first()
+                    val cycles = generateSequence(BudgetCycle.previousCycle(current, startDay)) {
+                        BudgetCycle.previousCycle(it, startDay)
+                    }.take(SpendForecast.USUAL_PERIODS).toList()
+                    transactionRepository.getTransactionsBetweenDates(cycles.last().first, cycles.first().second)
+                        .map { transactions -> cycles to transactions }
+                }
+                .combine(userPreferencesRepository.selectedProfileId) { pair, profileId ->
+                    pair to profileId
+                }
+                .combine(_cachedAccountBalances.filterNotNull()) { (pair, profileId), balances ->
+                    val (cycles, transactions) = pair
+                    val keys = buildProfileAccountKeys(balances)
+                    previousCycleLoanLoss = cycles.map { (start, end) ->
+                        val settled = loanRepository.getLentLoansSettledInPeriod(
+                            start.atStartOfDay(), end.atTime(java.time.LocalTime.MAX)
+                        ).first()
+                        loanRepository.settlementLossByCurrency(settled) {
+                            filterTransactionsByProfile(listOf(it), profileId, keys).isNotEmpty()
+                        }
+                    }
+                    cycles to filterTransactionsByProfile(transactions, profileId, keys).forTotals()
+                }
+                .combine(userPreferencesRepository.countCreditCardAsExpense) { (cycles, nonLoan), creditAsExpense ->
+                    Triple(cycles, nonLoan, creditAsExpense)
+                }
+                // `today` too: the same-point window grows by a day every day.
+                .combine(today) { (cycles, nonLoan, creditAsExpense), day ->
+                    val full = cycles.map { (start, end) ->
+                        computeBreakdownByCurrency(
+                            nonLoan.filter { it.dateTime.toLocalDate() in start..end },
+                            creditAsExpense
+                        )
+                    }
+                    // As many days into the previous cycle as today is into this one, under
+                    // the headline's own spend rules (credit-card preference included).
+                    val (prevStart, prevEnd) = cycles.first()
+                    val elapsed = ChronoUnit.DAYS.between(_currentCycleWindow.value.first, day).coerceAtLeast(0)
+                    val cutoff = minOf(prevStart.plusDays(elapsed), prevEnd)
+                    val samePoint = computeBreakdownByCurrency(
+                        nonLoan.filter { it.dateTime.toLocalDate() in prevStart..cutoff },
+                        creditAsExpense
+                    )
+                    full to samePoint
+                }
+                .collect { (breakdowns, samePoint) ->
+                    previousCycleBreakdownMaps = breakdowns
+                    lastMonthSamePointBreakdownMap = samePoint
+                    updateBreakdownForSelectedCurrency(breakdowns.first(), isCurrentMonth = false)
+                }
+        }
+
+        viewModelScope.launch {
+            // Load cumulative spending sparkline for current cycle + previous cycle comparison.
+            // Keyed on `today` as well, like the "Spent" query, so a next-day resume
+            // extends the chart instead of freezing it at the ViewModel's first day.
+            var now = today.value
+            combine(_currentCycleWindow, today) { window, day -> window to day }
+                .distinctUntilChanged()
+                .flatMapLatest { (window, day) ->
+                    now = day
+                    val startDay = userPreferencesRepository.budgetCycleStartDay.first()
+                    val (lastMonthStart, _) = BudgetCycle.previousCycle(window, startDay)
+                    transactionRepository.getTransactionsBetweenDates(
+                        startDate = lastMonthStart,
+                        endDate = day
+                    )
+                }
+                .combine(userPreferencesRepository.selectedProfileId) { allTransactions, profileId ->
+                    allTransactions to profileId
+                }
+                .combine(_cachedAccountBalances.filterNotNull()) { (allTransactions, profileId), balances ->
+                    filterTransactionsByProfile(allTransactions, profileId, buildProfileAccountKeys(balances))
+                }
+                // Rebuild on a currency switch too, or the sparkline keeps drawing the
+                // previous currency's figures.
+                .combine(
+                    _uiState.map { it.selectedCurrency to it.isUnifiedMode }.distinctUntilChanged()
+                ) { allTransactions, _ -> allTransactions }
+                .collect { allTransactions ->
+                    val (firstOfMonth, _) = _currentCycleWindow.value
+                    val startDay = userPreferencesRepository.budgetCycleStartDay.first()
+                    val (lastMonthStart, _) = BudgetCycle.previousCycle(firstOfMonth to _currentCycleWindow.value.second, startDay)
+                    val selectedCurrency = _uiState.value.selectedCurrency
+                    val isUnified = _uiState.value.isUnifiedMode
+
+                    // Split into current cycle and previous cycle
+                    val currentMonthTxs = allTransactions.filter { it.dateTime.toLocalDate() >= firstOfMonth }
+                    val lastMonthTxs = allTransactions.filter {
+                        val d = it.dateTime.toLocalDate()
+                        d >= lastMonthStart && d < firstOfMonth
+                    }
+
+                    // Net daily expense (EXPENSE adds, Refund subtracts) for both
+                    // months, then cumulative below clamps at zero so refunds pull the
+                    // sparkline endpoint in lockstep with the displayed "Spent" stat.
+                    val dailySums = buildDailyNetExpense(currentMonthTxs, isUnified, selectedCurrency)
+                    val lastMonthDailySums = buildDailyNetExpense(lastMonthTxs, isUnified, selectedCurrency)
+
+                    // Carry the running total forward unclamped (so a refund dated
+                    // before the first expense still counts) and only clamp the value
+                    // we display, so the chart endpoint matches the month-level floor
+                    // applied to "Spent this cycle" in computeBreakdownByCurrency.
+                    val cumulativeList = mutableListOf<BigDecimal>()
+                    var runningNet = BigDecimal.ZERO
+                    var day = firstOfMonth
+                    while (!day.isAfter(now)) {
+                        runningNet += (dailySums[day] ?: BigDecimal.ZERO)
+                        cumulativeList.add(runningNet.coerceAtLeast(BigDecimal.ZERO))
+                        day = day.plusDays(1)
+                    }
+
+                    // Match the "same period" comparison the legacy code used: walk the
+                    // previous cycle for as many days as today's day-of-cycle, so an
+                    // Oct-5 vs Sep-25..Oct-4 chart isn't accidentally drawn over the
+                    // full previous cycle.
+                    val daysToInclude = ChronoUnit.DAYS.between(firstOfMonth, now).toInt() + 1
+                    val lastMonthCumulative = mutableListOf<BigDecimal>()
+                    var lastRunningNet = BigDecimal.ZERO
+                    var lastDay = lastMonthStart
+                    var dayCount = 0
+                    while (dayCount < daysToInclude && lastDay < firstOfMonth) {
+                        lastRunningNet += (lastMonthDailySums[lastDay] ?: BigDecimal.ZERO)
+                        lastMonthCumulative.add(lastRunningNet.coerceAtLeast(BigDecimal.ZERO))
+                        lastDay = lastDay.plusDays(1)
+                        dayCount++
+                    }
+
+                    _uiState.value = _uiState.value.copy(
+                        spendingHistory = cumulativeList,
+                        balanceHistory = cumulativeList,
+                        lastMonthSpendingHistory = lastMonthCumulative
+                    )
+                }
+        }
+
+        viewModelScope.launch {
+            // Load active loans summary for home carousel
+            combine(
+                loanRepository.getActiveLoans(),
+                userPreferencesRepository.unifiedCurrencyMode,
+                userPreferencesRepository.displayCurrency,
+                // Native mode totals only the selected currency, so re-total on a switch
+                // instead of relabelling the old currency's figures.
+                _uiState.map { it.selectedCurrency }.distinctUntilChanged()
+            ) { loans, isUnified, displayCurrency, _ ->
+                if (loans.isEmpty()) null
+                else Triple(loans, isUnified, displayCurrency)
+            }.collect { summary ->
+                if (summary == null) {
+                    _uiState.value = _uiState.value.copy(loanSummary = null)
+                    return@collect
+                }
+
+                val (loans, isUnified, displayCurrency) = summary
+                val selectedCurrency = if (isUnified) displayCurrency else _uiState.value.selectedCurrency
+
+                val loanCurrencies = loans.map { it.currency }.distinct()
+                if (isUnified && loanCurrencies.size > 1) {
+                    currencyConversionService.refreshExchangeRatesForAccount((loanCurrencies + selectedCurrency).distinct())
+                }
+
+                val loansForTotals = if (isUnified) {
+                    loans
+                } else {
+                    loans.filter { it.currency.equals(selectedCurrency, ignoreCase = true) }
+                }
+
+                var lentTotal = BigDecimal.ZERO
+                var borrowedTotal = BigDecimal.ZERO
+                for (loan in loansForTotals) {
+                    val amount = if (isUnified) {
+                        currencyConversionService.convertAmountOrNull(
+                            amount = loan.remainingAmount,
+                            fromCurrency = loan.currency,
+                            toCurrency = selectedCurrency
+                        ) ?: continue // never-rated pair — skip, don't face-value (#670)
+                    } else {
+                        loan.remainingAmount
+                    }
+                    when (loan.direction) {
+                        com.pennywiseai.tracker.data.database.entity.LoanDirection.LENT -> lentTotal += amount
+                        com.pennywiseai.tracker.data.database.entity.LoanDirection.BORROWED -> borrowedTotal += amount
+                    }
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    loanSummary = LoanSummary(
+                        activeLoans = loans,
+                        totalLentRemaining = lentTotal,
+                        totalBorrowedRemaining = borrowedTotal
+                    )
+                )
+            }
+        }
+
+        viewModelScope.launch {
+            // Load transaction heatmap (last 26 weeks / 182 days)
+            val heatmapStart = LocalDate.now().minusDays(182)
+            combine(
+                transactionRepository.getTransactionsBetweenDates(
+                    startDate = heatmapStart,
+                    endDate = LocalDate.now()
+                ),
+                userPreferencesRepository.selectedProfileId,
+                _cachedAccountBalances.filterNotNull()
+            ) { transactions, profileId, balances ->
+                filterTransactionsByProfile(transactions, profileId, buildProfileAccountKeys(balances))
+            }.collect { transactions ->
+                val heatmap = transactions
+                    .groupBy { it.dateTime.toLocalDate().toEpochDay() }
+                    .mapValues { it.value.size }
+                _uiState.value = _uiState.value.copy(transactionHeatmap = heatmap)
+            }
+        }
+
+        viewModelScope.launch {
+            // Load recent items: ungrouped transactions + groups, merged and sorted by most recent activity
+            val rawGroupsFlow = transactionGroupRepository.getAllGroups().flatMapLatest { groups ->
+                if (groups.isEmpty()) flowOf(emptyList())
+                else combine(groups.map { group ->
+                    transactionGroupRepository.getTransactionsForGroup(group.id)
+                        .map { txns -> group to txns }
+                }) { it.toList() }
+            }
+
+            combine(
+                combine(
+                    transactionGroupRepository.getRecentUngroupedTransactions(),
+                    _cachedAccountBalances
+                ) { ungrouped, balances ->
+                    val profileId = _uiState.value.selectedProfileId
+                    val keys = buildProfileAccountKeys(balances ?: emptyList())
+                    filterTransactionsByProfile(ungrouped, profileId, keys)
+                        .map { HomeRecentItem.SingleTransaction(it) }
+                },
+                combine(
+                    rawGroupsFlow,
+                    _cachedAccountBalances
+                ) { groupPairs, balances ->
+                    val profileId = _uiState.value.selectedProfileId
+                    val keys = buildProfileAccountKeys(balances ?: emptyList())
+                    groupPairs.mapNotNull { (group, txns) ->
+                        val filtered = filterTransactionsByProfile(txns, profileId, keys)
+                        if (filtered.isEmpty()) null
+                        else HomeRecentItem.GroupItem(group, filtered)
+                    }
+                },
+                userPreferencesRepository.unifiedCurrencyMode,
+                userPreferencesRepository.displayCurrency
+            ) { singles, groups, isUnified, displayCurrency ->
+                val merged = (singles + groups)
+                    .sortedByDescending { it.sortTime }
+                    .take(5)
+
+                if (!isUnified) return@combine merged
+
+                merged.map { item ->
+                    when (item) {
+                        is HomeRecentItem.SingleTransaction -> {
+                            val converted = if (!item.transaction.currency.equals(displayCurrency, ignoreCase = true))
+                                currencyConversionService.convertAmountOrNull(item.transaction.amount, item.transaction.currency, displayCurrency)
+                            else null
+                            item.copy(convertedAmount = converted)
+                        }
+                        is HomeRecentItem.GroupItem -> {
+                            val amounts = item.transactions
+                                .filter { !it.currency.equals(displayCurrency, ignoreCase = true) }
+                                .mapNotNull { tx ->
+                                    currencyConversionService
+                                        .convertAmountOrNull(tx.amount, tx.currency, displayCurrency)
+                                        ?.let { tx.id to it }
+                                }
+                                .toMap()
+                            item.copy(convertedAmounts = amounts)
+                        }
+                    }
+                }
+            }.collect { items ->
+                _uiState.value = _uiState.value.copy(recentItems = items, isLoading = false)
+            }
+        }
+        
+        viewModelScope.launch {
+            // Load all active subscriptions with conversion for unified mode
+            combine(
+                subscriptionRepository.getActiveSubscriptions(),
+                userPreferencesRepository.unifiedCurrencyMode,
+                userPreferencesRepository.displayCurrency
+            ) { subscriptions, isUnified, displayCurrency ->
+                Triple(subscriptions, isUnified, displayCurrency)
+            }.collect { (allActive, isUnified, displayCurrency) ->
+                // Money going out only: an income "subscription" (salary, rent received)
+                // isn't a bill, and a weekly or annual charge is folded to its monthly
+                // share so the card's "Monthly total" is one.
+                val subscriptions = allActive.filter { it.direction == SubscriptionDirection.EXPENSE }
+                // Unified mode collapses to one converted figure. Native mode keeps
+                // currencies apart — summing ₹ + $ into one figure mislabels it — so
+                // we expose a per-currency map the card renders as "₹499 · $10".
+                val monthlyCosts = subscriptions.map { it to SubscriptionCost.monthlyEquivalent(it.amount, it.billingCycle) }
+                val totalAmount = if (isUnified) {
+                    var total = java.math.BigDecimal.ZERO
+                    for ((sub, monthly) in monthlyCosts) {
+                        total += currencyConversionService.convertAmountOrNull(
+                            monthly, sub.currency, displayCurrency
+                        ) ?: continue // never-rated pair — skip, don't face-value (#670)
+                    }
+                    total
+                } else {
+                    java.math.BigDecimal.ZERO
+                }
+                val totalByCurrency: Map<String, Money> = if (isUnified) {
+                    emptyMap()
+                } else {
+                    monthlyCosts.sumByCurrency({ it.first.currency }, { it.second })
+                }
+                _uiState.value = _uiState.value.copy(
+                    upcomingSubscriptions = subscriptions,
+                    upcomingSubscriptionsTotal = totalAmount,
+                    upcomingSubscriptionsByCurrency = totalByCurrency,
+                    nextDueSubscription = subscriptions
+                        .filter { it.nextPaymentDate != null }
+                        .minByOrNull { it.nextPaymentDate!! }
+                )
+            }
+        }
+
+        viewModelScope.launch {
+            combine(
+                userPreferencesRepository.unifiedCurrencyMode,
+                userPreferencesRepository.displayCurrency,
+                userPreferencesRepository.baseCurrency,
+                // Re-run on a new day too: a weekly budget can reset inside the same
+                // monthly cycle, and Safe to spend's cap reads this summary's windows.
+                combine(_currentCycleWindow, today) { cycle, _ -> cycle }
+            ) { unifiedMode, displayCurrency, baseCurrency, cycle ->
+                Quad(unifiedMode, displayCurrency, baseCurrency, cycle)
+            }.flatMapLatest { (unifiedMode, displayCurrency, baseCurrency, cycle) ->
+                // Always pass today's year-month to the budget repo. The
+                // home dashboard is the *current* view; a user on startDay=25
+                // seeing the page on Jul 1 should get the Jul view, not the
+                // Jun cycle-start view (the cycle's start year-month is for
+                // the *Budgets page* navigation, not the home). The repo
+                // resolves each budget's window from resolveBudgetWindow
+                // independently, so the per-cadence window math is correct
+                // regardless of which calendar month the page is on.
+                val startDay = userPreferencesRepository.budgetCycleStartDay.first()
+                val today = LocalDate.now()
+                val todayYm = YearMonth.of(today.year, today.monthValue)
+                if (unifiedMode) {
+                    budgetGroupRepository.getGroupSpendingAllCurrencies(todayYm.year, todayYm.monthValue)
+                        .map { raw ->
+                            mapRawToConvertedSummary(raw, displayCurrency, baseCurrency)
+                        }
+                } else {
+                    budgetGroupRepository.getGroupSpending(todayYm.year, todayYm.monthValue, baseCurrency)
+                }
+            }.collect { summary ->
+                _uiState.value = _uiState.value.copy(
+                    budgetSummary = summary
+                )
+            }
+        }
+    }
+    
+    private fun calculateMonthlyChange() {
+        // Compare like with like: spend so far vs the same number of days into the
+        // previous cycle, not the whole previous cycle — that made every early-cycle
+        // day read as a green "% less".
+        // ponytail: settlement losses sit in the headline but not the same-point window
+        // (as with the old full-cycle figure); add a windowed loss query if it matters.
+        val state = _uiState.value
+        val current = state.currentMonthExpenses
+        val lastAtSamePoint = state.lastMonthSamePointExpenses
+        _uiState.value = state.copy(
+            monthlyChange = current - lastAtSamePoint,
+            monthlyChangePercent = monthlyChangePercent(current, lastAtSamePoint)
+        )
+    }
+    
+    fun refreshHiddenAccounts() {
+        viewModelScope.launch {
+            // Use cached balances instead of re-fetching from the repository
+            val allBalances = cachedAccountBalances
+            if (allBalances.isEmpty()) return@launch
+
+            val hiddenAccounts = sharedPrefs.getStringSet("hidden_accounts", emptySet()) ?: emptySet()
+
+            val visibleBalances = filterVisibleBalances(allBalances, hiddenAccounts)
+
+            val rawRegularAccounts = spendableAccounts(visibleBalances)
+            spendableRaw.value = rawRegularAccounts
+            val rawCreditCards = visibleBalances.filter { it.isCreditCard }
+
+            val selectedCurrency = _uiState.value.selectedCurrency
+            val isUnified = _uiState.value.isUnifiedMode
+
+            // Pre-convert individual account entities when unified mode is on
+            val regularAccounts = convertAccountEntities(rawRegularAccounts, selectedCurrency, isUnified)
+            val creditCards = convertAccountEntities(rawCreditCards, selectedCurrency, isUnified)
+
+            // Only balances already in selectedCurrency are totalled; anything else (native
+            // mode, or no rate yet) is left out and flagged, never added raw (₹ + $ ≠ anything).
+            val totals = balanceTotals(regularAccounts, creditCards, selectedCurrency)
+            val totalBalance = totals.balance
+            val totalAvailableCredit = totals.availableCredit
+            val hasApproximateBalance = totals.hasOtherCurrencies
+
+            _uiState.value = _uiState.value.copy(
+                accountBalances = regularAccounts,
+                creditCards = creditCards,
+                totalBalance = totalBalance,
+                totalAvailableCredit = totalAvailableCredit,
+                isBalanceReady = true,
+                isApproximateBalance = hasApproximateBalance
+            )
+        }
+    }
+
+    /**
+     * Scans SMS messages for transactions.
+     * @param forceResync If true, performs a full resync from scratch, reprocessing all SMS messages.
+     *                    This is useful when bank parsers have been updated and old transactions need to be re-parsed.
+     *                    If false (default), performs an incremental scan for new messages only.
+     * @param rescanAll If true, re-reads the whole scan window without deleting
+     *                  anything: adds missed messages and keeps every edit.
+     */
+    fun scanSmsMessages(forceResync: Boolean = false, rescanAll: Boolean = false) {
+        val inputData = workDataOf(
+            OptimizedSmsReaderWorker.INPUT_FORCE_RESYNC to forceResync,
+            OptimizedSmsReaderWorker.INPUT_RESCAN_ALL to rescanAll
+        )
+
+        val workRequest = OneTimeWorkRequestBuilder<OptimizedSmsReaderWorker>()
+            .setInputData(inputData)
+            .addTag(OptimizedSmsReaderWorker.WORK_NAME)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            OptimizedSmsReaderWorker.WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            workRequest
+        )
+
+        val slipWork = OneTimeWorkRequestBuilder<SlipAutoScanWorker>().build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            SlipAutoScanWorker.WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            slipWork
+        )
+
+        // Update UI to show scanning
+        _uiState.value = _uiState.value.copy(isScanning = true)
+
+        // Track work progress
+        observeWorkProgress()
+    }
+
+    fun saveParsedSlipTransaction(parsedSlip: ParsedSlip) {
+        viewModelScope.launch {
+            try {
+                processSlipUseCase.execute(parsedSlip)
+                WidgetRefresher.refreshTransactionWidgets(context)
+                Toast.makeText(context, R.string.slip_transaction_saved, Toast.LENGTH_SHORT).show()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("HomeViewModel", "Failed to save slip transaction", e)
+                Toast.makeText(context, R.string.error_save_transaction_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun observeWorkProgress() {
+        val workManager = WorkManager.getInstance(context)
+
+        // Use getWorkInfosById for more direct observation
+        workManager.getWorkInfosByTagLiveData(OptimizedSmsReaderWorker.WORK_NAME).observeForever { workInfos ->
+            val currentWork = workInfos.firstOrNull { it.tags.contains(OptimizedSmsReaderWorker.WORK_NAME) }
+            if (currentWork != null) {
+                _smsScanWorkInfo.value = currentWork
+
+                // Update scanning state based on work state
+                when (currentWork.state) {
+                    WorkInfo.State.SUCCEEDED,
+                    WorkInfo.State.FAILED,
+                    WorkInfo.State.CANCELLED,
+                    WorkInfo.State.BLOCKED -> {
+                        _uiState.value = _uiState.value.copy(isScanning = false)
+                    }
+                    else -> {
+                        // Still running or enqueued
+                        _uiState.value = _uiState.value.copy(isScanning = true)
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelSmsScan() {
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelUniqueWork(OptimizedSmsReaderWorker.WORK_NAME)
+        _uiState.value = _uiState.value.copy(isScanning = false)
+    }
+
+    fun refreshAccountBalances() {
+        viewModelScope.launch {
+            // Use cached balances instead of starting a new .collect — this prevents
+            // a race condition where two competing collectors would cause the balance
+            // to show with the wrong currency symbol.
+            val allBalances = cachedAccountBalances
+            if (allBalances.isEmpty()) return@launch
+
+            val hiddenAccounts = sharedPrefs.getStringSet("hidden_accounts", emptySet()) ?: emptySet()
+
+            val balances = filterVisibleBalances(allBalances, hiddenAccounts)
+            val rawRegularAccounts = spendableAccounts(balances)
+            spendableRaw.value = rawRegularAccounts
+            val rawCreditCards = balances.filter { it.isCreditCard }
+
+            val accountCurrencies = rawRegularAccounts.map { it.currency }.distinct()
+            val creditCardCurrencies = rawCreditCards.map { it.currency }.distinct()
+            val allAccountCurrencies = (accountCurrencies + creditCardCurrencies).distinct()
+
+            if (allAccountCurrencies.size > 1 && allAccountCurrencies.isNotEmpty()) {
+                currencyConversionService.refreshExchangeRatesForAccount(allAccountCurrencies)
+            }
+
+            val selectedCurrency = _uiState.value.selectedCurrency
+            val isUnified = _uiState.value.isUnifiedMode
+
+            // Pre-convert individual account entities when unified mode is on
+            val regularAccounts = convertAccountEntities(rawRegularAccounts, selectedCurrency, isUnified)
+            val creditCards = convertAccountEntities(rawCreditCards, selectedCurrency, isUnified)
+
+            // Only balances already in selectedCurrency are totalled; anything else (native
+            // mode, or no rate yet) is left out and flagged, never added raw (₹ + $ ≠ anything).
+            val totals = balanceTotals(regularAccounts, creditCards, selectedCurrency)
+            val totalBalanceInSelectedCurrency = totals.balance
+            val totalAvailableCreditInSelectedCurrency = totals.availableCredit
+            val hasApproximateBalance = totals.hasOtherCurrencies
+
+            _uiState.value = _uiState.value.copy(
+                accountBalances = regularAccounts,
+                creditCards = creditCards,
+                totalBalance = totalBalanceInSelectedCurrency,
+                totalAvailableCredit = totalAvailableCreditInSelectedCurrency,
+                isBalanceReady = true,
+                isApproximateBalance = hasApproximateBalance
+            )
+        }
+    }
+
+    fun updateSystemPrompt() {
+        viewModelScope.launch {
+            try {
+                llmRepository.updateSystemPrompt()
+            } catch (e: Exception) {
+                // Handle error silently or add error state if needed
+            }
+        }
+    }
+    
+    fun showBreakdownDialog() {
+        _uiState.value = _uiState.value.copy(showBreakdownDialog = true)
+    }
+    
+    fun hideBreakdownDialog() {
+        _uiState.value = _uiState.value.copy(showBreakdownDialog = false)
+    }
+    
+    /**
+     * Checks for app updates using Google Play In-App Updates.
+     * Should be called with the current activity context.
+     * @param activity The activity context
+     * @param snackbarHostState Optional SnackbarHostState for showing restart prompt
+     * @param scope Optional CoroutineScope for launching the snackbar
+     */
+    fun checkForAppUpdate(
+        activity: ComponentActivity,
+        snackbarHostState: androidx.compose.material3.SnackbarHostState? = null,
+        scope: kotlinx.coroutines.CoroutineScope? = null
+    ) {
+        inAppUpdateManager.checkForUpdate(activity, snackbarHostState, scope)
+    }
+    
+    fun deleteTransaction(transaction: TransactionEntity) {
+        viewModelScope.launch {
+            _deletedTransaction.value = transaction
+            deleteTransactionUseCase(transaction)
+            com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+        }
+    }
+
+    fun undoDelete() {
+        _deletedTransaction.value?.let { transaction ->
+            viewModelScope.launch {
+                restoreTransactionUseCase(transaction)
+                _deletedTransaction.value = null
+                com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+            }
+        }
+    }
+
+    fun undoDeleteTransaction(transaction: TransactionEntity) {
+        viewModelScope.launch {
+            restoreTransactionUseCase(transaction)
+            com.pennywiseai.tracker.widget.WidgetRefresher.refreshTransactionWidgets(context)
+        }
+    }
+    
+    fun clearDeletedTransaction() {
+        _deletedTransaction.value = null
+    }
+    
+    /**
+     * Checks if eligible for in-app review and shows if appropriate.
+     * Should be called with the current activity context.
+     */
+    /**
+     * Whether to offer the monthly "your month, summed up" prompt on Home.
+     *
+     * Checked on composition rather than scheduled through WorkManager: the OEM battery
+     * managers that dominate this app's install base (Xiaomi, Oppo, Vivo, Realme) kill
+     * background work aggressively, so a scheduled job would fire late, or never. Users
+     * open their expense tracker anyway, which makes the scheduler unnecessary.
+     */
+    private val lastMonthKey: String
+        get() = YearMonth.from(LocalDate.now()).minusMonths(1).toString()
+
+    private fun refreshSharePrompt() {
+        viewModelScope.launch {
+            if (userPreferencesRepository.sharePromptHandledMonth.first() == lastMonthKey) {
+                _showSharePrompt.value = false
+                return@launch
+            }
+            // A card summarising three transactions is worse than no card, and nobody
+            // shares one. Below this bar the prompt simply doesn't appear.
+            val month = YearMonth.from(LocalDate.now()).minusMonths(1)
+            val count = transactionRepository.getTransactionsBetweenDates(
+                month.atDay(1).atStartOfDay(),
+                month.atEndOfMonth().atTime(23, 59, 59),
+            ).first().size
+            _showSharePrompt.value = count >= MIN_TRANSACTIONS_FOR_SHARE_PROMPT
+        }
+    }
+
+    /** Called when the user opens or dismisses the prompt — either way it's handled. */
+    fun markSharePromptHandled() {
+        _showSharePrompt.value = false
+        viewModelScope.launch {
+            userPreferencesRepository.markSharePromptHandled(lastMonthKey)
+        }
+    }
+
+    /** "Start on day N" on the payday card: the budget cycle moves to payday, and the card never comes back. */
+    fun acceptPaydaySuggestion(day: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.markPaydaySuggestionHandled()
+            userPreferencesRepository.updateBudgetCycleStartDay(day)
+        }
+    }
+
+    /** ✕ on the payday card. The day stays settable in Settings → Budget cycle. */
+    fun dismissPaydaySuggestion() {
+        viewModelScope.launch { userPreferencesRepository.markPaydaySuggestionHandled() }
+    }
+
+    /** "See Pro" or ✕ on the Pro card — either way it never comes back. */
+    fun markProHomeCardHandled() {
+        viewModelScope.launch { userPreferencesRepository.markProHomeCardHandled() }
+    }
+
+    fun checkForInAppReview(activity: ComponentActivity) {
+        viewModelScope.launch {
+            // Get current transaction count as additional eligibility factor
+            val transactionCount = transactionRepository.getAllTransactions().first().size
+            inAppReviewManager.checkAndShowReviewIfEligible(activity, transactionCount)
+        }
+    }
+    
+    fun selectCurrency(currency: String) {
+        hasUserSelectedCurrency = true
+        _uiState.value = _uiState.value.copy(isBalanceReady = false)
+        // Update monthly breakdown values from stored maps
+        val availableCurrencies = _uiState.value.availableCurrencies
+        updateUIStateForCurrency(currency, availableCurrencies)
+
+        // Refresh account balances to convert them to the new selected currency
+        refreshAccountBalances()
+
+        // Also refresh transaction type totals for new currency
+        viewModelScope.launch {
+            val (cycleStart, cycleEnd) = _currentCycleWindow.value
+
+            val allTransactions = transactionRepository.getTransactionsBetweenDates(
+                startDate = cycleStart,
+                endDate = cycleEnd
+            ).first()
+            val transactions = filterTransactions(allTransactions)
+            updateTransactionTypeTotals(transactions)
+        }
+    }
+
+    private fun updateTransactionTypeTotals(transactions: List<TransactionEntity>) {
+        val selectedCurrency = _uiState.value.selectedCurrency
+        val isUnified = _uiState.value.isUnifiedMode
+        // Drop excluded-from-analytics rows here too, so the home CREDIT/TRANSFER/
+        // INVESTMENT totals stay consistent with the income/spend breakdown (#451).
+        val nonLoanTransactions = transactions.forTotals()
+
+        if (isUnified) {
+            // Convert all transactions to display currency
+            viewModelScope.launch {
+                var creditCardTotal = BigDecimal.ZERO
+                var transferTotal = BigDecimal.ZERO
+                var investmentTotal = BigDecimal.ZERO
+
+                for (tx in nonLoanTransactions) {
+                    val converted = currencyConversionService
+                        .convertAmountOrNull(tx.amount, tx.currency, selectedCurrency) ?: continue
+                    when (tx.transactionType) {
+                        com.pennywiseai.tracker.data.database.entity.TransactionType.CREDIT -> creditCardTotal += converted
+                        com.pennywiseai.tracker.data.database.entity.TransactionType.TRANSFER -> transferTotal += converted
+                        com.pennywiseai.tracker.data.database.entity.TransactionType.INVESTMENT -> investmentTotal += converted
+                        else -> { /* skip */ }
+                    }
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    currentMonthCreditCard = creditCardTotal,
+                    currentMonthTransfer = transferTotal,
+                    currentMonthInvestment = investmentTotal
+                )
+            }
+        } else {
+            // Filter transactions by selected currency
+            val currencyTransactions = nonLoanTransactions.filter { it.currency == selectedCurrency }
+
+            val creditCardTotal = currencyTransactions
+                .filter { it.transactionType == com.pennywiseai.tracker.data.database.entity.TransactionType.CREDIT }
+                .fold(java.math.BigDecimal.ZERO) { acc, t -> acc + t.amount }
+            val transferTotal = currencyTransactions
+                .filter { it.transactionType == com.pennywiseai.tracker.data.database.entity.TransactionType.TRANSFER }
+                .fold(java.math.BigDecimal.ZERO) { acc, t -> acc + t.amount }
+            val investmentTotal = currencyTransactions
+                .filter { it.transactionType == com.pennywiseai.tracker.data.database.entity.TransactionType.INVESTMENT }
+                .fold(java.math.BigDecimal.ZERO) { acc, t -> acc + t.amount }
+
+            _uiState.value = _uiState.value.copy(
+                currentMonthCreditCard = creditCardTotal,
+                currentMonthTransfer = transferTotal,
+                currentMonthInvestment = investmentTotal
+            )
+        }
+    }
+
+    private fun updateBreakdownForSelectedCurrency(
+        breakdownByCurrency: Map<String, TransactionRepository.MonthlyBreakdown>,
+        isCurrentMonth: Boolean
+    ) {
+        // Store the breakdown map for later use when switching currencies
+        if (isCurrentMonth) {
+            currentMonthBreakdownMap = breakdownByCurrency
+        } else {
+            lastMonthBreakdownMap = breakdownByCurrency
+        }
+
+        // Update available currencies — merge transaction currencies with existing account currencies
+        val transactionCurrencies = (currentMonthBreakdownMap.keys + lastMonthBreakdownMap.keys)
+        val existingCurrencies = _uiState.value.availableCurrencies
+        val availableCurrencies = (existingCurrencies + transactionCurrencies).distinct().sortedWith { a, b ->
+            when {
+                a == baseCurrency -> -1
+                b == baseCurrency -> 1
+                else -> a.compareTo(b)
+            }
+        }
+
+        // Auto-select currency: prefer baseCurrency from preferences, then INR, then first available
+        val currentSelectedCurrency = _uiState.value.selectedCurrency
+        if (!availableCurrencies.contains(currentSelectedCurrency) && availableCurrencies.isNotEmpty()) {
+            // Need to get baseCurrency asynchronously
+            viewModelScope.launch {
+                val baseCurrency = userPreferencesRepository.baseCurrency.first()
+                val selectedCurrency = if (availableCurrencies.contains(baseCurrency)) {
+                    baseCurrency
+                } else if (availableCurrencies.contains("INR")) {
+                    "INR"
+                } else {
+                    availableCurrencies.first()
+                }
+                // Update UI state with values for selected currency
+                updateUIStateForCurrency(selectedCurrency, availableCurrencies)
+            }
+        } else {
+            // Update UI state with values for selected currency
+            updateUIStateForCurrency(currentSelectedCurrency, availableCurrencies)
+        }
+    }
+
+    private fun updateUIStateForCurrency(selectedCurrency: String, availableCurrencies: List<String>) {
+        if (_uiState.value.isUnifiedMode) {
+            // Aggregate all currencies, converting to selectedCurrency (displayCurrency)
+            viewModelScope.launch {
+                val currentBreakdown = aggregateBreakdowns(currentMonthBreakdownMap, selectedCurrency)
+                val lastBreakdown = aggregateBreakdowns(lastMonthBreakdownMap, selectedCurrency)
+                val lastSamePoint = aggregateBreakdowns(lastMonthSamePointBreakdownMap, selectedCurrency).expenses
+                val loanLoss = aggregateAcrossCurrencies(currentMonthLoanLossByCurrency, selectedCurrency, isUnified = true)
+                val lent = aggregateAcrossCurrencies(currentMonthLentByCurrency, selectedCurrency, isUnified = true)
+
+                _uiState.value = _uiState.value.copy(
+                    currentMonthTotal = currentBreakdown.total - loanLoss,
+                    currentMonthIncome = currentBreakdown.income,
+                    currentMonthExpenses = currentBreakdown.expenses + loanLoss,
+                    currentMonthLent = lent,
+                    lastMonthTotal = lastBreakdown.total,
+                    lastMonthIncome = lastBreakdown.income,
+                    lastMonthExpenses = lastBreakdown.expenses,
+                    lastMonthSamePointExpenses = lastSamePoint,
+                    selectedCurrency = selectedCurrency,
+                    availableCurrencies = availableCurrencies,
+                    spendForecast = forecastFor(
+                        currentBreakdown.expenses + loanLoss,
+                        selectedCurrency,
+                        previousCycleBreakdownMaps.mapIndexed { i, map ->
+                            val loss = previousCycleLoanLoss.getOrNull(i).orEmpty()
+                            // A cycle with only a settlement loss still counts as history.
+                            if (map.isEmpty() && loss.isEmpty()) null
+                            else aggregateBreakdowns(map, selectedCurrency).expenses +
+                                aggregateAcrossCurrencies(loss, selectedCurrency, isUnified = true)
+                        }
+                    )
+                )
+                calculateMonthlyChange()
+            }
+        } else {
+            // Get breakdown for selected currency from stored maps
+            val currentBreakdown = currentMonthBreakdownMap[selectedCurrency] ?: TransactionRepository.MonthlyBreakdown(
+                total = BigDecimal.ZERO,
+                income = BigDecimal.ZERO,
+                expenses = BigDecimal.ZERO
+            )
+
+            val lastBreakdown = lastMonthBreakdownMap[selectedCurrency] ?: TransactionRepository.MonthlyBreakdown(
+                total = BigDecimal.ZERO,
+                income = BigDecimal.ZERO,
+                expenses = BigDecimal.ZERO
+            )
+
+            val loanLoss = currentMonthLoanLossByCurrency[selectedCurrency] ?: BigDecimal.ZERO
+            val lent = currentMonthLentByCurrency[selectedCurrency] ?: BigDecimal.ZERO
+
+            _uiState.value = _uiState.value.copy(
+                currentMonthTotal = currentBreakdown.total - loanLoss,
+                currentMonthIncome = currentBreakdown.income,
+                currentMonthExpenses = currentBreakdown.expenses + loanLoss,
+                currentMonthLent = lent,
+                lastMonthTotal = lastBreakdown.total,
+                lastMonthIncome = lastBreakdown.income,
+                lastMonthExpenses = lastBreakdown.expenses,
+                lastMonthSamePointExpenses = lastMonthSamePointBreakdownMap[selectedCurrency]?.expenses ?: BigDecimal.ZERO,
+                selectedCurrency = selectedCurrency,
+                availableCurrencies = availableCurrencies,
+                spendForecast = forecastFor(
+                    currentBreakdown.expenses + loanLoss,
+                    selectedCurrency,
+                    previousCycleBreakdownMaps.mapIndexed { i, map ->
+                        val spent = map[selectedCurrency]?.expenses
+                        val loss = previousCycleLoanLoss.getOrNull(i)?.get(selectedCurrency)
+                        // A cycle with only a settlement loss still counts as history.
+                        if (spent == null && loss == null) null
+                        else (spent ?: BigDecimal.ZERO) + (loss ?: BigDecimal.ZERO)
+                    }
+                )
+            )
+            calculateMonthlyChange()
+        }
+    }
+
+    /** Month-end forecast for the "Spent this month" figure; null until day 7 of the cycle. */
+    private fun forecastFor(spent: BigDecimal, currency: String, previous: List<BigDecimal?>): SpendForecast? {
+        val (start, end) = _currentCycleWindow.value
+        return SpendForecast.of(spent, currency, start, end, LocalDate.now(), previous)
+    }
+
+    private suspend fun aggregateAcrossCurrencies(
+        byCurrency: Map<String, BigDecimal>,
+        selectedCurrency: String,
+        isUnified: Boolean
+    ): BigDecimal {
+        if (byCurrency.isEmpty()) return BigDecimal.ZERO
+        if (!isUnified) return byCurrency[selectedCurrency] ?: BigDecimal.ZERO
+        var total = BigDecimal.ZERO
+        for ((currency, amount) in byCurrency) {
+            total += if (currency == selectedCurrency) amount
+            else currencyConversionService.convertAmountOrNull(amount, currency, selectedCurrency)
+                ?: continue // never-rated pair — skip, don't face-value (#670)
+        }
+        return total
+    }
+
+    private suspend fun aggregateBreakdowns(
+        breakdownMap: Map<String, TransactionRepository.MonthlyBreakdown>,
+        targetCurrency: String
+    ): TransactionRepository.MonthlyBreakdown {
+        var totalTotal = BigDecimal.ZERO
+        var totalIncome = BigDecimal.ZERO
+        var totalExpenses = BigDecimal.ZERO
+
+        for ((currency, breakdown) in breakdownMap) {
+            if (currency == targetCurrency) {
+                totalTotal += breakdown.total
+                totalIncome += breakdown.income
+                totalExpenses += breakdown.expenses
+            } else {
+                // One rate serves all three figures; if the pair has never had a
+                // rate, skip this currency's breakdown entirely (#670).
+                val rateTotal = currencyConversionService.convertAmountOrNull(breakdown.total, currency, targetCurrency) ?: continue
+                totalTotal += rateTotal
+                totalIncome += currencyConversionService.convertAmountOrNull(breakdown.income, currency, targetCurrency) ?: BigDecimal.ZERO
+                totalExpenses += currencyConversionService.convertAmountOrNull(breakdown.expenses, currency, targetCurrency) ?: BigDecimal.ZERO
+            }
+        }
+
+        return TransactionRepository.MonthlyBreakdown(
+            total = totalTotal,
+            income = totalIncome,
+            expenses = totalExpenses
+        )
+    }
+
+    private suspend fun convertAccountEntities(
+        entities: List<AccountBalanceEntity>,
+        targetCurrency: String,
+        isUnifiedMode: Boolean
+    ): List<AccountBalanceEntity> {
+        if (!isUnifiedMode) return entities
+        return entities.map { account ->
+            if (account.currency == targetCurrency) {
+                account
+            } else {
+                // Fetch-on-miss: getExchangeRate lazily fetches the rate when it isn't
+                // cached yet, so the very first render converts instead of showing the
+                // raw native amount mislabelled with the display currency (the #545/MZN
+                // bug: a $400 account drawn as "MZN400"). Only relabel to the target
+                // currency when a rate actually exists — otherwise keep the account's
+                // native currency so the row shows an honest "$400", not "MZN400".
+                val rate = currencyConversionService.getExchangeRate(account.currency, targetCurrency)
+                if (rate != null) {
+                    // Keep full precision here and let display formatting round. Rounding
+                    // balance and creditLimit separately would make "available = limit -
+                    // balance" round twice and drift a cent on foreign credit cards.
+                    account.copy(
+                        balance = account.balance.multiply(rate),
+                        creditLimit = account.creditLimit?.multiply(rate),
+                        currency = targetCurrency
+                    )
+                } else {
+                    account
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        inAppUpdateManager.cleanup()
+    }
+
+    private suspend fun mapRawToConvertedSummary(
+        raw: BudgetGroupSpendingRaw,
+        displayCurrency: String,
+        baseCurrency: String
+    ): BudgetOverallSummary {
+        // Per-budget current window for the "X days remaining" math
+        // on the home card. The repo's `raw.daysRemaining` is hard-
+        // coded to 0 (legacy) so we recompute it from the per-budget
+        // current window the repo just resolved — that's how the
+        // home pill knows "1 day remaining" is wrong.
+        fun daysRemainingFor(budget: com.pennywiseai.tracker.data.database.entity.BudgetEntity): Int {
+            val w = raw.currentWindows[budget.id] ?: return 0
+            val today = raw.today
+            return (ChronoUnit.DAYS.between(today, w.end).toInt() + 1)
+                .coerceIn(0, w.days)
+        }
+        fun daysElapsedFor(budget: com.pennywiseai.tracker.data.database.entity.BudgetEntity): Int {
+            val w = raw.currentWindows[budget.id] ?: return 0
+            val today = raw.today
+            return (ChronoUnit.DAYS.between(w.start, today).toInt() + 1)
+                .coerceIn(1, w.days)
+        }
+
+        // Exclude a Refund from totalIncome only when it's also being subtracted
+        // from a category by aggregateBudgetCategorySpending (categorised refund);
+        // orphaned DEDUCT_SPENT income stays in the total so netSavings doesn't
+        // understate.
+        val analyticsTransactions = raw.allTransactions.forTotals()
+        var totalIncome = BigDecimal.ZERO
+        for (txWithSplits in analyticsTransactions) {
+            val tx = txWithSplits.transaction
+            if (tx.transactionType != TransactionType.INCOME) continue
+            if (tx.budgetImpactType == BudgetImpactType.DEDUCT_SPENT &&
+                tx.budgetCategory != null
+            ) continue
+            totalIncome = totalIncome.add(
+                currencyConversionService.convertAmountOrNull(tx.amount, tx.currency, displayCurrency)
+                    ?: continue // never-rated pair — skip, don't face-value (#670)
+            )
+        }
+
+        // Route through the shared aggregator so Refund (DEDUCT_SPENT) and
+        // Extra budget (ADD_TO_LIMIT) take effect on the home carousel the same
+        // way they do on the Budgets screen and the widget.
+        val (categoryAmounts, categoryLimitBoosts) = aggregateBudgetCategorySpending(
+            transactions = analyticsTransactions,
+            convertSplit = { fromCurrency, amount ->
+                currencyConversionService.convertAmountOrNull(amount, fromCurrency, displayCurrency)
+            },
+            convertIncome = { tx ->
+                currencyConversionService.convertAmountOrNull(tx.amount, tx.currency, displayCurrency)
+            }
+        )
+
+        val groupSpendingList = raw.budgetsWithCategories.map { group ->
+            val isTrackingAll = group.categories.isEmpty()
+            val window = raw.currentWindows[group.budget.id]
+            val daysRemaining = daysRemainingFor(group.budget)
+            val daysElapsed = daysElapsedFor(group.budget)
+            val catSpending = group.categories.map { cat ->
+                val actual = categoryAmounts[cat.categoryName] ?: BigDecimal.ZERO
+                val convertedBudget = currencyConversionService.convertAmountOrNull(cat.budgetAmount, baseCurrency, displayCurrency) ?: BigDecimal.ZERO
+                val effectiveBudget = convertedBudget +
+                    (categoryLimitBoosts[cat.categoryName] ?: BigDecimal.ZERO)
+                val pctUsed = if (effectiveBudget > BigDecimal.ZERO) {
+                    (actual.toFloat() / effectiveBudget.toFloat() * 100f).coerceAtLeast(0f)
+                } else 0f
+                val dailySpend = if (daysElapsed > 0 && actual > BigDecimal.ZERO) {
+                    actual.divide(BigDecimal(daysElapsed), 0, RoundingMode.HALF_UP)
+                } else BigDecimal.ZERO
+                BudgetCategorySpending(
+                    categoryName = cat.categoryName,
+                    budgetAmount = effectiveBudget,
+                    actualAmount = actual,
+                    percentageUsed = pctUsed,
+                    dailySpend = dailySpend
+                )
+            }
+            val convertedGroupLimit = currencyConversionService.convertAmountOrNull(
+                group.budget.limitAmount, baseCurrency, displayCurrency
+            ) ?: BigDecimal.ZERO
+            // "Category Limits" are optional — the group-level limit is the
+            // source of truth when set (including when isTrackingAll), with
+            // the per-cat sum as a fallback for budgets that only define
+            // per-cat amounts.
+            val totalBudget = if (convertedGroupLimit > BigDecimal.ZERO) {
+                convertedGroupLimit
+            } else {
+                catSpending.fold(BigDecimal.ZERO) { acc, c -> acc + c.budgetAmount }
+            }
+            val totalActual = if (isTrackingAll) {
+                categoryAmounts.values.fold(BigDecimal.ZERO) { acc, v -> acc + v }
+            } else {
+                catSpending.fold(BigDecimal.ZERO) { acc, c -> acc + c.actualAmount }
+            }
+            val remaining = totalBudget - totalActual
+            val pctUsed = if (totalBudget > BigDecimal.ZERO) {
+                (totalActual.toFloat() / totalBudget.toFloat() * 100f).coerceAtLeast(0f)
+            } else 0f
+            val dailyAllowance = if (daysRemaining > 0 && remaining > BigDecimal.ZERO) {
+                remaining.divide(BigDecimal(daysRemaining), 0, RoundingMode.HALF_UP)
+            } else BigDecimal.ZERO
+            BudgetGroupSpending(
+                group = group,
+                categorySpending = if (isTrackingAll) emptyList() else catSpending,
+                totalBudget = totalBudget,
+                totalActual = totalActual,
+                remaining = remaining,
+                percentageUsed = pctUsed,
+                dailyAllowance = dailyAllowance,
+                daysRemaining = daysRemaining,
+                daysElapsed = daysElapsed,
+                isTrackingAllExpenses = isTrackingAll,
+                // The window the repo resolved, as the single-currency path sets it;
+                // without it the window defaults to today..today with 0 days.
+                windowStart = window?.start ?: LocalDate.now(),
+                windowEnd = window?.end ?: LocalDate.now(),
+                windowDays = window?.days ?: 0
+            )
+        }
+
+        val limitGroups = groupSpendingList.filter { it.group.budget.groupType == BudgetGroupType.LIMIT }
+        val targetGroups = groupSpendingList.filter { it.group.budget.groupType == BudgetGroupType.TARGET }
+        val expectedGroups = groupSpendingList.filter { it.group.budget.groupType == BudgetGroupType.EXPECTED }
+
+        val totalLimitBudget = limitGroups.fold(BigDecimal.ZERO) { acc, g -> acc + g.totalBudget }
+        val totalLimitSpent = limitGroups.fold(BigDecimal.ZERO) { acc, g -> acc + g.totalActual }
+        val netSavings = totalIncome - totalLimitSpent
+        val savingsRate = if (totalIncome > BigDecimal.ZERO) {
+            (netSavings.toFloat() / totalIncome.toFloat() * 100f)
+        } else 0f
+        val limitRemaining = totalLimitBudget - totalLimitSpent
+        // Page-level "daysRemaining" picks the first budget's current
+        // window — matches the home carousel's hero card.
+        val pageDaysRemaining = groupSpendingList.firstOrNull()?.daysRemaining ?: 0
+        val dailyAllowance = if (pageDaysRemaining > 0 && limitRemaining > BigDecimal.ZERO) {
+            limitRemaining.divide(BigDecimal(pageDaysRemaining), 0, RoundingMode.HALF_UP)
+        } else BigDecimal.ZERO
+
+        return BudgetOverallSummary(
+            groups = groupSpendingList,
+            totalIncome = totalIncome,
+            totalLimitBudget = totalLimitBudget,
+            totalLimitSpent = totalLimitSpent,
+            totalTargetGoal = targetGroups.fold(BigDecimal.ZERO) { acc, g -> acc + g.totalBudget },
+            totalTargetActual = targetGroups.fold(BigDecimal.ZERO) { acc, g -> acc + g.totalActual },
+            totalExpectedBudget = expectedGroups.fold(BigDecimal.ZERO) { acc, g -> acc + g.totalBudget },
+            totalExpectedActual = expectedGroups.fold(BigDecimal.ZERO) { acc, g -> acc + g.totalActual },
+            netSavings = netSavings,
+            savingsRate = savingsRate,
+            dailyAllowance = dailyAllowance,
+            daysRemaining = pageDaysRemaining,
+            currency = displayCurrency
+        )
+    }
+    private companion object {
+        /** Below this the summary is too thin to be worth sending. */
+        const val MIN_TRANSACTIONS_FOR_SHARE_PROMPT = 20
+
+        const val RECURRING_CARD_QUIET_MILLIS = 30L * 24 * 60 * 60 * 1000
+    }
+
+}
+
+internal const val PRO_CARD_MIN_INSTALL_DAYS = 14L
+internal const val PRO_CARD_MIN_TRANSACTIONS = 30
+
+/**
+ * Eligibility for the one-time Home Pro card (#945): a free user (a null [isPro] means
+ * entitlement is still loading, so stay hidden) who installed 14+ days ago, has 30+
+ * transactions, hasn't tapped or dismissed it, and isn't looking at the share banner.
+ */
+internal fun shouldShowProHomeCard(
+    isPro: Boolean?,
+    handled: Boolean,
+    installedAtMillis: Long,
+    nowMillis: Long,
+    transactionCount: Int,
+    sharePromptShowing: Boolean,
+): Boolean = isPro == false &&
+    !handled &&
+    !sharePromptShowing &&
+    transactionCount >= PRO_CARD_MIN_TRANSACTIONS &&
+    nowMillis - installedAtMillis >= java.util.concurrent.TimeUnit.DAYS.toMillis(PRO_CARD_MIN_INSTALL_DAYS)
+
+data class HomeUiState(
+    val userName: String = "User",
+    val profileImageUri: String? = null,
+    val profileBackgroundColor: Int = 0,
+    val currentMonthTotal: BigDecimal = BigDecimal.ZERO,
+    val currentMonthIncome: BigDecimal = BigDecimal.ZERO,
+    val currentMonthExpenses: BigDecimal = BigDecimal.ZERO,
+    val currentMonthLent: BigDecimal = BigDecimal.ZERO,
+    val currentMonthCreditCard: BigDecimal = BigDecimal.ZERO,
+    // When true, credit-card spend is folded into "Spent this month" (#705), so
+    // the "Money in motion" card hides its Credit chip to avoid showing the same
+    // amount both inside and "outside" the cash flow.
+    val countCreditCardAsExpense: Boolean = false,
+    val currentMonthTransfer: BigDecimal = BigDecimal.ZERO,
+    val currentMonthInvestment: BigDecimal = BigDecimal.ZERO,
+    val lastMonthTotal: BigDecimal = BigDecimal.ZERO,
+    val lastMonthIncome: BigDecimal = BigDecimal.ZERO,
+    val lastMonthExpenses: BigDecimal = BigDecimal.ZERO,
+    val monthlyChange: BigDecimal = BigDecimal.ZERO,
+    val lastMonthSamePointExpenses: BigDecimal = BigDecimal.ZERO,
+    /** Null when last month had no spending: there is nothing to compare with. */
+    val monthlyChangePercent: Int? = null,
+    val recentItems: List<HomeRecentItem> = emptyList(),
+    val upcomingSubscriptions: List<SubscriptionEntity> = emptyList(),
+    /** Unified-mode total, converted to the display currency. */
+    val upcomingSubscriptionsTotal: BigDecimal = BigDecimal.ZERO,
+    /** Native-mode totals, kept per-currency so a ₹ + $ mix isn't summed. */
+    val upcomingSubscriptionsByCurrency: Map<String, Money> = emptyMap(),
+    /** The soonest-due active EXPENSE subscription, for the card's "Next:" line. */
+    val nextDueSubscription: SubscriptionEntity? = null,
+    val budgetSummary: BudgetOverallSummary? = null,
+    val accountBalances: List<AccountBalanceEntity> = emptyList(),
+    val creditCards: List<AccountBalanceEntity> = emptyList(),
+    val totalBalance: BigDecimal = BigDecimal.ZERO,
+    val totalAvailableCredit: BigDecimal = BigDecimal.ZERO,
+    val selectedCurrency: String = "INR",
+    val availableCurrencies: List<String> = emptyList(),
+    val recentTransactionConvertedAmounts: Map<Long, BigDecimal> = emptyMap(),
+    val spendingHistory: List<BigDecimal> = emptyList(),
+    val balanceHistory: List<BigDecimal> = emptyList(),
+    val isLoading: Boolean = true,
+    val isScanning: Boolean = false,
+    val showBreakdownDialog: Boolean = false,
+    val isUnifiedMode: Boolean = false,
+    val transactionHeatmap: Map<Long, Int> = emptyMap(),
+    val isBalanceHidden: Boolean = true,
+    val isBalanceReady: Boolean = false,
+    val isApproximateBalance: Boolean = false,
+    val lastMonthSpendingHistory: List<BigDecimal> = emptyList(),
+    val loanSummary: LoanSummary? = null,
+    val spendForecast: SpendForecast? = null,
+    val selectedProfileId: Long? = null,
+    val profiles: List<ProfileEntity> = emptyList()
+)
+
+/** Pref key for an account in the Safe to spend selection. */
+internal fun safeToSpendKey(account: AccountBalanceEntity) = "${account.bankName}_${account.accountLast4}"
+
+/**
+ * Cash or a mobile wallet below zero: money can't really go negative there, so it's a
+ * tracking gap, not debt, and stays out of Safe to spend. An overdrawn bank account
+ * is real debt and still counts.
+ */
+internal fun isUncountedNegative(account: AccountBalanceEntity): Boolean =
+    account.balance.signum() < 0 &&
+        (account.accountType.equals("CASH", ignoreCase = true) ||
+            account.accountLast4 == AccountBalanceEntity.WALLET_ACCOUNT_MARKER)
+
+/** The accounts Safe to spend adds up: not left out by the user, not [isUncountedNegative]. */
+internal fun countedInSafeToSpend(accounts: List<AccountBalanceEntity>, excluded: Set<String>) =
+    accounts.filter { safeToSpendKey(it) !in excluded && !isUncountedNegative(it) }
+
+/**
+ * What's left in the overall budget for Safe to spend: a spending limit that tracks
+ * all expenses and runs today, with its "remaining" exactly as the Home budget card
+ * shows it. Several such budgets (say weekly and monthly): the tightest one wins.
+ */
+internal fun BudgetOverallSummary.safeToSpendCap(today: LocalDate): Money? =
+    groups.filter {
+        it.isTrackingAllExpenses && it.group.budget.groupType == BudgetGroupType.LIMIT &&
+            it.windowDays > 0 && !today.isBefore(it.windowStart) && !today.isAfter(it.windowEnd)
+    }.minOfOrNull { it.remaining }?.let { Money(it, currency) }
+
+internal data class BalanceTotals(
+    val balance: BigDecimal,
+    val availableCredit: BigDecimal,
+    /** Some account or card is in another currency and was left out of both totals. */
+    val hasOtherCurrencies: Boolean,
+)
+
+internal fun balanceTotals(
+    accounts: List<AccountBalanceEntity>,
+    creditCards: List<AccountBalanceEntity>,
+    currency: String,
+): BalanceTotals {
+    val (sameAccounts, otherAccounts) = accounts.partition { it.currency == currency }
+    val (sameCards, otherCards) = creditCards.partition { it.currency == currency }
+    return BalanceTotals(
+        balance = sameAccounts.fold(BigDecimal.ZERO) { a, acc -> a + acc.balance },
+        availableCredit = sameCards.fold(BigDecimal.ZERO) { a, c -> a + (c.creditLimit ?: BigDecimal.ZERO) - c.balance },
+        hasOtherCurrencies = otherAccounts.isNotEmpty() || otherCards.isNotEmpty(),
+    )
+}
+
+internal fun monthlyChangePercent(current: BigDecimal, last: BigDecimal): Int? =
+    if (last.signum() == 0) null
+    else (current - last).multiply(BigDecimal(100)).divide(last, 0, RoundingMode.HALF_UP).toInt()
+
+data class SafeToSpendUi(
+    /** The headline figure, in the display (unified) or selected currency. */
+    val primary: SafeToSpend,
+    /** Figures in other currencies, never added to [primary]. */
+    val others: List<SafeToSpend>,
+    val periodEnd: LocalDate,
+    /** Every visible spendable account, each in its own currency. */
+    val accounts: List<AccountBalanceEntity>,
+    val excludedKeys: Set<String>,
+    /** Bills due today..[periodEnd], each in its own currency. */
+    val bills: List<Bill>,
+)
+
+data class LoanSummary(
+    val activeLoans: List<LoanEntity>,
+    val totalLentRemaining: BigDecimal,
+    val totalBorrowedRemaining: BigDecimal
+)
+
+private data class Quad<A, B, C, D>(
+    val a: A,
+    val b: B,
+    val c: C,
+    val d: D
+)

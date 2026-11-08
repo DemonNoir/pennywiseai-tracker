@@ -8,13 +8,16 @@ import com.pennywiseai.tracker.domain.usecase.ProcessSlipUseCase
 import com.pennywiseai.tracker.slip.SlipScanDataStore
 import com.pennywiseai.tracker.slip.observer.SlipMediaObserver
 import com.pennywiseai.tracker.slip.ocr.SlipOcrEngine
+import com.pennywiseai.tracker.slip.parser.SlipParser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.math.BigDecimal
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,11 +37,10 @@ class SlipForegroundScanner @Inject constructor(
     private val _progress = MutableStateFlow<SlipScanProgress?>(null)
     val progress: StateFlow<SlipScanProgress?> = _progress.asStateFlow()
 
-    private var isScanning = false
+    private val isScanning = AtomicBoolean()
 
     suspend fun startCatchUpScan() = withContext(Dispatchers.IO) {
-        if (isScanning || !mediaObserver.hasStoragePermission()) return@withContext
-        isScanning = true
+        if (!mediaObserver.hasStoragePermission() || !isScanning.compareAndSet(false, true)) return@withContext
 
         try {
             val scanCount = SlipScanDataStore.incrementAndGetScanCount(context)
@@ -53,13 +55,17 @@ class SlipForegroundScanner @Inject constructor(
                 for ((uri, mediaTimestamp) in urisToScan) {
                     try {
                         val rawOcrText = ocrEngine.getRawTextSync(uri)
-                        var parsedSlip = com.pennywiseai.tracker.slip.parser.SlipParser.parse(rawOcrText).copy(imageUriString = uri.toString())
-                        
-                        if (parsedSlip.timestampMillis == null) {
-                            parsedSlip = parsedSlip.copy(timestampMillis = mediaTimestamp)
-                        }
-                        
-                        processSlipUseCase.execute(parsedSlip)
+                        val parsedSlip = SlipParser.parse(rawOcrText)
+                        val amount = parsedSlip.amountBigDecimal
+                            ?: parsedSlip.amount?.takeIf { it.isFinite() }?.let(BigDecimal::valueOf)
+                        if (amount == null || amount.signum() <= 0) continue
+
+                        processSlipUseCase.execute(
+                            parsedSlip.copy(
+                                imageUriString = uri.toString(),
+                                timestampMillis = parsedSlip.timestampMillis ?: mediaTimestamp
+                            )
+                        )
                     } catch (e: Exception) {
                         Log.e("SlipForegroundScanner", "Failed to process image $uri: ${e.message}")
                     } finally {
@@ -78,7 +84,7 @@ class SlipForegroundScanner @Inject constructor(
             Log.e("SlipForegroundScanner", "Scan failed: ${e.message}")
         } finally {
             _progress.value = null
-            isScanning = false
+            isScanning.set(false)
         }
     }
 

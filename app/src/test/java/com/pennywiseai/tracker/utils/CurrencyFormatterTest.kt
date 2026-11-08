@@ -1,0 +1,367 @@
+package com.pennywiseai.tracker.utils
+
+import com.pennywiseai.tracker.data.preferences.NumberFormatStyle
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.math.BigDecimal
+
+/**
+ * Guards [CurrencyFormatter.resolveAccountCurrency], the rule that decides whether an
+ * account's currency comes from its stored value or its bank parser.
+ *
+ * Regression: account reinserts (edit / update balance) stamp source_type = MANUAL so a
+ * rescan won't purge them. That made resolveAccountCurrency trust the stored currency,
+ * which for an SMS-tracked non-INR account is the INR default — silently flipping the
+ * displayed currency. The reinsert paths now write the *resolved* currency, so these
+ * cases must stay stable.
+ */
+class CurrencyFormatterTest {
+
+    @Test
+    fun `manual account trusts its stored currency`() {
+        // A user-created account stores the currency it was created with — even when it
+        // differs from the bank parser's default.
+        assertEquals(
+            "NGN",
+            CurrencyFormatter.resolveAccountCurrency(
+                sourceType = "MANUAL",
+                storedCurrency = "NGN",
+                bankName = "Cash"
+            )
+        )
+    }
+
+    @Test
+    fun `sms-tracked non-INR account ignores stored INR default and uses parser currency`() {
+        // The core regression: an SMS-tracked UAE account stores the INR default but must
+        // display its parser currency (AED). Both the null and "TRANSACTION" source types
+        // (what SMS rows carry) must resolve to the parser value.
+        listOf(null, "TRANSACTION", "SMS_BALANCE", "CARD_LINK").forEach { sourceType ->
+            assertEquals(
+                "source_type=$sourceType should fall back to the bank parser currency",
+                "AED",
+                CurrencyFormatter.resolveAccountCurrency(
+                    sourceType = sourceType,
+                    storedCurrency = "INR",
+                    bankName = "Liv Bank"
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `sms-tracked account on an unknown bank defaults to INR`() {
+        assertEquals(
+            "INR",
+            CurrencyFormatter.resolveAccountCurrency(
+                sourceType = null,
+                storedCurrency = "INR",
+                bankName = "Totally Unknown Bank"
+            )
+        )
+    }
+
+    // numberFormatStyle is a process-wide @Volatile field; reset after each test.
+    @After
+    fun resetNumberFormatStyle() {
+        CurrencyFormatter.numberFormatStyle = NumberFormatStyle.AUTO
+    }
+
+    // ─── formatByCurrency / sumByCurrency: the multi-currency total guardrail ───
+    //
+    // These assert on currency symbols and the " · " separator (locale-independent
+    // — they come from the symbol map, not NumberFormat grouping), so they're
+    // stable on the plain JVM test runtime.
+
+    @Test
+    fun `formatByCurrency renders a single currency as one figure`() {
+        val out = CurrencyFormatter.formatByCurrency(mapOf("USD" to Money(BigDecimal(600), "USD")))
+        assertTrue("expected a \$ figure, got: $out", out.contains("$"))
+        assertFalse("single currency must not use the separator: $out", out.contains(" · "))
+    }
+
+    @Test
+    fun `formatByCurrency joins mixed currencies and never sums across them`() {
+        val out = CurrencyFormatter.formatByCurrency(
+            mapOf("USD" to Money(BigDecimal(600), "USD"), "INR" to Money(BigDecimal(1250), "INR")),
+            signPrefix = "-"
+        )
+        assertTrue("expected both symbols, got: $out", out.contains("$") && out.contains("₹"))
+        assertTrue("expected the ' · ' separator, got: $out", out.contains(" · "))
+        // The sign prefix is applied to each currency, not just the first.
+        assertEquals("each figure should be signed", 2, out.split("-").size - 1)
+    }
+
+    @Test
+    fun `formatByCurrency does not double the sign prefix on a net-negative total`() {
+        // A currency whose net is negative (refunds > charges) must render as
+        // "-<symbol>200", never "--<symbol>200".
+        val out = CurrencyFormatter.formatByCurrency(
+            mapOf("USD" to Money(BigDecimal(-200), "USD")),
+            signPrefix = "-"
+        )
+        assertFalse("sign prefix must not double: $out", out.contains("--"))
+        assertEquals("exactly one sign prefix expected", 1, out.split("-").size - 1)
+    }
+
+    @Test
+    fun `formatByCurrency keeps the input currency when a single-currency total cancels to zero`() {
+        // A USD-only group whose amounts cancel ($300 charge + $300 refund) must
+        // still show "$0", not the INR fallback.
+        val out = CurrencyFormatter.formatByCurrency(
+            mapOf("USD" to Money(BigDecimal.ZERO, "USD"))
+            // fallbackCurrency left at its INR default on purpose
+        )
+        assertTrue("zero should keep the USD symbol, got: $out", out.contains("$"))
+        assertFalse("must not fall back to ₹: $out", out.contains("₹"))
+    }
+
+    @Test
+    fun `formatByCurrency falls back to a single zero when empty`() {
+        val out = CurrencyFormatter.formatByCurrency(
+            mapOf("USD" to Money(BigDecimal.ZERO, "USD")),
+            fallbackCurrency = "USD"
+        )
+        assertFalse(out.contains(" · "))
+        assertTrue("zero should still render in the fallback currency: $out", out.contains("$"))
+    }
+
+    // ─── PKR/LKR symbol collision ───
+    //
+    // Both are valid ISO codes, so `Currency.getInstance()` succeeds and the
+    // locale-driven NumberFormat path is normally used — but some runtimes render
+    // LKR with a plain "Rs", identical to PKR's symbol, making a mixed PKR+LKR
+    // total unreadable. formatCurrency forces the explicit CURRENCY_SYMBOLS value
+    // for both so they never collide regardless of runtime ICU data.
+
+    @Test
+    fun `formatCurrency renders PKR and LKR with distinct explicit symbols`() {
+        val pkr = CurrencyFormatter.formatCurrency(BigDecimal(500), "PKR")
+        val lkr = CurrencyFormatter.formatCurrency(BigDecimal(500), "LKR")
+        assertTrue("PKR should use its explicit symbol, got: $pkr", pkr.startsWith("Rs"))
+        assertTrue("LKR should use its explicit symbol, got: $lkr", lkr.startsWith("රු"))
+        assertFalse("PKR and LKR must not render identically", pkr == lkr)
+    }
+
+    @Test
+    fun `formatByCurrency keeps PKR and LKR distinguishable in a mixed total`() {
+        val out = CurrencyFormatter.formatByCurrency(
+            mapOf("PKR" to Money(BigDecimal(500), "PKR"), "LKR" to Money(BigDecimal(500), "LKR"))
+        )
+        assertTrue("expected the PKR symbol, got: $out", out.contains("Rs"))
+        assertTrue("expected the LKR symbol, got: $out", out.contains("රු"))
+    }
+
+    @Test
+    fun `sumByCurrency buckets per currency instead of folding into one`() {
+        data class Row(val amount: BigDecimal, val currency: String)
+        val rows = listOf(
+            Row(BigDecimal(100), "USD"),
+            Row(BigDecimal(500), "USD"),
+            Row(BigDecimal(1250), "INR")
+        )
+        val totals = rows.sumByCurrency({ it.currency }, { it.amount })
+        assertEquals(BigDecimal(600), totals["USD"]?.amount)
+        assertEquals(BigDecimal(1250), totals["INR"]?.amount)
+        assertEquals("a mixed list must stay split by currency", 2, totals.size)
+    }
+
+    @Test
+    fun `Money refuses to add two different currencies`() {
+        try {
+            Money(BigDecimal(500), "INR") + Money(BigDecimal(10), "USD")
+            org.junit.Assert.fail("adding INR + USD should throw, not silently total")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message!!.contains("INR") && e.message!!.contains("USD"))
+        }
+    }
+
+    @Test
+    fun `Money adds within the same currency`() {
+        assertEquals(
+            Money(BigDecimal(600), "USD"),
+            Money(BigDecimal(100), "USD") + Money(BigDecimal(500), "USD")
+        )
+    }
+
+    // Note: grouping *values* (1,50,000 vs 150,000) can't be asserted here — the plain
+    // JVM test runtime uses COMPAT locale data (western grouping for en-IN), whereas
+    // Android uses CLDR (Indian grouping). The style→branch selection is instead covered
+    // by the abbreviation test below, which shares the same when(style) logic and uses
+    // our own locale-independent L/Cr-vs-K/M strings.
+    @Test
+    fun `abbreviation follows the style`() {
+        CurrencyFormatter.numberFormatStyle = NumberFormatStyle.INTERNATIONAL
+        assertTrue(
+            "INR under INTERNATIONAL abbreviates with M, not Cr",
+            CurrencyFormatter.formatAbbreviated(10_000_000.0, "INR").endsWith("M")
+        )
+        CurrencyFormatter.numberFormatStyle = NumberFormatStyle.INDIAN
+        assertTrue(
+            "TZS under INDIAN abbreviates with Cr",
+            CurrencyFormatter.formatAbbreviated(10_000_000.0, "TZS").endsWith("Cr")
+        )
+    }
+
+    @Test
+    fun `AUTO abbreviation is currency-driven (the shipped default)`() {
+        CurrencyFormatter.numberFormatStyle = NumberFormatStyle.AUTO
+        // INR/NPR/PKR keep Indian L/Cr; everything else uses western K/M.
+        assertTrue(
+            "INR under AUTO abbreviates with Cr",
+            CurrencyFormatter.formatAbbreviated(10_000_000.0, "INR").endsWith("Cr")
+        )
+        assertTrue(
+            "NPR under AUTO abbreviates with Cr",
+            CurrencyFormatter.formatAbbreviated(10_000_000.0, "NPR").endsWith("Cr")
+        )
+        assertTrue(
+            "TZS under AUTO abbreviates with M, not Cr",
+            CurrencyFormatter.formatAbbreviated(10_000_000.0, "TZS").endsWith("M")
+        )
+    }
+
+    // ── South American pesos (#654) ──
+
+    @Test
+    fun `ARS CLP UYU are selectable and carry non-USD symbols`() {
+        // Every peso must be in the pickers' source list…
+        listOf("ARS", "CLP", "UYU").forEach { code ->
+            assertTrue(
+                "$code missing from CurrencyFormatter.getSupportedCurrencies()",
+                code in CurrencyFormatter.getSupportedCurrencies()
+            )
+            assertTrue(
+                "$code missing from CurrencyUtils.getAllSupportedCurrencies()",
+                code in CurrencyUtils.getAllSupportedCurrencies()
+            )
+        }
+        // …and no peso may render as a bare "$" — that reads as USD in a
+        // mixed-currency list (the reporter's exact workaround-pain in #654).
+        assertEquals("AR$", CurrencyFormatter.getCurrencySymbol("ARS"))
+        assertEquals("CL$", CurrencyFormatter.getCurrencySymbol("CLP"))
+        assertEquals("\$U", CurrencyFormatter.getCurrencySymbol("UYU"))
+    }
+
+    @Test
+    fun `formatted peso amounts carry their distinguishing symbol`() {
+        CurrencyFormatter.numberFormatStyle = NumberFormatStyle.AUTO
+        val ars = CurrencyFormatter.formatCurrency(BigDecimal("1234.56"), "ARS")
+        assertTrue("expected AR$ in: $ars", ars.contains("AR$"))
+        val clp = CurrencyFormatter.formatCurrency(BigDecimal("1234"), "CLP")
+        assertTrue("expected CL$ in: $clp", clp.contains("CL$"))
+        val uyu = CurrencyFormatter.formatCurrency(BigDecimal("1234.56"), "UYU")
+        assertTrue("expected \$U in: $uyu", uyu.contains("\$U"))
+    }
+
+    // \u2500\u2500\u2500 RTL (Arabic): amounts are LTR isolates (LRI\u2026PDI), never a bare LRM \u2500\u2500\u2500
+    // java.text.Bidi implements the same UBA (isolates included) Android uses, so
+    // these check the rendered direction, not just the inserted characters.
+
+    private fun <T> withLocale(tag: String, block: () -> T): T {
+        val default = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.forLanguageTag(tag))
+        try { return block() } finally { java.util.Locale.setDefault(default) }
+    }
+
+    private val bidiControls = Regex("[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+    @Test
+    fun `Arabic sentence with inserted amounts stays right to left`() {
+        // goals_amount_of in values-ar-rSA. A leading LRM here made the whole
+        // paragraph LTR, so "$50 of $100" read backwards.
+        val text = withLocale("ar-SA") {
+            "%1\$s \u0645\u0646 %2\$s".format(
+                CurrencyFormatter.formatCurrency(BigDecimal("50"), "USD"),
+                CurrencyFormatter.formatCurrency(BigDecimal("100"), "USD"),
+            )
+        }
+        assertEquals("\u2066$50\u2069 \u0645\u0646 \u2066$100\u2069", text)
+        val bidi = java.text.Bidi(text, java.text.Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT)
+        assertFalse("paragraph must resolve RTL", bidi.baseIsLeftToRight())
+    }
+
+    @Test
+    fun `signed amount keeps its sign on the left in an RTL paragraph`() {
+        val text = withLocale("ar-SA") {
+            CurrencyFormatter.signed("-", CurrencyFormatter.formatCurrency(BigDecimal("5"), "USD"))
+        }
+        val bidi = java.text.Bidi(text, java.text.Bidi.DIRECTION_RIGHT_TO_LEFT)
+        // Even embedding level = laid out left to right, so "-" sits left of "$5".
+        assertEquals(0, bidi.getLevelAt(text.indexOf('-')) % 2)
+        assertEquals(0, bidi.getLevelAt(text.indexOf('$')) % 2)
+        // Without signed(), the sign falls outside the isolate and flips to the right.
+        val bare = withLocale("ar-SA") { "-" + CurrencyFormatter.formatCurrency(BigDecimal("5"), "USD") }
+        assertEquals(1, java.text.Bidi(bare, java.text.Bidi.DIRECTION_RIGHT_TO_LEFT).getLevelAt(0) % 2)
+    }
+
+    @Test
+    fun `chart axis amounts keep Latin digits under Arabic`() {
+        // String.format without a locale gave "₹٣٫٠K" next to "₹750" on one axis.
+        assertEquals("₹3.0K", withLocale("ar-SA") { CurrencyFormatter.formatAbbreviated(3000.0, "INR") })
+    }
+
+    @Test
+    fun `small abbreviated amounts round rather than truncate`() {
+        assertEquals("$10", CurrencyFormatter.formatAbbreviated(9.99, "USD"))
+        assertEquals("$1", CurrencyFormatter.formatAbbreviated(0.99, "USD"))
+    }
+
+    @Test
+    fun `LTR locales get no bidi marks`() {
+        for (tag in listOf("en-US", "en-IN", "hi-IN", "de-DE", "fr-FR", "es", "ru-RU", "th-TH")) {
+            withLocale(tag) {
+                val plain = CurrencyFormatter.formatCurrency(BigDecimal("1234.5"), "INR")
+                val signed = CurrencyFormatter.signed("-", CurrencyFormatter.formatCurrency(BigDecimal("5"), "USD"))
+                val mixed = CurrencyFormatter.formatByCurrency(
+                    mapOf("USD" to Money(BigDecimal("5"), "USD"), "INR" to Money(BigDecimal("9"), "INR")),
+                    signPrefix = "+",
+                )
+                for (s in listOf(plain, signed, mixed)) {
+                    assertFalse("$tag: unexpected bidi control in $s", bidiControls.containsMatchIn(s))
+                }
+                assertEquals("-$5", signed)
+            }
+        }
+    }
+
+    @Test
+    fun `hidden amounts mask on screen but not where output leaves it`() {
+        AmountPrivacy.hidden = true
+        try {
+            val amount = BigDecimal("1200")
+            assertEquals(AmountPrivacy.MASK, CurrencyFormatter.formatCurrency(amount, "USD"))
+            assertEquals(AmountPrivacy.MASK, CurrencyFormatter.formatAbbreviated(1200.0, "USD"))
+            assertEquals(AmountPrivacy.MASK, Money(amount, "USD").format("-"))
+            // One mask for a mixed set: a mask per currency would still say how many.
+            val mixed = mapOf("USD" to Money(amount, "USD"), "INR" to Money(amount, "INR"))
+            assertEquals(AmountPrivacy.MASK, CurrencyFormatter.formatByCurrency(mixed))
+            // Notifications, AI prompts and stored chat text opt out.
+            assertEquals("$1,200", CurrencyFormatter.formatCurrency(amount, "USD", maskIfHidden = false))
+            assertTrue(CurrencyFormatter.formatByCurrency(mixed, maskIfHidden = false).contains(" · "))
+        } finally {
+            AmountPrivacy.hidden = false
+        }
+        assertEquals("$1,200", CurrencyFormatter.formatCurrency(BigDecimal("1200"), "USD"))
+    }
+
+    @Test
+    fun `numbers baked into free text are masked only while hidden`() {
+        val text = "This month: $1,200.50 spent, 4 JOD received on Nov 2."
+        assertEquals(text, CurrencyFormatter.maskAmountsIn(text))
+        AmountPrivacy.hidden = true
+        try {
+            assertEquals("This month: •••• spent, •••• received on Nov ••••.", CurrencyFormatter.maskAmountsIn(text))
+            // What the chat suggests typing: no currency, still an amount.
+            assertEquals("coffee •••• at Starbucks", CurrencyFormatter.maskAmountsIn("coffee 120 at Starbucks"))
+            // formatCurrency's own output, isolate marks included; a word ending in a code's letters isn't eaten.
+            assertEquals("Deleted ••••.", CurrencyFormatter.maskAmountsIn("Deleted \u2066₹500\u2069."))
+            assertEquals("PAID ••••", CurrencyFormatter.maskAmountsIn("PAID 50"))
+        } finally {
+            AmountPrivacy.hidden = false
+        }
+    }
+}

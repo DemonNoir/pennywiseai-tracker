@@ -1,0 +1,1994 @@
+package com.pennywiseai.tracker.presentation.home
+
+import com.pennywiseai.tracker.utils.AppDates
+
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.pennywiseai.tracker.data.preferences.HomeSection
+import com.pennywiseai.tracker.data.preferences.HomeSectionLayout
+import com.pennywiseai.tracker.ui.components.cards.SafeToSpendCard
+import com.pennywiseai.tracker.ui.components.cards.SafeToSpendSheet
+import android.view.HapticFeedbackConstants
+import androidx.activity.ComponentActivity
+import androidx.work.WorkInfo
+import androidx.activity.compose.LocalActivity
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.Icons
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.delay
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.pennywiseai.tracker.data.share.SharePeriod
+import com.pennywiseai.tracker.presentation.share.ShareCardSheet
+import com.pennywiseai.tracker.ui.components.DockNavAction
+import com.pennywiseai.tracker.ui.components.LocalNavDock
+import com.pennywiseai.tracker.ui.components.NavDockAction
+import com.pennywiseai.tracker.ui.components.ShareMonthBanner
+import com.pennywiseai.tracker.ui.components.PaydaySuggestionCard
+import com.pennywiseai.tracker.ui.components.RecurringSuggestionsCard
+import com.pennywiseai.tracker.ui.components.ProHomeCard
+import com.pennywiseai.tracker.R
+import com.pennywiseai.tracker.core.Constants
+import com.pennywiseai.tracker.data.database.entity.SubscriptionEntity
+import com.pennywiseai.tracker.ui.components.BrandIcon
+import com.pennywiseai.tracker.ui.components.cards.HomeGroupCard
+import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
+import com.pennywiseai.tracker.ui.components.PennyWiseEmptyState
+import com.pennywiseai.tracker.ui.components.cards.SectionHeaderV2
+import com.pennywiseai.tracker.ui.components.SmsParsingProgressDialog
+import com.pennywiseai.tracker.ui.components.cards.AccountCarousel
+import com.pennywiseai.tracker.ui.components.cards.BudgetCarousel
+import com.pennywiseai.tracker.ui.components.cards.CashFlowCard
+import com.pennywiseai.tracker.ui.components.cards.GroupCard
+import com.pennywiseai.tracker.ui.components.cards.GroupedRow
+import com.pennywiseai.tracker.ui.components.cards.ListItemPosition
+import com.pennywiseai.tracker.ui.components.cards.TransactionItem
+import com.pennywiseai.tracker.ui.components.skeleton.BalanceCardSkeleton
+import com.pennywiseai.tracker.ui.components.skeleton.TransactionItemSkeleton
+import com.pennywiseai.tracker.ui.components.spotlightTarget
+import com.pennywiseai.tracker.data.preferences.CoverStyle
+import com.pennywiseai.tracker.presentation.common.buildProfileAccountKeys
+import com.pennywiseai.tracker.ui.components.ProfileFilterDropdown
+import com.pennywiseai.tracker.ui.components.profileFilterIcon
+import com.pennywiseai.tracker.ui.components.CoverGradientBanner
+import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
+import com.pennywiseai.tracker.ui.components.SlipScanBottomSheet
+import com.pennywiseai.tracker.ui.components.GreetingCard
+import com.pennywiseai.tracker.ui.effects.overScrollVertical
+import com.pennywiseai.tracker.ui.effects.rememberOverscrollFlingBehavior
+import com.pennywiseai.tracker.ui.theme.*
+import com.pennywiseai.tracker.utils.CurrencyFormatter
+import com.pennywiseai.tracker.ui.effects.frostedBlur
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+
+/** Distance each card travels on the first-composition entrance animation. */
+private val ENTRANCE_SLIDE_DISTANCE = Spacing.lg
+
+/** Diameter of one avatar in the overlapping subscription stack. */
+private val STACKED_AVATAR_SIZE = Dimensions.Icon.large
+
+/** Horizontal step between stacked avatars — less than the diameter, so they
+ *  overlap and read as a group. */
+private val STACKED_AVATAR_STEP = Spacing.lg - Spacing.xs
+
+/** The surface-coloured ring that separates one stacked avatar from the next. */
+private val STACKED_AVATAR_RING = Spacing.xxs
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun HomeScreen(
+    viewModel: HomeViewModel = hiltViewModel(),
+    onAccountClick: (bankName: String, accountLast4: String) -> Unit,
+    coverStyle: CoverStyle = CoverStyle.AURORA,
+    blurEffects: Boolean = false,
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToTransactions: () -> Unit = {},
+    onNavigateToTransactionsWithSearch: () -> Unit = {},
+    onNavigateToSubscriptions: () -> Unit = {},
+    onNavigateToBudgets: () -> Unit = {},
+    onNavigateToLoans: () -> Unit = {},
+    onNavigateToTransactionGroups: () -> Unit = {},
+    onLoanClick: (Long) -> Unit = {},
+    onNavigateToAddScreen: () -> Unit = {},
+    onNavigateToManageAccounts: () -> Unit = {},
+    onTransactionClick: (Long) -> Unit = {},
+    onGroupClick: (Long) -> Unit = {},
+    onGoalClick: (Long) -> Unit = {},
+    onTransactionTypeClick: (String?) -> Unit = {},
+    onFabPositioned: (Rect) -> Unit = {}
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val isProEntitled by viewModel.isProEntitled.collectAsState()
+    val currentCycleWindow by viewModel.currentCycleWindow.collectAsState()
+    var showUpgradeSheet by rememberSaveable { mutableStateOf(false) }
+    val deletedTransaction by viewModel.deletedTransaction.collectAsState()
+    val smsScanWorkInfo by viewModel.smsScanWorkInfo.collectAsState()
+    val slipScanProgress by viewModel.slipScanProgress.collectAsStateWithLifecycle()
+    val groupSummaries by viewModel.groupSummaries.collectAsState()
+    val goals by viewModel.goals.collectAsStateWithLifecycle()
+    val homeSectionLayout by viewModel.homeSectionLayout.collectAsStateWithLifecycle()
+    val showSharePrompt by viewModel.showSharePrompt.collectAsState()
+    val showProHomeCard by viewModel.showProHomeCard.collectAsStateWithLifecycle()
+    val paydaySuggestion by viewModel.paydaySuggestion.collectAsStateWithLifecycle()
+    val recurringSuggestions by viewModel.recurringSuggestions.collectAsStateWithLifecycle()
+    val safeToSpend by viewModel.safeToSpend.collectAsStateWithLifecycle()
+    var showSafeToSpendSheet by rememberSaveable { mutableStateOf(false) }
+    val activity = LocalActivity.current
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // State for full resync confirmation dialog
+    var showFullResyncDialog by remember { mutableStateOf(false) }
+
+    // Bottom sheet menu state
+    var showMenuSheet by remember { mutableStateOf(false) }
+    var showSlipScanSheet by rememberSaveable { mutableStateOf(false) }
+    var showShareSheet by remember { mutableStateOf(false) }
+    var showEditWidgetsSheet by remember { mutableStateOf(false) }
+    // Period the sheet should open on. The monthly banner points it at the finished
+    // month; opening from the overflow menu uses whatever the user saved.
+    var sharePromptPeriod by remember { mutableStateOf<SharePeriod?>(null) }
+    val sheetState = rememberBottomSheetState(SheetValue.Hidden)
+
+    // Profile filter dropdown state
+    var showProfileFilterMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val deletedMessage = stringResource(R.string.home_transaction_deleted)
+    val undoLabel = stringResource(R.string.home_undo)
+
+    // Haptic feedback
+    val view = LocalView.current
+
+    // Set while the floating nav bar is up: Sync docks beside it, and Add
+    // moves to the header so no FAB stack floats over the content.
+    val navDock = LocalNavDock.current
+
+    // Haptic on successful SMS scan completion
+    LaunchedEffect(smsScanWorkInfo?.state) {
+        if (smsScanWorkInfo?.state == WorkInfo.State.SUCCEEDED) {
+            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        }
+    }
+
+    // Scroll behaviors for collapsible TopAppBar
+    val scrollBehaviorSmall = TopAppBarDefaults.pinnedScrollBehavior()
+    val scrollBehaviorLarge = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    // Haze state for TopAppBar blur
+    val hazeState = remember { HazeState() }
+
+    // Haze state for banner blur effect
+    val hazeStateBanner = remember { HazeState() }
+
+    // LazyColumn scroll state for overscroll physics
+    val lazyListState = rememberLazyListState()
+
+    // Staggered entrance animation state — only animates on first composition.
+    // Each item's effect checks its own `visible`, not hasAnimated: an item composed
+    // just before hasAnimated flips would otherwise skip its reveal and stay hidden.
+    var hasAnimated by rememberSaveable { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val slideOffsetPx = with(density) { ENTRANCE_SLIDE_DISTANCE.roundToPx() }
+    val motion = MaterialTheme.motionScheme
+
+    // Mark entrance animation as complete after all stagger delays have fired
+    LaunchedEffect(Unit) {
+        if (!hasAnimated) {
+            delay(350) // slightly after the last stagger (300ms)
+            hasAnimated = true
+        }
+    }
+
+    // Check for app updates and reviews when the screen is first displayed
+    LaunchedEffect(Unit) {
+        // Refresh account balances to ensure proper currency conversion
+        viewModel.refreshAccountBalances()
+
+        activity?.let {
+            val componentActivity = it as ComponentActivity
+            
+            // Check for app updates
+            viewModel.checkForAppUpdate(
+                activity = componentActivity,
+                snackbarHostState = snackbarHostState,
+                scope = scope
+            )
+            
+            // Check for in-app review eligibility
+            viewModel.checkForInAppReview(componentActivity)
+        }
+    }
+    
+    // A new day moves the forecast and Safe to spend on, even with no data change.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        viewModel.refreshDate()
+        onPauseOrDispose { }
+    }
+
+    // Refresh hidden accounts whenever this screen becomes visible
+    // This ensures changes from ManageAccountsScreen are reflected immediately
+    DisposableEffect(Unit) {
+        viewModel.refreshHiddenAccounts()
+        onDispose { }
+    }
+    
+    // Handle delete undo snackbar
+    LaunchedEffect(deletedTransaction) {
+        deletedTransaction?.let { transaction ->
+            // Clear the state immediately to prevent re-triggering
+            viewModel.clearDeletedTransaction()
+            
+            scope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = deletedMessage,
+                    actionLabel = undoLabel,
+                    duration = SnackbarDuration.Short
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    // Pass the transaction directly since state is already cleared
+                    viewModel.undoDeleteTransaction(transaction)
+                }
+            }
+        }
+    }
+    
+    // Clear snackbar when navigating away
+    DisposableEffect(Unit) {
+        onDispose {
+            snackbarHostState.currentSnackbarData?.dismiss()
+        }
+    }
+    
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehaviorLarge.nestedScrollConnection),
+        containerColor = Color.Transparent,
+        // The bottom nav bar is overlaid on top of this Scaffold by MainScreen,
+        // so pad the host clear of it — otherwise snackbars (notably the
+        // "restart to apply update" prompt) render behind the nav bar.
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(bottom = Dimensions.Component.bottomBarHeight)
+            )
+        },
+        topBar = {
+            CustomTitleTopAppBar(
+                scrollBehaviorSmall = scrollBehaviorSmall,
+                scrollBehaviorLarge = scrollBehaviorLarge,
+                title = "PennyWise",
+                isHomeScreen = true,
+                userName = uiState.userName,
+                profileImageUri = uiState.profileImageUri,
+                profileBackgroundColor = uiState.profileBackgroundColor,
+                hazeState = hazeState,
+                blurEffects = blurEffects,
+                actionContent = {
+                    val containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = Dimensions.Padding.content),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                    ) {
+                        // Subtle Pro discovery chip — yellow sparkle that ties
+                        // back to the Settings → PennyWise Pro entry. Hidden
+                        // for already-entitled users so it's never pushy.
+                        // Tap → opens the same UpgradeSheet as Settings.
+                        if (!isProEntitled) {
+                            Box(
+                                modifier = Modifier
+                                    .size(Dimensions.Component.iconButton)
+                                    .clip(CircleShape)
+                                    .background(
+                                        color = com.pennywiseai.tracker.ui.theme.yellow_light,
+                                        shape = CircleShape,
+                                    )
+                                    .clickable(
+                                        onClick = { showUpgradeSheet = true },
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = stringResource(R.string.home_upgrade_pro),
+                                    tint = com.pennywiseai.tracker.ui.theme.yellow_dark,
+                                    modifier = Modifier.size(Dimensions.Icon.inline),
+                                )
+                            }
+                        }
+
+                        // Business/Personal filter dropdown
+                        Box {
+                            Box(
+                                modifier = Modifier
+                                    .size(Dimensions.Component.iconButton)
+                                    .clip(CircleShape)
+                                    .background(
+                                        color = if (blurEffects) containerColor.copy(0.5f) else containerColor,
+                                        shape = CircleShape
+                                    )
+                                    .clickable(
+                                        onClick = { showProfileFilterMenu = true },
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = profileFilterIcon(uiState.profiles, uiState.selectedProfileId),
+                                    contentDescription = stringResource(R.string.home_profile_filter),
+                                    tint = MaterialTheme.colorScheme.inverseSurface,
+                                    modifier = Modifier.size(Dimensions.Icon.inline)
+                                )
+                            }
+                            ProfileFilterDropdown(
+                                expanded = showProfileFilterMenu,
+                                profiles = uiState.profiles,
+                                selectedProfileId = uiState.selectedProfileId,
+                                onProfileSelected = { viewModel.updateSelectedProfile(it) },
+                                onDismiss = { showProfileFilterMenu = false }
+                            )
+                        }
+                        if (navDock != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(Dimensions.Component.iconButton)
+                                    .clip(CircleShape)
+                                    .background(
+                                        color = if (blurEffects) containerColor.copy(0.5f) else containerColor,
+                                        shape = CircleShape
+                                    )
+                                    .clickable(
+                                        onClick = onNavigateToAddScreen,
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = stringResource(R.string.home_fab_add),
+                                    tint = MaterialTheme.colorScheme.inverseSurface,
+                                    modifier = Modifier.size(Dimensions.Icon.medium)
+                                )
+                            }
+                        }
+                        // More options button
+                        Box(
+                            modifier = Modifier
+                                .size(Dimensions.Component.iconButton)
+                                .clip(CircleShape)
+                                .background(
+                                    color = if (blurEffects) containerColor.copy(0.5f) else containerColor,
+                                    shape = CircleShape
+                                )
+                                .clickable(
+                                    onClick = { showMenuSheet = true },
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreHoriz,
+                                contentDescription = stringResource(R.string.home_more_options),
+                                tint = MaterialTheme.colorScheme.inverseSurface,
+                                modifier = Modifier.size(Dimensions.Icon.medium)
+                            )
+                        }
+                    }
+                },
+                extraInfoCard = {
+                    GreetingCard(
+                        userName = uiState.userName,
+                        profileImageUri = uiState.profileImageUri,
+                        profileBackgroundColor = uiState.profileBackgroundColor,
+                        onAvatarClick = onNavigateToSettings,
+                        onMenuClick = { showMenuSheet = true },
+                        onAddClick = onNavigateToAddScreen.takeIf { navDock != null },
+                        profiles = uiState.profiles,
+                        selectedProfileId = uiState.selectedProfileId,
+                        onProfileSelected = { viewModel.updateSelectedProfile(it) },
+                        isProEntitled = isProEntitled,
+                        onUpgradeClick = { showUpgradeSheet = true },
+                        cycleEnd = currentCycleWindow.second
+                    )
+                }
+            )
+        }
+    ) { paddingValues ->
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        // Banner gradient at y=0 — paints behind the transparent TopAppBar
+        if (coverStyle != CoverStyle.NONE) {
+            CoverGradientBanner(
+                coverStyle = coverStyle,
+                hazeStateBanner = hazeStateBanner,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+            )
+        }
+
+        // LazyColumn scrolls over the banner
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(hazeState)
+                .overScrollVertical(),
+            flingBehavior = rememberOverscrollFlingBehavior { lazyListState },
+            contentPadding = PaddingValues(
+                top = Dimensions.Padding.content + paddingValues.calculateTopPadding(),
+                // Clears the nav bar plus the Add + Sync FAB stack above it.
+                bottom = Dimensions.Component.bottomBarHeight +
+                    Dimensions.Component.fabScrollClearance
+            ),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md)
+        ) {
+            // 1. Balance Card (0ms delay)
+            item {
+                val visible = remember { mutableStateOf(hasAnimated) }
+                LaunchedEffect(Unit) {
+                    if (!visible.value) { delay(0); visible.value = true }
+                }
+                AnimatedVisibility(
+                    visible = visible.value,
+                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                        initialOffsetY = { slideOffsetPx },
+                        animationSpec = motion.defaultSpatialSpec()
+                    )
+                ) {
+                    if (!uiState.isBalanceReady) {
+                        BalanceCardSkeleton(
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
+                        )
+                    } else {
+                        com.pennywiseai.tracker.ui.components.cards.BalanceCard(
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                            blurEffects = blurEffects,
+                            hazeState = hazeStateBanner,
+                            userName = uiState.userName,
+                            totalBalance = uiState.totalBalance,
+                            monthlyChange = uiState.monthlyChange,
+                            monthlyChangePercent = uiState.monthlyChangePercent,
+                            currency = uiState.selectedCurrency,
+                            currentMonthIncome = uiState.currentMonthIncome,
+                            currentMonthExpenses = uiState.currentMonthExpenses,
+                            currentMonthLent = uiState.currentMonthLent,
+                            currentMonthTotal = uiState.currentMonthTotal,
+                            balanceHistory = uiState.balanceHistory,
+                            spendingHistory = uiState.spendingHistory,
+                            lastMonthSpendingHistory = uiState.lastMonthSpendingHistory,
+                            lastMonthSpending = uiState.lastMonthExpenses,
+                            availableCurrencies = uiState.availableCurrencies,
+                            isUnifiedMode = uiState.isUnifiedMode,
+                            isApproximate = uiState.isApproximateBalance,
+                            isBalanceHidden = uiState.isBalanceHidden,
+                            onToggleBalanceVisibility = { viewModel.toggleBalanceVisibility() },
+                            onCurrencySelected = { viewModel.selectCurrency(it) },
+                            onShowBreakdown = { viewModel.showBreakdownDialog() },
+                            accountBalances = uiState.accountBalances,
+                            creditCards = uiState.creditCards,
+                            totalAvailableCredit = uiState.totalAvailableCredit,
+                            forecast = uiState.spendForecast,
+                            onAccountClick = onAccountClick
+                        )
+                    }
+                }
+            }
+
+            // Share / one-time Pro card: below the first section that actually shows
+            // (Safe to spend by default), so the decision card stays first and the
+            // prompt still sits high enough to be seen and dismissed.
+            val promoSlot: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+                val payday = paydaySuggestion
+                val recurring = recurringSuggestions
+                // Monthly share prompt. Offers the user something ("your month, summed
+                // up") rather than asking a favour, and only appears when the finished month
+                // actually has enough in it to be worth sending.
+                if (showSharePrompt) {
+                    item {
+                        ShareMonthBanner(
+                            onOpen = {
+                                viewModel.markSharePromptHandled()
+                                sharePromptPeriod = SharePeriod.LAST_MONTH
+                                showShareSheet = true
+                            },
+                            onDismiss = { viewModel.markSharePromptHandled() },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
+                } else if (payday != null) {
+                    // One-time "start budgets on payday?" suggestion. Ahead of the Pro card:
+                    // it's about the user's own money, not an upsell.
+                    item {
+                        PaydaySuggestionCard(
+                            day = payday,
+                            onAccept = { viewModel.acceptPaydaySuggestion(payday) },
+                            onDismiss = { viewModel.dismissPaydaySuggestion() },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
+                } else if (recurring != null) {
+                    // Untracked repeating payments: a compact entry to Subscriptions →
+                    // Suggested, where each one is reviewed.
+                    item {
+                        RecurringSuggestionsCard(
+                            merchantNames = recurring.map { it.merchantName },
+                            onReview = onNavigateToSubscriptions,
+                            onDismiss = { viewModel.dismissRecurringSuggestions(recurring) },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
+                } else if (showProHomeCard) {
+                    // One-time Pro card (#945). Shares the share banner's slot and
+                    // never stacks with it (the eligibility check also excludes it).
+                    item {
+                        ProHomeCard(
+                            onSeePro = {
+                                viewModel.markProHomeCardHandled()
+                                showUpgradeSheet = true
+                            },
+                            onDismiss = { viewModel.markProHomeCardHandled() },
+                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        )
+                    }
+                }
+            }
+
+            // 2–6. User-orderable sections (#770). Hidden ones are absent from the
+            // list entirely; the entrance stagger follows the *displayed* position so
+            // it survives reordering. Each branch keeps its own data guard.
+            val visibleSections = homeSectionLayout.filter { it.second }.map { it.first }
+            // Mirrors each branch's own data guard below, so an empty section first in
+            // line doesn't drag the promo up under the balance card.
+            val promoAfter = visibleSections.firstOrNull { section ->
+                when (section) {
+                    HomeSection.SAFE_TO_SPEND -> safeToSpend != null
+                    HomeSection.BUDGETS -> uiState.budgetSummary != null
+                    HomeSection.GOALS -> goals.isNotEmpty()
+                    HomeSection.LOANS -> uiState.loanSummary != null
+                    HomeSection.GROUPS -> groupSummaries.isNotEmpty()
+                    HomeSection.ACCOUNTS -> uiState.creditCards.isNotEmpty() || uiState.accountBalances.isNotEmpty()
+                    HomeSection.SUBSCRIPTIONS -> uiState.upcomingSubscriptions.isNotEmpty()
+                    HomeSection.MONEY_IN_MOTION -> false // ponytail: secondary card, never the promo's anchor
+                    HomeSection.RECENT_TRANSACTIONS, HomeSection.ACTIVITY -> true
+                }
+            }
+            for ((index, section) in visibleSections.withIndex()) {
+                val delayMs = 50L * (index + 1)
+                when (section) {
+                    HomeSection.SAFE_TO_SPEND -> {
+                        // Only once there's a spendable account with a balance.
+                        safeToSpend?.let { state ->
+                            item(key = section.name) {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    SafeToSpendCard(
+                                        state = state,
+                                        isBalanceHidden = uiState.isBalanceHidden,
+                                        onReveal = { viewModel.toggleBalanceVisibility() },
+                                        onOpenBreakdown = { showSafeToSpendSheet = true },
+                                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.BUDGETS -> {
+                        // 2. Budget Carousel
+                        uiState.budgetSummary?.let { summary ->
+                            item(key = section.name) {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
+                                    ) {
+                                        SectionHeaderV2(
+                                            title = stringResource(R.string.home_section_budgets),
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                            action = {
+                                                TextButton(onClick = onNavigateToBudgets, shapes = ButtonDefaults.shapes()) {
+                                                    Text(stringResource(R.string.home_view_all))
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(Dimensions.Icon.small)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        BudgetCarousel(
+                                            summary = summary,
+                                            onClick = onNavigateToBudgets,
+                                            onCreateBudget = onNavigateToBudgets,
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.GOALS -> {
+                        // 2.25. Goals (#914) — only when there's a non-archived goal.
+                        if (goals.isNotEmpty()) {
+                            item(key = section.name) {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
+                                    ) {
+                                        SectionHeaderV2(
+                                            title = stringResource(R.string.home_section_goals),
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                            action = {
+                                                TextButton(onClick = onNavigateToBudgets, shapes = ButtonDefaults.shapes()) {
+                                                    Text(stringResource(R.string.home_view_all))
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(Dimensions.Icon.small)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        com.pennywiseai.tracker.presentation.goals.GoalsHomeCard(
+                                            goals = goals,
+                                            onOpenGoal = onGoalClick,
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.LOANS -> {
+                        // 2.5. Loans Summary — only when active loans exist
+                        uiState.loanSummary?.let { summary ->
+                            item(key = section.name) {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
+                                    ) {
+                                        SectionHeaderV2(
+                                            title = stringResource(R.string.home_section_loans),
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                            action = {
+                                                TextButton(onClick = onNavigateToLoans, shapes = ButtonDefaults.shapes()) {
+                                                    Text(stringResource(R.string.home_view_all))
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(Dimensions.Icon.small)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        Box(modifier = Modifier.padding(horizontal = Dimensions.Padding.content)) {
+                                            ActiveLoansSummaryCard(
+                                                loans = summary.activeLoans,
+                                                totalLentRemaining = summary.totalLentRemaining,
+                                                totalBorrowedRemaining = summary.totalBorrowedRemaining,
+                                                currency = uiState.selectedCurrency,
+                                                onClick = onNavigateToLoans
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.GROUPS -> {
+                        // 2.5. Groups section (#664) — a horizontal rail of the user's
+                        // transaction groups, absent entirely when none exist so Home
+                        // stays uncluttered for everyone else. Discovery was the ask:
+                        // groups only surfaced via Settings or a group card that happened
+                        // to have recent activity.
+                        if (groupSummaries.isNotEmpty()) {
+                            item(key = section.name) {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
+                                    ) {
+                                        SectionHeaderV2(
+                                            title = stringResource(R.string.home_section_groups),
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                            action = {
+                                                TextButton(onClick = onNavigateToTransactionGroups, shapes = ButtonDefaults.shapes()) {
+                                                    Text(stringResource(R.string.home_view_all))
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(Dimensions.Icon.small)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = Dimensions.Padding.content),
+                                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                                        ) {
+                                            items(groupSummaries, key = { it.group.id }) { summary ->
+                                                HomeGroupCard(
+                                                    summary = summary,
+                                                    onClick = { onGroupClick(summary.group.id) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.RECENT_TRANSACTIONS -> {
+                        // 3. Recent Transactions Section
+                        item(key = section.name) {
+                            val visible = remember { mutableStateOf(hasAnimated) }
+                            LaunchedEffect(Unit) {
+                                if (!visible.value) { delay(delayMs); visible.value = true }
+                            }
+                            AnimatedVisibility(
+                                visible = visible.value,
+                                enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                    initialOffsetY = { slideOffsetPx },
+                                    animationSpec = motion.defaultSpatialSpec()
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = Dimensions.Padding.content)) {
+                                    SectionHeaderV2(
+                                        title = stringResource(R.string.home_section_recent_transactions),
+                                        action = {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Search button
+                                                IconButton(
+                                                    onClick = onNavigateToTransactionsWithSearch,
+                                                    modifier = Modifier.size(Dimensions.Component.iconButton),
+                                                    shapes = IconButtonDefaults.shapes()
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Search,
+                                                        contentDescription = stringResource(R.string.home_search_transactions),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+
+                                                // View All button
+                                                TextButton(onClick = onNavigateToTransactions, shapes = ButtonDefaults.shapes()) {
+                                                    Text(stringResource(R.string.home_view_all))
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(Dimensions.Icon.small)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        if (uiState.isLoading) {
+                            item(key = "${section.name}_body") {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                    verticalArrangement = Arrangement.spacedBy(Spacing.Layout.listGap)
+                                ) {
+                                    repeat(5) {
+                                        TransactionItemSkeleton()
+                                    }
+                                }
+                            }
+                        } else if (uiState.recentItems.isEmpty()) {
+                            item(key = "${section.name}_body") {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    PennyWiseEmptyState(
+                                        icon = Icons.Default.Sync,
+                                        headline = stringResource(R.string.home_empty_headline),
+                                        description = stringResource(R.string.home_empty_description),
+                                        actionLabel = stringResource(R.string.home_empty_action),
+                                        onAction = { viewModel.scanSmsMessages() },
+                                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                        ghostContent = {
+                                            Column(
+                                                verticalArrangement = Arrangement.spacedBy(Spacing.Layout.listGap)
+                                            ) {
+                                                repeat(3) {
+                                                    TransactionItemSkeleton()
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            item(key = "${section.name}_body") {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.Layout.listGap)
+                                    ) {
+                                        val profileAccountKeys = remember(uiState.accountBalances) {
+                                            buildProfileAccountKeys(uiState.accountBalances)
+                                        }
+                                        uiState.recentItems.forEach { item ->
+                                            when (item) {
+                                                is HomeRecentItem.SingleTransaction -> TransactionItem(
+                                                    transaction = item.transaction,
+                                                    convertedAmount = item.convertedAmount,
+                                                    displayCurrency = if (uiState.isUnifiedMode) uiState.selectedCurrency else null,
+                                                    showTypeLabel = false,
+                                                    profileAccountKeys = profileAccountKeys,
+                                                    onClick = { onTransactionClick(item.transaction.id) }
+                                                )
+                                                is HomeRecentItem.GroupItem -> GroupCard(
+                                                    group = item.group,
+                                                    transactions = item.transactions,
+                                                    convertedAmounts = item.convertedAmounts,
+                                                    displayCurrency = if (uiState.isUnifiedMode) uiState.selectedCurrency else null,
+                                                    onClick = { onGroupClick(item.group.id) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.ACCOUNTS -> {
+                        // 4. Account Carousel
+                        if (uiState.creditCards.isNotEmpty() || uiState.accountBalances.isNotEmpty()) {
+                            item(key = section.name) {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
+                                    ) {
+                                        SectionHeaderV2(
+                                            title = stringResource(R.string.home_section_accounts),
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                            action = {
+                                                TextButton(onClick = onNavigateToManageAccounts, shapes = ButtonDefaults.shapes()) {
+                                                    Text(stringResource(R.string.home_manage))
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(Dimensions.Icon.small)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        AccountCarousel(
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                            bankAccounts = uiState.accountBalances,
+                                            creditCards = uiState.creditCards,
+                                            onAccountClick = onAccountClick,
+                                            isUnifiedMode = uiState.isUnifiedMode,
+                                            selectedCurrency = uiState.selectedCurrency,
+                                            blurEffects = blurEffects,
+                                            hazeState = hazeStateBanner,
+                                            isAmountHidden = uiState.isBalanceHidden,
+                                            onToggleAmountsHidden = { viewModel.toggleBalanceVisibility() }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.SUBSCRIPTIONS -> {
+                        // 5. Upcoming Subscriptions Alert
+                        if (uiState.upcomingSubscriptions.isNotEmpty()) {
+                            item(key = section.name) {
+                                val visible = remember { mutableStateOf(hasAnimated) }
+                                LaunchedEffect(Unit) {
+                                    if (!visible.value) { delay(delayMs); visible.value = true }
+                                }
+                                AnimatedVisibility(
+                                    visible = visible.value,
+                                    enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                        initialOffsetY = { slideOffsetPx },
+                                        animationSpec = motion.defaultSpatialSpec()
+                                    )
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
+                                    ) {
+                                        SectionHeaderV2(
+                                            title = stringResource(R.string.home_section_subscriptions),
+                                            modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                            action = {
+                                                TextButton(onClick = onNavigateToSubscriptions, shapes = ButtonDefaults.shapes()) {
+                                                    Text(stringResource(R.string.home_view_all))
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(Dimensions.Icon.small)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        Box(modifier = Modifier.padding(horizontal = Dimensions.Padding.content)) {
+                                            UpcomingSubscriptionsCard(
+                                                subscriptions = uiState.upcomingSubscriptions,
+                                                totalAmount = uiState.upcomingSubscriptionsTotal,
+                                                totalByCurrency = uiState.upcomingSubscriptionsByCurrency,
+                                                nextDue = uiState.nextDueSubscription,
+                                                isUnified = uiState.isUnifiedMode,
+                                                currency = uiState.selectedCurrency,
+                                                onClick = onNavigateToSubscriptions,
+                                                blurEffects = blurEffects,
+                                                hazeState = hazeStateBanner
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HomeSection.MONEY_IN_MOTION -> {
+                        // Credit / invested / transferred: money outside net cash flow.
+                        // Reference detail, so a late, hideable section rather than a fixed
+                        // card above the decision cards. Hides itself on dormant months.
+                    item(key = section.name) {
+                        val visible = remember { mutableStateOf(hasAnimated) }
+                        LaunchedEffect(Unit) {
+                            if (!visible.value) { delay(delayMs); visible.value = true }
+                        }
+                        AnimatedVisibility(
+                            visible = visible.value,
+                            enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                initialOffsetY = { slideOffsetPx },
+                                animationSpec = motion.defaultSpatialSpec()
+                            )
+                        ) {
+                            CashFlowCard(
+                                currency = uiState.selectedCurrency,
+                                // When card spend counts as expense (#705) it's already in
+                                // "Spent this month", so drop it from this "outside cash flow"
+                                // card (a zero channel is filtered out) to avoid double-showing.
+                                creditCardSpend = if (uiState.countCreditCardAsExpense) BigDecimal.ZERO else uiState.currentMonthCreditCard,
+                                investments = uiState.currentMonthInvestment,
+                                transfers = uiState.currentMonthTransfer,
+                                isBalanceHidden = uiState.isBalanceHidden,
+                                onToggleBalanceVisibility = { viewModel.toggleBalanceVisibility() },
+                                modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
+                            )
+                        }
+                    }
+                    }
+                    HomeSection.ACTIVITY -> {
+                        // 6. Heatmap Widget
+                        item(key = section.name) {
+                            val visible = remember { mutableStateOf(hasAnimated) }
+                            LaunchedEffect(Unit) {
+                                if (!visible.value) { delay(delayMs); visible.value = true }
+                            }
+                            AnimatedVisibility(
+                                visible = visible.value,
+                                enter = fadeIn(motion.defaultEffectsSpec()) + slideInVertically(
+                                    initialOffsetY = { slideOffsetPx },
+                                    animationSpec = motion.defaultSpatialSpec()
+                                )
+                            ) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(Spacing.Layout.headerToContent)
+                                ) {
+                                    SectionHeaderV2(
+                                        title = stringResource(R.string.home_section_activity),
+                                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content)
+                                    )
+                                    com.pennywiseai.tracker.ui.components.cards.HeatmapWidget(
+                                        transactionHeatmap = uiState.transactionHeatmap,
+                                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                                        blurEffects = blurEffects,
+                                        hazeState = hazeStateBanner
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                if (section == promoAfter) promoSlot()
+            }
+            // Nothing shown to anchor on: the promo still gets a slot.
+            if (promoAfter == null) promoSlot()
+        }
+        
+
+        slipScanProgress?.takeIf { it.isScanning && it.total > 0 }?.let { progress ->
+            LinearProgressIndicator(
+                progress = { progress.current.toFloat() / progress.total },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = paddingValues.calculateTopPadding())
+                    .semantics {
+                        contentDescription = context.getString(R.string.slip_scan_processing)
+                    }
+            )
+        }
+
+        if (navDock != null) {
+            // Sync docks beside the floating nav bar; Add lives in the header.
+            val syncLabel = stringResource(R.string.home_fab_sync)
+            val fullResyncLabel = stringResource(R.string.home_resync_title)
+            DockNavAction(
+                NavDockAction(
+                    icon = Icons.Default.Sync,
+                    contentDescription = syncLabel,
+                    onClick = { viewModel.scanSmsMessages() },
+                    onLongClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        showFullResyncDialog = true
+                    },
+                    onLongClickLabel = fullResyncLabel,
+                    loading = uiState.isScanning,
+                    onPositioned = onFabPositioned
+                )
+            )
+        } else {
+            // FABs - Direct access (no speed dial)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = Dimensions.Padding.content,
+                        bottom = Dimensions.Component.fabBottomInset
+                    ),
+                verticalArrangement = Arrangement.spacedBy(Spacing.smd),
+                horizontalAlignment = Alignment.End
+            ) {
+                // Add FAB (top, small)
+                SmallFloatingActionButton(
+                    onClick = onNavigateToAddScreen,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.home_fab_add)
+                    )
+                }
+            
+                // Sync FAB (bottom, primary)
+                // Single tap: incremental scan, Long press: full resync
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .spotlightTarget(onFabPositioned)
+                            .size(Dimensions.Component.fab)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { viewModel.scanSmsMessages() },
+                                    onLongPress = {
+                                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                        showFullResyncDialog = true
+                                    }
+                                )
+                            },
+                        shape = FloatingActionButtonDefaults.shape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shadowElevation = Dimensions.Elevation.fab,
+                        tonalElevation = Dimensions.Elevation.fab,
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // M3 Expressive: the shape-morphing loading indicator
+                            // takes the icon's place while a scan runs.
+                            if (uiState.isScanning) {
+                                LoadingIndicator(
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.semantics {
+                                        contentDescription = context.getString(R.string.home_fab_sync)
+                                    }
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = stringResource(R.string.home_fab_sync),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                    // Hint for long-press functionality - only show for new users (no transactions yet)
+                    if (uiState.recentItems.isEmpty() && !uiState.isLoading) {
+                        Text(
+                            text = stringResource(R.string.home_fab_sync_hint),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        // Full Resync Confirmation Dialog
+        if (showFullResyncDialog) {
+            AlertDialog(
+                onDismissRequest = { showFullResyncDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                title = {
+                    Text(stringResource(R.string.home_resync_title))
+                },
+                text = {
+                    // Two ways to re-read: the gentle one first, since a full rebuild
+                    // resets edits to SMS transactions.
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        ResyncOption(
+                            title = stringResource(R.string.home_resync_scan_again),
+                            description = stringResource(R.string.home_resync_scan_again_desc),
+                            onClick = {
+                                showFullResyncDialog = false
+                                viewModel.scanSmsMessages(rescanAll = true)
+                            }
+                        )
+                        ResyncOption(
+                            title = stringResource(R.string.home_resync_rebuild),
+                            description = stringResource(R.string.home_resync_rebuild_desc),
+                            onClick = {
+                                showFullResyncDialog = false
+                                viewModel.scanSmsMessages(forceResync = true)
+                            }
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { showFullResyncDialog = false },
+                        shapes = ButtonDefaults.shapes()
+                    ) {
+                        Text(stringResource(R.string.home_cancel))
+                    }
+                }
+            )
+        }
+
+        // SMS Parsing Progress Dialog
+        SmsParsingProgressDialog(
+            isVisible = uiState.isScanning,
+            workInfo = smsScanWorkInfo,
+            onDismiss = { viewModel.cancelSmsScan() },
+            onCancel = { viewModel.cancelSmsScan() }
+        )
+        
+        // Breakdown Dialog
+        if (uiState.showBreakdownDialog) {
+            BreakdownDialog(
+                currentMonthIncome = uiState.currentMonthIncome,
+                currentMonthExpenses = uiState.currentMonthExpenses,
+                currentMonthTotal = uiState.currentMonthTotal,
+                lastMonthIncome = uiState.lastMonthIncome,
+                lastMonthExpenses = uiState.lastMonthExpenses,
+                lastMonthTotal = uiState.lastMonthTotal,
+                currency = uiState.selectedCurrency,
+                onDismiss = { viewModel.hideBreakdownDialog() }
+            )
+        }
+    }
+
+    // Share-card sheet, rendered at screen scope so dismissing the menu can't tear it down.
+    if (showShareSheet) {
+        ShareCardSheet(
+            initialPeriod = sharePromptPeriod,
+            onDismiss = { showShareSheet = false; sharePromptPeriod = null },
+        )
+    }
+
+    if (showSlipScanSheet) {
+        SlipScanBottomSheet(
+            onDismissRequest = { showSlipScanSheet = false },
+            onSaveTransaction = { slip ->
+                viewModel.saveParsedSlipTransaction(slip)
+                showSlipScanSheet = false
+            }
+        )
+    }
+
+    // Avatar menu bottom sheet
+    if (showMenuSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMenuSheet = false },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.Layout.groupedListGap)
+            ) {
+                // Title
+                Text(
+                    text = stringResource(R.string.home_menu_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .padding(bottom = Spacing.sm)
+                        .fillMaxWidth()
+                )
+
+                // Monthly recap (Top) — the growth loop lives here rather than buried
+                // in the Subscriptions screen, where nobody would find it. Named for what
+                // it is rather than "Share ...": the menu sits beside Settings and Rate,
+                // and leading with the ask makes it read as a favour being requested.
+                MenuListItem(
+                    headline = stringResource(R.string.home_menu_monthly_recap),
+                    icon = { Icon(Icons.Default.Share, contentDescription = null) },
+                    position = ListItemPosition.Top,
+                    onClick = {
+                        showMenuSheet = false
+                        showShareSheet = true
+                    }
+                )
+
+                MenuListItem(
+                    headline = stringResource(R.string.slip_scan_header),
+                    icon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) },
+                    position = ListItemPosition.Middle,
+                    onClick = {
+                        showMenuSheet = false
+                        showSlipScanSheet = true
+                    }
+                )
+
+                // Settings (Middle)
+                MenuListItem(
+                    headline = stringResource(R.string.home_menu_settings),
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    position = ListItemPosition.Middle,
+                    onClick = {
+                        showMenuSheet = false
+                        onNavigateToSettings()
+                    }
+                )
+
+                // Edit home screen (Middle) — reorder / hide Home sections (#770)
+                MenuListItem(
+                    headline = stringResource(R.string.home_menu_edit_home),
+                    icon = { Icon(Icons.Default.Tune, contentDescription = null) },
+                    position = ListItemPosition.Middle,
+                    onClick = {
+                        showMenuSheet = false
+                        showEditWidgetsSheet = true
+                    }
+                )
+
+                // Read messages again (Middle) — the full resync otherwise
+                // hides behind a long-press on Sync.
+                MenuListItem(
+                    headline = stringResource(R.string.home_resync_title),
+                    icon = { Icon(Icons.Default.Sync, contentDescription = null) },
+                    position = ListItemPosition.Middle,
+                    onClick = {
+                        showMenuSheet = false
+                        showFullResyncDialog = true
+                    }
+                )
+
+                // Join Discord (Middle)
+                MenuListItem(
+                    headline = stringResource(R.string.home_menu_discord),
+                    icon = {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_discord),
+                            contentDescription = null,
+                            modifier = Modifier.size(Dimensions.Icon.medium)
+                        )
+                    },
+                    position = ListItemPosition.Middle,
+                    onClick = {
+                        showMenuSheet = false
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(Constants.Links.DISCORD_URL))
+                        context.startActivity(intent)
+                    }
+                )
+
+                // Rate on Play Store (Bottom)
+                MenuListItem(
+                    headline = stringResource(R.string.home_menu_rate),
+                    icon = { Icon(Icons.Default.Star, contentDescription = null) },
+                    position = ListItemPosition.Bottom,
+                    onClick = {
+                        showMenuSheet = false
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}"))
+                            context.startActivity(intent)
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}"))
+                            context.startActivity(intent)
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.sm))
+
+                // Version footer
+                val versionName = remember {
+                    try {
+                        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                versionName?.let {
+                    Text(
+                        text = stringResource(R.string.home_version, it),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+    }
+
+    safeToSpend?.takeIf { showSafeToSpendSheet }?.let { state ->
+        SafeToSpendSheet(
+            state = state,
+            onSetIncluded = viewModel::setSafeToSpendAccountIncluded,
+            onDismiss = { showSafeToSpendSheet = false }
+        )
+    }
+
+    // Edit home screen sheet (#770). Every change persists immediately — no Save.
+    if (showEditWidgetsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showEditWidgetsSheet = false },
+            sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded)),
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.Layout.groupedListGap)
+            ) {
+                Text(
+                    text = stringResource(R.string.home_edit_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = stringResource(R.string.home_edit_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .padding(bottom = Spacing.sm)
+                        .fillMaxWidth()
+                )
+                homeSectionLayout.forEachIndexed { i, (section, isVisible) ->
+                    GroupedRow(
+                        position = ListItemPosition.from(i, homeSectionLayout.size),
+                        modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                    ) {
+                        val sectionLabel = stringResource(section.titleRes())
+                        Text(
+                            text = sectionLabel,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isVisible) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            enabled = i > 0,
+                            onClick = { viewModel.moveHomeSection(section, -1) },
+                            shapes = IconButtonDefaults.shapes()
+                        ) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = stringResource(R.string.home_edit_move_up, sectionLabel)) }
+                        IconButton(
+                            enabled = i < homeSectionLayout.lastIndex,
+                            onClick = { viewModel.moveHomeSection(section, +1) },
+                            shapes = IconButtonDefaults.shapes()
+                        ) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = stringResource(R.string.home_edit_move_down, sectionLabel)) }
+                        Switch(
+                            checked = isVisible,
+                            onCheckedChange = { on -> viewModel.setHomeSectionVisible(section, on) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Pro upgrade sheet — triggered from the subtle ✨ chip in the top bar
+    // for free users; reuses the same composable Settings uses.
+    if (showUpgradeSheet) {
+        com.pennywiseai.tracker.presentation.paywall.UpgradeSheet(
+            onDismiss = { showUpgradeSheet = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BreakdownDialog(
+    currentMonthIncome: BigDecimal,
+    currentMonthExpenses: BigDecimal,
+    currentMonthTotal: BigDecimal,
+    lastMonthIncome: BigDecimal,
+    lastMonthExpenses: BigDecimal,
+    lastMonthTotal: BigDecimal,
+    currency: String,
+    onDismiss: () -> Unit
+) {
+    val now = LocalDate.now()
+    val monthName = { m: java.time.Month -> m.getDisplayName(java.time.format.TextStyle.FULL, AppDates.locale()) }
+    val currentPeriod = stringResource(R.string.home_breakdown_period, monthName(now.month), now.dayOfMonth)
+    val lastMonth = now.minusMonths(1)
+    val lastPeriod = stringResource(R.string.home_breakdown_period, monthName(lastMonth.month), now.dayOfMonth)
+    
+    Dialog(onDismissRequest = onDismiss) {
+        PennyWiseCardV2(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.md),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            contentPadding = Dimensions.Padding.dialog
+        ) {
+            // Period blocks are the unit of meaning here, so the gap *between*
+            // blocks (lg) is larger than the gap between a block's own rows
+            // (sm). The previous uniform 16dp made the period label float
+            // equidistant from both periods' figures.
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+            ) {
+                Text(
+                    text = stringResource(R.string.home_breakdown_title),
+                    style = MaterialTheme.typography.headlineSmall
+                )
+
+                BreakdownPeriod(
+                    period = currentPeriod,
+                    income = currentMonthIncome,
+                    expenses = currentMonthExpenses,
+                    net = currentMonthTotal,
+                    currency = currency
+                )
+
+                BreakdownPeriod(
+                    period = lastPeriod,
+                    income = lastMonthIncome,
+                    expenses = lastMonthExpenses,
+                    net = lastMonthTotal,
+                    currency = currency
+                )
+
+                PennyWiseCardV2(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = Spacing.smd
+                ) {
+                    Text(
+                        text = stringResource(R.string.home_breakdown_formula),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End),
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Text(stringResource(R.string.home_close))
+                }
+            }
+        }
+    }
+}
+
+/** One period's income / expenses / net block inside [BreakdownDialog]. */
+@Composable
+private fun BreakdownPeriod(
+    period: String,
+    income: BigDecimal,
+    expenses: BigDecimal,
+    net: BigDecimal,
+    currency: String
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        Text(
+            text = period,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+        BreakdownRow(label = stringResource(R.string.home_breakdown_income), amount = income, isIncome = true, currency = currency)
+        BreakdownRow(label = stringResource(R.string.home_breakdown_expenses), amount = expenses, isIncome = false, currency = currency)
+        HorizontalDivider()
+        BreakdownRow(
+            label = stringResource(R.string.home_breakdown_net_worth),
+            amount = net,
+            isIncome = net >= BigDecimal.ZERO,
+            isBold = true,
+            currency = currency
+        )
+    }
+}
+
+@Composable
+private fun BreakdownRow(
+    label: String,
+    amount: BigDecimal,
+    isIncome: Boolean,
+    isBold: Boolean = false,
+    currency: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal
+        )
+        Text(
+            text = CurrencyFormatter.signed(if (isIncome) "+" else "-", CurrencyFormatter.formatCurrency(amount.abs(), currency)),
+            style = if (isBold) PennyWiseText.amountRow else PennyWiseText.amountRow.copy(
+                fontWeight = FontWeight.Normal
+            ),
+            color = if (isIncome) {
+                if (!isSystemInDarkTheme()) income_light else income_dark
+            } else {
+                if (!isSystemInDarkTheme()) expense_light else expense_dark
+            }
+        )
+    }
+}
+
+@Composable
+private fun UpcomingSubscriptionsCard(
+    subscriptions: List<SubscriptionEntity>,
+    totalAmount: BigDecimal,
+    totalByCurrency: Map<String, com.pennywiseai.tracker.utils.Money> = emptyMap(),
+    nextDue: SubscriptionEntity? = null,
+    isUnified: Boolean = false,
+    currency: String,
+    onClick: () -> Unit = {},
+    blurEffects: Boolean = false,
+    hazeState: HazeState? = null
+) {
+    val containerColor = if (blurEffects)
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+    else MaterialTheme.colorScheme.secondaryContainer
+
+    PennyWiseCardV2(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (blurEffects && hazeState != null) Modifier
+                    .clip(RoundedCornerShape(Dimensions.CornerRadius.large))
+                    .frostedBlur(hazeState, tint = containerColor)
+                else Modifier
+            ),
+        onClick = onClick,
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor
+        ),
+        contentPadding = Dimensions.Padding.content
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (subscriptions.isNotEmpty()) {
+                    val maxIcons = 4
+                    val visibleSubs = subscriptions.take(maxIcons)
+                    val extraCount = subscriptions.size - maxIcons
+                    // Overlapping avatar stack. The trailing Spacer reserves the
+                    // stack's true width, since the offset children don't
+                    // contribute to the Box's measured size — derive it from the
+                    // same constants rather than restating the numbers.
+                    val stackedCount = visibleSubs.size + if (extraCount > 0) 1 else 0
+                    Box {
+                        visibleSubs.forEachIndexed { index, sub ->
+                            BrandIcon(
+                                merchantName = sub.merchantName,
+                                size = STACKED_AVATAR_SIZE,
+                                modifier = Modifier
+                                    .offset(x = STACKED_AVATAR_STEP * index)
+                                    .zIndex((maxIcons - index).toFloat())
+                                    .border(
+                                        width = STACKED_AVATAR_RING,
+                                        color = MaterialTheme.colorScheme.surface,
+                                        shape = CircleShape
+                                    )
+                                    .clip(CircleShape)
+                            )
+                        }
+                        if (extraCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = STACKED_AVATAR_STEP * visibleSubs.size)
+                                    .zIndex(0f)
+                                    .size(STACKED_AVATAR_SIZE)
+                                    .border(
+                                        width = STACKED_AVATAR_RING,
+                                        color = MaterialTheme.colorScheme.surface,
+                                        shape = CircleShape
+                                    )
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "+$extraCount",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(
+                            modifier = Modifier
+                                .width(
+                                    STACKED_AVATAR_SIZE +
+                                        STACKED_AVATAR_STEP * (stackedCount - 1).coerceAtLeast(0)
+                                )
+                                .height(STACKED_AVATAR_SIZE)
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(Dimensions.Icon.medium)
+                    )
+                }
+                Column {
+                    Text(
+                        text = pluralStringResource(R.plurals.home_active_subscriptions, subscriptions.size, subscriptions.size),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        // Unified mode: one converted figure. Native mode: per-currency
+                        // ("₹499 · $10") so a mixed set isn't summed into a mislabel.
+                        text = stringResource(
+                            R.string.home_subscriptions_monthly_total,
+                            if (isUnified) {
+                                CurrencyFormatter.formatCurrency(totalAmount, currency)
+                            } else {
+                                CurrencyFormatter.formatByCurrency(
+                                    totalByCurrency,
+                                    fallbackCurrency = currency
+                                )
+                            }
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = Dimensions.Alpha.subtitle)
+                    )
+                    val nextDate = nextDue?.nextPaymentDate
+                    if (nextDue != null && nextDate != null) {
+                        val days = ChronoUnit.DAYS.between(LocalDate.now(), nextDate).toInt()
+                        val due = when {
+                            days < 0 -> stringResource(R.string.home_subscriptions_due_overdue)
+                            days == 0 -> stringResource(R.string.home_subscriptions_due_today)
+                            days == 1 -> stringResource(R.string.home_subscriptions_due_tomorrow)
+                            else -> pluralStringResource(R.plurals.home_subscriptions_due_in_days, days, days)
+                        }
+                        Text(
+                            text = stringResource(R.string.home_subscriptions_next_due, nextDue.merchantName, due),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (days < 0) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = Dimensions.Alpha.subtitle),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Text(
+                text = stringResource(R.string.home_view),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActiveLoansSummaryCard(
+    loans: List<com.pennywiseai.tracker.data.database.entity.LoanEntity>,
+    totalLentRemaining: java.math.BigDecimal,
+    totalBorrowedRemaining: java.math.BigDecimal,
+    currency: String,
+    onClick: () -> Unit = {}
+) {
+    val isDark = isSystemInDarkTheme()
+    val loanColor = if (isDark) loan_dark else loan_light
+
+    PennyWiseCardV2(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Loan icon
+            Icon(
+                imageVector = Icons.Default.SwapHoriz,
+                contentDescription = null,
+                tint = loanColor,
+                modifier = Modifier.size(Dimensions.Icon.medium)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = pluralStringResource(R.plurals.home_active_loans, loans.size, loans.size),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                // Both directions, what you owe first — a lender who also borrows
+                // used to see only "owed to you". Nothing in this currency → no line.
+                val subtitle = listOfNotNull(
+                    totalBorrowedRemaining.takeIf { it > java.math.BigDecimal.ZERO }?.let {
+                        stringResource(R.string.home_loans_you_owe, CurrencyFormatter.formatCurrency(it, currency))
+                    },
+                    totalLentRemaining.takeIf { it > java.math.BigDecimal.ZERO }?.let {
+                        stringResource(R.string.home_loans_owed_to_you, CurrencyFormatter.formatCurrency(it, currency))
+                    },
+                ).joinToString(" · ")
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                text = stringResource(R.string.home_view),
+                style = MaterialTheme.typography.labelLarge,
+                color = loanColor,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+/**
+ * A row in the "More options" bottom sheet. Uses the shared grouped-list
+ * primitives so it matches the rows in Settings exactly — this sheet is the
+ * shortcut *into* Settings, so the two looking different was jarring.
+ */
+@Composable
+private fun MenuListItem(
+    headline: String,
+    icon: @Composable () -> Unit,
+    position: ListItemPosition,
+    onClick: () -> Unit,
+) {
+    GroupedRow(
+        position = position,
+        onClick = onClick,
+        modifier = Modifier.padding(horizontal = Dimensions.Padding.content),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.smd)
+    ) {
+        CompositionLocalProvider(
+            LocalContentColor provides MaterialTheme.colorScheme.secondary
+        ) { icon() }
+        Text(
+            text = headline,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@StringRes
+private fun HomeSection.titleRes(): Int = when (this) {
+    HomeSection.SAFE_TO_SPEND -> R.string.home_section_safe_to_spend
+    HomeSection.BUDGETS -> R.string.home_section_budgets
+    HomeSection.GOALS -> R.string.home_section_goals
+    HomeSection.LOANS -> R.string.home_section_loans
+    HomeSection.GROUPS -> R.string.home_section_groups
+    HomeSection.RECENT_TRANSACTIONS -> R.string.home_section_recent_transactions
+    HomeSection.ACCOUNTS -> R.string.home_section_accounts
+    HomeSection.SUBSCRIPTIONS -> R.string.home_section_subscriptions
+    HomeSection.MONEY_IN_MOTION -> R.string.home_section_money_in_motion
+    HomeSection.ACTIVITY -> R.string.home_section_activity
+}
+
+/** One choice in the "Read messages again" dialog: a tappable title + what it does. */
+@Composable
+private fun ResyncOption(title: String, description: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        // The dialog itself is surfaceContainerHigh, so a step up keeps each
+        // option reading as a tappable card.
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}

@@ -1,0 +1,207 @@
+package com.pennywiseai.tracker.data.database.dao
+
+import androidx.room3.*
+import com.pennywiseai.tracker.data.database.entity.LoanEntity
+import com.pennywiseai.tracker.data.database.entity.LoanShareEntity
+import com.pennywiseai.tracker.data.database.entity.LoanStatus
+import com.pennywiseai.tracker.data.database.entity.TransactionEntity
+import kotlinx.coroutines.flow.Flow
+import java.math.BigDecimal
+import java.time.LocalDateTime
+
+@Dao
+interface LoanDao {
+
+    @Insert
+    suspend fun insertLoan(loan: LoanEntity): Long
+
+    @Update
+    suspend fun updateLoan(loan: LoanEntity)
+
+    /**
+     * Settles several loans in one transaction, so "Settle up" can't stop
+     * halfway. Re-reads each loan inside the transaction so a newer edit isn't
+     * overwritten by the caller's stale copy.
+     */
+    @Transaction
+    suspend fun settleLoans(loanIds: List<Long>, now: LocalDateTime) {
+        loanIds.forEach { id ->
+            val loan = getLoanById(id) ?: return@forEach
+            updateLoan(loan.copy(status = LoanStatus.SETTLED, remainingAmount = BigDecimal.ZERO, settledAt = now, updatedAt = now))
+        }
+    }
+
+    @Delete
+    suspend fun deleteLoan(loan: LoanEntity)
+
+    @Query("SELECT * FROM loans WHERE id = :loanId")
+    suspend fun getLoanById(loanId: Long): LoanEntity?
+
+    @Query("SELECT * FROM loans WHERE status = 'ACTIVE' ORDER BY created_at DESC")
+    fun getActiveLoans(): Flow<List<LoanEntity>>
+
+    @Query("SELECT * FROM loans ORDER BY created_at DESC")
+    fun getAllLoans(): Flow<List<LoanEntity>>
+
+    @Query("SELECT * FROM loans WHERE status = :status ORDER BY created_at DESC")
+    fun getLoansByStatus(status: LoanStatus): Flow<List<LoanEntity>>
+
+    @Query("SELECT COUNT(*) FROM loans WHERE status = 'ACTIVE'")
+    fun getActiveLoanCount(): Flow<Int>
+
+    // Suggestions for "mark as loan", so only people you still have an open loan
+    // with. Settled ones piled up until the list was mostly names you were done
+    // with (#753); a settled person can still be typed in by hand.
+    @Query("SELECT DISTINCT person_name FROM loans WHERE status = 'ACTIVE' ORDER BY updated_at DESC")
+    fun getRecentPersonNames(): Flow<List<String>>
+
+    // Currency is part of the match: a loan's amounts are all in its own
+    // currency, so a USD payment must never merge into / repay an INR loan.
+    @Query("SELECT * FROM loans WHERE person_name = :personName AND direction = :direction AND currency = :currency AND status = 'ACTIVE' LIMIT 1")
+    suspend fun getActiveLoanByPersonAndDirection(personName: String, direction: String, currency: String): LoanEntity?
+
+    @Query("SELECT * FROM transactions WHERE loan_id = :loanId AND is_deleted = 0 ORDER BY date_time ASC")
+    fun getTransactionsForLoan(loanId: Long): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions WHERE loan_id = :loanId AND is_deleted = 0 ORDER BY date_time ASC LIMIT 1")
+    suspend fun getOriginalTransactionForLoan(loanId: Long): TransactionEntity?
+
+    // No currency filter here on purpose: linked transactions can't change
+    // currency (TransactionDetailViewModel.saveChanges blocks it), and filtering
+    // would drop a loan's own principal from unlinkTransaction's recount.
+    // LoanMath splits these into principal and repayments.
+    @Query("SELECT * FROM transactions WHERE loan_id = :loanId AND is_deleted = 0")
+    suspend fun getLinkedTransactions(loanId: Long): List<TransactionEntity>
+
+    @Query("SELECT COALESCE(SUM(remaining_amount), 0) FROM loans WHERE direction = 'LENT' AND status = 'ACTIVE'")
+    fun getTotalLentRemaining(): Flow<BigDecimal>
+
+    @Query("SELECT COALESCE(SUM(remaining_amount), 0) FROM loans WHERE direction = 'BORROWED' AND status = 'ACTIVE'")
+    fun getTotalBorrowedRemaining(): Flow<BigDecimal>
+
+    /**
+     * Source EXPENSE transactions of currently-ACTIVE LENT loans whose date_time falls in the
+     * given window. Drives "Lent this month" on the home screen — settled loans are excluded
+     * because their principal is reflected in "Spent this month" (as a settlement loss) or has
+     * been recovered as INCOME repayments.
+     */
+    @Query("""
+        SELECT t.* FROM transactions t
+        INNER JOIN loans l ON t.loan_id = l.id
+        WHERE l.direction = 'LENT'
+          AND l.status = 'ACTIVE'
+          AND t.transaction_type = 'EXPENSE'
+          AND t.is_deleted = 0
+          AND t.date_time BETWEEN :startDate AND :endDate
+        ORDER BY t.date_time DESC
+    """)
+    fun getActiveLentTransactionsInPeriod(
+        startDate: LocalDateTime,
+        endDate: LocalDateTime
+    ): Flow<List<TransactionEntity>>
+
+    /**
+     * LENT loans settled within the period. Used to compute settlement losses
+     * (originalAmount - totalRepaid) which are folded into "Spent this month".
+     */
+    @Query("""
+        SELECT * FROM loans
+        WHERE direction = 'LENT'
+          AND status = 'SETTLED'
+          AND settled_at BETWEEN :startDate AND :endDate
+    """)
+    fun getLentLoansSettledInPeriod(
+        startDate: LocalDateTime,
+        endDate: LocalDateTime
+    ): Flow<List<LoanEntity>>
+
+    @Query("UPDATE transactions SET loan_id = NULL, loan_contribution = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime') WHERE id = :transactionId")
+    suspend fun unlinkTransaction(transactionId: Long)
+
+    @Query("UPDATE transactions SET loan_id = :loanId, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime') WHERE id = :transactionId")
+    suspend fun linkTransaction(transactionId: Long, loanId: Long)
+
+    @Query("UPDATE transactions SET loan_id = NULL, loan_contribution = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime') WHERE loan_id = :loanId")
+    suspend fun unlinkAllTransactions(loanId: Long)
+
+    @Query("""
+        SELECT * FROM transactions
+        WHERE loan_id IS NULL AND is_deleted = 0
+        AND id NOT IN (SELECT transaction_id FROM loan_shares)
+        AND (transaction_type = 'INCOME') = :moneyIn
+        AND currency = :currency
+        ORDER BY date_time DESC
+        LIMIT :limit
+    """)
+    fun getRecentUnlinkedTransactions(moneyIn: Boolean, currency: String, limit: Int = 20): Flow<List<TransactionEntity>>
+
+    // Used by BackupImporter.replaceAllData to clear loans before re-import.
+    @Query("DELETE FROM loans")
+    suspend fun deleteAllLoans()
+
+    // ── Split-bill shares (#346) ──
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertShare(share: LoanShareEntity): Long
+
+    @Update
+    suspend fun updateShare(share: LoanShareEntity)
+
+    @Delete
+    suspend fun deleteShare(share: LoanShareEntity)
+
+    @Query("SELECT * FROM loan_shares WHERE transaction_id = :transactionId ORDER BY id")
+    suspend fun getSharesForTransaction(transactionId: Long): List<LoanShareEntity>
+
+    @Query("SELECT * FROM loan_shares WHERE transaction_id = :transactionId ORDER BY id")
+    fun observeSharesForTransaction(transactionId: Long): Flow<List<LoanShareEntity>>
+
+    @Query("SELECT * FROM loan_shares WHERE loan_id = :loanId")
+    suspend fun getSharesForLoan(loanId: Long): List<LoanShareEntity>
+
+    @Query("SELECT * FROM loan_shares ORDER BY id")
+    suspend fun getAllShares(): List<LoanShareEntity>
+
+    @Query("DELETE FROM loan_shares WHERE loan_id = :loanId")
+    suspend fun deleteSharesForLoan(loanId: Long)
+
+    /** Transactions split with [loanId]'s person, each with that person's share. */
+    @Query("""
+        SELECT t.*, s.amount AS share_amount FROM transactions t
+        INNER JOIN loan_shares s ON s.transaction_id = t.id
+        WHERE s.loan_id = :loanId AND t.is_deleted = 0
+        ORDER BY t.date_time ASC
+    """)
+    fun getSharedTransactionsForLoan(loanId: Long): Flow<List<SharedTransaction>>
+
+    @Query("""
+        SELECT t.* FROM transactions t
+        INNER JOIN loan_shares s ON s.transaction_id = t.id
+        WHERE s.loan_id = :loanId AND t.is_deleted = 0
+        ORDER BY t.date_time ASC LIMIT 1
+    """)
+    suspend fun getFirstSharedTransactionForLoan(loanId: Long): TransactionEntity?
+
+    /** [getActiveLentTransactionsInPeriod] for split shares: one row per share. */
+    @Query("""
+        SELECT t.*, s.amount AS share_amount FROM transactions t
+        INNER JOIN loan_shares s ON s.transaction_id = t.id
+        INNER JOIN loans l ON l.id = s.loan_id
+        WHERE l.direction = 'LENT'
+          AND l.status = 'ACTIVE'
+          AND t.transaction_type = 'EXPENSE'
+          AND t.is_deleted = 0
+          AND t.date_time BETWEEN :startDate AND :endDate
+        ORDER BY t.date_time DESC
+    """)
+    fun getActiveLentSharesInPeriod(
+        startDate: LocalDateTime,
+        endDate: LocalDateTime
+    ): Flow<List<SharedTransaction>>
+}
+
+/** A split transaction with one person's share of it. */
+data class SharedTransaction(
+    @Embedded val transaction: TransactionEntity,
+    @ColumnInfo(name = "share_amount") val shareAmount: BigDecimal
+)

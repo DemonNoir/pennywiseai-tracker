@@ -1,0 +1,433 @@
+package com.pennywiseai.tracker.presentation.budgetgroups
+
+import com.pennywiseai.tracker.utils.AppDates
+
+import com.pennywiseai.tracker.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pennywiseai.tracker.data.database.entity.BudgetPeriodType
+import com.pennywiseai.tracker.data.repository.PastWindowSpending
+import com.pennywiseai.tracker.ui.components.PennyWiseScaffold
+import com.pennywiseai.tracker.ui.components.cards.CadencePill
+import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
+import com.pennywiseai.tracker.ui.theme.Dimensions
+import com.pennywiseai.tracker.ui.theme.Spacing
+import com.pennywiseai.tracker.utils.CurrencyFormatter
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import java.math.BigDecimal
+import com.pennywiseai.tracker.ui.icons.categoryLabel
+
+/**
+ * Per-budget history drill-down. Opened from the Budgets page via the
+ * 3-dots menu "View this period history" item. Lists every window for
+ * the selected (year, month) — for a Weekly budget that's the per-week
+ * sub-list; for Monthly / One-time it's a single entry.
+ *
+ * Each row carries a "Live" or "Frozen as of …" badge so the user can
+ * see which weeks are still accumulating spend (current week in the
+ * current month) vs which are frozen snapshots.
+ */
+@Composable
+fun BudgetHistoryScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: BudgetHistoryViewModel = hiltViewModel()
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    PennyWiseScaffold(
+        title = state.budget?.name ?: stringResource(R.string.budget_history_title),
+        navigationIcon = {
+            IconButton(onClick = onNavigateBack, shapes = IconButtonDefaults.shapes()) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.budgets_back)
+                )
+            }
+        }
+    ) { padding ->
+        if (state.isLoading) {
+            Box(modifier = Modifier.padding(padding).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(stringResource(R.string.budget_history_loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            return@PennyWiseScaffold
+        }
+        val budget = state.budget
+        if (budget == null) {
+            Box(modifier = Modifier.padding(padding).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(stringResource(R.string.budget_history_not_found), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            return@PennyWiseScaffold
+        }
+
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxWidth(),
+            contentPadding = PaddingValues(
+                start = Dimensions.Padding.content,
+                end = Dimensions.Padding.content,
+                top = Dimensions.Padding.content,
+                bottom = Dimensions.Component.bottomBarHeight + Spacing.md
+            ),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md)
+        ) {
+            // Summary card — period, total spent, displayed window range
+            item {
+                PennyWiseCardV2(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                        ) {
+                            CadencePill(periodType = budget.periodType)
+                            Text(
+                                text = monthLabel(state.yearMonth),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        Text(
+                            text = stringResource(
+                                R.string.budgets_amount_of,
+                                CurrencyFormatter.formatCurrency(state.totalSpent, state.currency),
+                                CurrencyFormatter.formatCurrency(state.budgetAmount, state.currency)
+                            ),
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                        val longFormatter = AppDates.dateFormatter()
+                        Text(
+                            text = stringResource(
+                                R.string.budget_history_window,
+                                state.displayedWindowStart.format(longFormatter),
+                                state.displayedWindowEnd.format(longFormatter)
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (state.displayedIsLive) {
+                            Spacer(modifier = Modifier.height(Spacing.xs))
+                            LiveBadge()
+                        } else {
+                            Spacer(modifier = Modifier.height(Spacing.xs))
+                            FrozenBadge(state.displayedCapDate)
+                        }
+                    }
+                }
+            }
+
+            // Per-window list
+            item {
+                Text(
+                    text = when (budget.periodType) {
+                        BudgetPeriodType.WEEKLY -> stringResource(R.string.budget_history_per_week)
+                        BudgetPeriodType.MONTHLY -> stringResource(R.string.budget_history_cycle)
+                        BudgetPeriodType.CUSTOM -> stringResource(R.string.budget_history_range)
+                    },
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(start = Spacing.xs, top = Spacing.sm)
+                )
+            }
+            items(state.windowHistory) { window ->
+                HistoryRow(
+                    window = window,
+                    currency = state.currency,
+                    isDisplayed = window.window.start == state.displayedWindowStart &&
+                        window.window.end == state.displayedWindowEnd,
+                    isCurrentPeriod = state.yearMonth == YearMonth.now(),
+                    onClick = { viewModel.loadBreakdown(window.window) }
+                )
+            }
+        }
+
+        // Per-window breakdown sheet — rendered when a row is tapped.
+        // ModalBottomSheet is hosted at the screen level (not inside
+        // the LazyColumn) so it doesn't get clipped by the scroll
+        // container and so the dismiss gesture covers the full screen.
+        if (state.breakdown != null || state.isLoadingBreakdown) {
+            BreakdownSheet(
+                breakdown = state.breakdown,
+                isLoading = state.isLoadingBreakdown,
+                currency = state.currency,
+                onDismiss = { viewModel.dismissBreakdown() }
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistoryRow(
+    window: PastWindowSpending,
+    currency: String,
+    isDisplayed: Boolean,
+    isCurrentPeriod: Boolean,
+    onClick: () -> Unit
+) {
+    val shortFormatter = AppDates.dayMonthFormatter()
+    PennyWiseCardV2(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(
+                        R.string.budgets_date_range,
+                        window.window.start.format(shortFormatter),
+                        window.window.end.format(shortFormatter)
+                    ),
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.Medium
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                if (isDisplayed) {
+                    Text(
+                        text = stringResource(R.string.budget_history_current),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(50)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            Text(
+                text = CurrencyFormatter.formatCurrency(window.spent, currency),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            if (window.isLive && isCurrentPeriod) {
+                LiveBadge()
+            } else {
+                FrozenBadge(window.capDate)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveBadge() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.tertiary)
+        )
+        Text(
+            text = stringResource(R.string.budget_history_live),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.tertiary
+        )
+    }
+}
+
+@Composable
+private fun FrozenBadge(capDate: LocalDate) {
+    val formatter = AppDates.dateFormatter()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.onSurfaceVariant)
+        )
+        Text(
+            text = stringResource(R.string.budget_history_frozen, capDate.format(formatter)),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+private fun monthLabel(yearMonth: YearMonth): String {
+    val formatter = AppDates.pattern("MMMM yyyy")
+    return yearMonth.format(formatter)
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun BreakdownSheet(
+    breakdown: com.pennywiseai.tracker.data.repository.WindowBreakdown?,
+    isLoading: Boolean,
+    currency: String,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded))
+    val longFormatter = AppDates.dateFormatter()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = Dimensions.Padding.content,
+                    end = Dimensions.Padding.content,
+                    bottom = Dimensions.Component.bottomBarHeight + Spacing.md
+                ),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            if (isLoading || breakdown == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = Spacing.lg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LoadingIndicator()
+                }
+                return@Column
+            }
+
+            val window = breakdown.window
+            val totalActual = breakdown.totalActual
+            val totalBudget = breakdown.totalBudget
+            val pctUsed = if (totalBudget > BigDecimal.ZERO) {
+                (totalActual.toFloat() / totalBudget.toFloat() * 100f).coerceAtLeast(0f)
+            } else 0f
+            val remaining = totalBudget - totalActual
+            val isOver = totalActual > totalBudget
+
+            Text(
+                text = stringResource(
+                    R.string.budgets_date_range,
+                    window.start.format(longFormatter),
+                    window.end.format(longFormatter)
+                ),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Text(
+                text = if (breakdown.isTrackingAll) stringResource(R.string.budgets_tracking_all)
+                else stringResource(
+                    R.string.budgets_amount_of,
+                    CurrencyFormatter.formatCurrency(totalActual, currency),
+                    CurrencyFormatter.formatCurrency(totalBudget, currency)
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Per-category list. For Tracking-All budgets the list is
+            // empty (no per-cat allocations); we show the total instead
+            // and skip the list.
+            if (!breakdown.isTrackingAll && breakdown.categorySpending.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(Spacing.xs))
+                Text(
+                    text = stringResource(R.string.budget_history_categories),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                breakdown.categorySpending.forEach { cat ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = categoryLabel(cat.categoryName),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = CurrencyFormatter.formatCurrency(cat.actualAmount, currency),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                            if (cat.budgetAmount > BigDecimal.ZERO) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.budget_history_of_budget_percent,
+                                        CurrencyFormatter.formatCurrency(cat.budgetAmount, currency),
+                                        cat.percentageUsed.toInt()
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Text(
+                text = when {
+                    isOver -> stringResource(R.string.budgets_over_by, CurrencyFormatter.formatCurrency(-remaining, currency))
+                    remaining > BigDecimal.ZERO -> stringResource(R.string.budgets_remaining, CurrencyFormatter.formatCurrency(remaining, currency))
+                    else -> stringResource(R.string.budget_history_zero_remaining)
+                },
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = if (isOver) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurface
+            )
+            if (totalBudget > BigDecimal.ZERO) {
+                Text(
+                    text = stringResource(R.string.budget_history_percent_used, pctUsed.toInt()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}

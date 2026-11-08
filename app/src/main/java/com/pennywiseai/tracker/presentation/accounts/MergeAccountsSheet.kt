@@ -1,0 +1,301 @@
+package com.pennywiseai.tracker.presentation.accounts
+
+import com.pennywiseai.tracker.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
+import com.pennywiseai.tracker.ui.theme.Dimensions
+import com.pennywiseai.tracker.ui.theme.Spacing
+
+/**
+ * Self-contained two-step picker for account merge (#368).
+ *
+ *  Step 1 — pick the **source** (account whose transactions will be moved).
+ *  Step 2 — pick the **target** (account they'll be moved into). The list
+ *           filters to accounts compatible with the source: same currency,
+ *           same `isCreditCard` and `isLoan` flags, not the source itself.
+ *  Step 3 — a confirmation dialog showing the actual transaction count.
+ *
+ * On confirm the sheet fires [onConfirm] and dismisses; the parent
+ * ViewModel runs the merge + emits a success message. One-way operation
+ * for v1 — no undo, hence the explicit confirmation step.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MergeAccountsSheet(
+    accounts: List<AccountBalanceEntity>,
+    countTransactionsOn: suspend (bankName: String, accountLast4: String) -> Int,
+    onConfirm: (source: AccountBalanceEntity, target: AccountBalanceEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded))
+    var source by remember { mutableStateOf<AccountBalanceEntity?>(null) }
+    var target by remember { mutableStateOf<AccountBalanceEntity?>(null) }
+    var sourceTxnCount by remember { mutableStateOf<Int?>(null) }
+
+    // Whenever the source changes, resolve its transaction count so the
+    // confirmation step can show "Move N transactions into …".
+    LaunchedEffect(source) {
+        sourceTxnCount = source?.let { countTransactionsOn(it.bankName, it.accountLast4) }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        // A single LazyColumn drives the whole sheet so that, with many accounts,
+        // the source and target lists share one scroll surface — the second list
+        // stays reachable instead of being pushed off-screen (#624). Previously
+        // two nested LazyColumns competed for height inside a non-scrolling Column.
+        // No list-wide verticalArrangement: structural items (header, section
+        // labels) keep their own paddings, while account rows carry an xs top
+        // gap so the inter-row rhythm matches the original two-picker layout
+        // instead of spacing every item uniformly.
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = Dimensions.Padding.content,
+                    end = Dimensions.Padding.content,
+                    bottom = Spacing.lg
+                )
+        ) {
+            item(key = "header") {
+                Column {
+                    Text(
+                        text = stringResource(R.string.merge_accounts_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = stringResource(R.string.merge_accounts_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.md)
+                    )
+                }
+            }
+
+            // Source picker
+            item(key = "from-label") { SectionLabel(stringResource(R.string.merge_accounts_move_from)) }
+            accountPickerItems(
+                idPrefix = "src",
+                accounts = accounts,
+                selected = source,
+                onSelect = { picked ->
+                    source = picked
+                    // If the previously-chosen target is no longer compatible, clear it.
+                    target?.let { t -> if (!compatible(picked, t)) target = null }
+                }
+            )
+
+            // Target picker — only meaningful once a source is picked.
+            source?.let { src ->
+                val targets = accounts.filter { compatible(src, it) }
+                if (targets.isEmpty()) {
+                    item(key = "no-targets") {
+                        Text(
+                            text = stringResource(R.string.merge_accounts_no_targets),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = Spacing.md)
+                        )
+                    }
+                } else {
+                    item(key = "into-header") {
+                        Column(modifier = Modifier.padding(top = Spacing.md)) {
+                            SectionLabel(stringResource(R.string.merge_accounts_into))
+                            Row(
+                                modifier = Modifier.padding(bottom = Spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDownward,
+                                    contentDescription = null,
+                                    modifier = Modifier.padding(end = Spacing.xs),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = AccountBalanceEntity.accountLabel(src.bankName, src.accountLast4),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    accountPickerItems(
+                        idPrefix = "tgt",
+                        accounts = targets,
+                        selected = target,
+                        onSelect = { target = it }
+                    )
+                }
+            }
+        }
+    }
+
+    // Confirmation dialog appears once both ends are chosen. Tap "Merge" once
+    // here to actually run the operation — sheet is one-way and not undoable.
+    val s = source
+    val t = target
+    if (s != null && t != null) {
+        AlertDialog(
+            onDismissRequest = { target = null },
+            title = { Text(stringResource(R.string.merge_accounts_confirm_title)) },
+            text = {
+                val n = sourceTxnCount
+                Text(
+                    if (n != null)
+                        pluralStringResource(R.plurals.merge_accounts_confirm_message_count, n, n, AccountBalanceEntity.accountLabel(s.bankName, s.accountLast4), AccountBalanceEntity.accountLabel(t.bankName, t.accountLast4))
+                    else
+                        stringResource(R.string.merge_accounts_confirm_message_all, AccountBalanceEntity.accountLabel(s.bankName, s.accountLast4), AccountBalanceEntity.accountLabel(t.bankName, t.accountLast4))
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { onConfirm(s, t) }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.merge_accounts_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { target = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.accounts_action_cancel)) }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.Medium,
+        modifier = modifier.padding(bottom = Spacing.xs)
+    )
+}
+
+/**
+ * Emits selectable account rows directly into the parent [LazyColumn] (rather
+ * than nesting its own scroll container), so both the source and target lists
+ * live on the sheet's single scroll surface. [idPrefix] keeps item keys unique
+ * across the two lists.
+ */
+private fun LazyListScope.accountPickerItems(
+    idPrefix: String,
+    accounts: List<AccountBalanceEntity>,
+    selected: AccountBalanceEntity?,
+    onSelect: (AccountBalanceEntity) -> Unit
+) {
+    items(
+        accounts,
+        key = { "$idPrefix|${it.bankName}|${it.accountLast4}|${it.id}" }
+    ) { acct ->
+        val isSelected = selected?.bankName == acct.bankName &&
+            selected.accountLast4 == acct.accountLast4
+        AccountPickerRow(acct = acct, isSelected = isSelected, onClick = { onSelect(acct) })
+    }
+}
+
+@Composable
+private fun AccountPickerRow(
+    acct: AccountBalanceEntity,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier
+            .padding(top = Spacing.xs)
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = acct.bankName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                )
+                val creditTag = stringResource(R.string.merge_accounts_credit_tag)
+                Text(
+                    text = buildString {
+                        if (acct.accountLast4 != AccountBalanceEntity.WALLET_ACCOUNT_MARKER) {
+                            append("••")
+                            append(acct.accountLast4)
+                            append(" · ")
+                        }
+                        append(acct.currency)
+                        if (acct.isCreditCard) append(" · $creditTag")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isSelected) {
+                AssistChip(
+                    onClick = {},
+                    label = { Text(stringResource(R.string.merge_accounts_selected)) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = 2.dp)
+                        )
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        labelColor = MaterialTheme.colorScheme.onPrimary,
+                        leadingIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
+            }
+        }
+    }
+}
+
+/** Two accounts can be merged when they share currency + credit-card flag. */
+private fun compatible(a: AccountBalanceEntity, b: AccountBalanceEntity): Boolean {
+    val sameAccount = a.bankName.equals(b.bankName, ignoreCase = true) &&
+        a.accountLast4 == b.accountLast4
+    if (sameAccount) return false
+    if (!a.currency.equals(b.currency, ignoreCase = true)) return false
+    if (a.isCreditCard != b.isCreditCard || a.isLoan != b.isLoan) return false
+    return true
+}

@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import com.pennywiseai.tracker.utils.CurrencyFormatter
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDateTime
@@ -213,7 +214,7 @@ class SlipMediaObserver @Inject constructor(
                 notificationManager.showSlipSavedNotification(
                     transactionId = savedTransactionId,
                     receiverName = parsedSlip.receiverName ?: parsedSlip.bankName ?: "สลิปโอนเงิน",
-                    amountText = "$statusPrefix: ฿%.2f".format(amt.toDouble())
+                    amountText = "$statusPrefix: ${CurrencyFormatter.formatCurrency(amt, "THB")}"
                 )
             } catch (e: Exception) {
                 Log.e("SlipMediaObserver", "Failed to save slip transaction: ${e.message}", e)

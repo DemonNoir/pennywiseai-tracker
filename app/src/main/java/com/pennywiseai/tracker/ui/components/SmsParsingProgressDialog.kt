@@ -1,0 +1,344 @@
+package com.pennywiseai.tracker.ui.components
+
+import androidx.compose.ui.res.pluralStringResource
+import com.pennywiseai.tracker.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.animation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.pennywiseai.tracker.ui.components.cards.PennyWiseCardV2
+import com.pennywiseai.tracker.ui.theme.Dimensions
+import com.pennywiseai.tracker.ui.theme.Spacing
+import com.pennywiseai.tracker.worker.OptimizedSmsReaderWorker
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import kotlin.math.roundToInt
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SmsParsingProgressDialog(
+    isVisible: Boolean,
+    workInfo: WorkInfo?,
+    onDismiss: () -> Unit,
+    onCancel: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    if (isVisible && workInfo != null) {
+        Dialog(onDismissRequest = { }) {
+            PennyWiseCardV2(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(Spacing.md),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                contentPadding = Spacing.lg
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(Spacing.md)
+                ) {
+                    // Title
+                    Text(
+                        text = stringResource(R.string.sms_scan_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+
+                    // Progress Details
+                    ProgressDetails(workInfo = workInfo)
+
+                    // Progress Bar
+                    if (workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_TOTAL, 0) > 0) {
+                        val progress = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_PROCESSED, 0).toFloat() /
+                                workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_TOTAL, 1).toFloat()
+
+                        LinearWavyProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // Cancel Button
+                    if (onCancel != null && workInfo.state == WorkInfo.State.RUNNING) {
+                        OutlinedButton(
+                            onClick = onCancel,
+                            modifier = Modifier.fillMaxWidth(),
+                            shapes = ButtonDefaults.shapes()
+                        ) {
+                            Icon(
+                                Icons.Default.Cancel,
+                                contentDescription = null,
+                                modifier = Modifier.size(Dimensions.Icon.small)
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.sm))
+                            Text(stringResource(R.string.sms_scan_cancel))
+                        }
+                    } else if (workInfo.state == WorkInfo.State.SUCCEEDED) {
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth(),
+                            shapes = ButtonDefaults.shapes()
+                        ) {
+                            Text(stringResource(R.string.sms_scan_done))
+                        }
+                    } else if (workInfo.state == WorkInfo.State.FAILED) {
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            shapes = ButtonDefaults.shapes()
+                        ) {
+                            Text(stringResource(R.string.sms_scan_close))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProgressDetails(workInfo: WorkInfo) {
+    val totalMessages = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_TOTAL, 0)
+    val processedMessages = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_PROCESSED, 0)
+    val parsedTransactions = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_PARSED, 0)
+    val savedTransactions = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_SAVED, 0)
+    val timeElapsed = workInfo.progress.getLong(OptimizedSmsReaderWorker.PROGRESS_TIME_ELAPSED, 0L)
+    val estimatedTimeRemaining = workInfo.progress.getLong(OptimizedSmsReaderWorker.PROGRESS_ESTIMATED_TIME_REMAINING, 0L)
+    val currentBatch = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_CURRENT_BATCH, 0)
+    val totalBatches = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_TOTAL_BATCHES, 0)
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+    ) {
+        // Main progress text
+        if (totalMessages > 0) {
+            val progressText = if (processedMessages == totalMessages) {
+                stringResource(R.string.sms_scan_all_processed)
+            } else {
+                pluralStringResource(R.plurals.sms_scan_processed_of, totalMessages, processedMessages, totalMessages)
+            }
+
+            Text(
+                text = progressText,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        // Transaction details
+        if (parsedTransactions > 0 || savedTransactions > 0) {
+            val parsedText = pluralStringResource(R.plurals.sms_scan_transactions_parsed, parsedTransactions, parsedTransactions)
+            val savedText = stringResource(R.string.sms_scan_saved, savedTransactions)
+            val detailsText = buildAnnotatedString {
+                if (parsedTransactions > 0) {
+                    withStyle(style = SpanStyle(fontWeight = FontWeight.Medium)) {
+                        append(parsedText)
+                    }
+                }
+                if (parsedTransactions > 0 && savedTransactions > 0) {
+                    append(" • ")
+                }
+                if (savedTransactions > 0) {
+                    withStyle(style = SpanStyle(fontWeight = FontWeight.Medium)) {
+                        append(savedText)
+                    }
+                }
+            }
+
+            Text(
+                text = detailsText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        // Time information
+        if (timeElapsed > 0) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Time elapsed
+                Text(
+                    text = formatDuration(timeElapsed),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Estimated time remaining
+                if (estimatedTimeRemaining > 0 && workInfo.state == WorkInfo.State.RUNNING) {
+                    Text(
+                        text = stringResource(R.string.sms_scan_time_left, formatDuration(estimatedTimeRemaining)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // Batch information (for parallel processing)
+        if (totalBatches > 1 && workInfo.state == WorkInfo.State.RUNNING) {
+            Text(
+                text = stringResource(R.string.sms_scan_batch, currentBatch, totalBatches),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // Status based on work state
+        when (workInfo.state) {
+            WorkInfo.State.RUNNING -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(Dimensions.Icon.small),
+                        strokeWidth = 2.dp
+                    )
+                    Text(
+                        text = stringResource(R.string.sms_scan_processing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            WorkInfo.State.SUCCEEDED -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(Dimensions.Icon.medium)
+                    )
+                    Text(
+                        text = stringResource(R.string.sms_scan_completed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            WorkInfo.State.FAILED -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Error,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(Dimensions.Icon.medium)
+                    )
+                    Text(
+                        text = stringResource(R.string.sms_scan_failed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            WorkInfo.State.CANCELLED -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Cancel,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(Dimensions.Icon.medium)
+                    )
+                    Text(
+                        text = stringResource(R.string.sms_scan_cancelled),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            else -> {
+                // For ENQUEUED or BLOCKED states
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(Dimensions.Icon.small),
+                        strokeWidth = 2.dp
+                    )
+                    Text(
+                        text = stringResource(R.string.sms_scan_starting),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun formatDuration(milliseconds: Long): String {
+    val seconds = milliseconds / 1000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+
+    return when {
+        hours > 0 -> stringResource(R.string.duration_hours_minutes, hours, minutes % 60)
+        minutes > 0 -> stringResource(R.string.duration_minutes_seconds, minutes, seconds % 60)
+        else -> stringResource(R.string.duration_seconds, seconds)
+    }
+}
+
+@Composable
+fun SmsParsingProgressIndicator(
+    workInfo: WorkInfo?,
+    modifier: Modifier = Modifier
+) {
+    if (workInfo != null && workInfo.state == WorkInfo.State.RUNNING) {
+        val totalMessages = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_TOTAL, 0)
+        val processedMessages = workInfo.progress.getInt(OptimizedSmsReaderWorker.PROGRESS_PROCESSED, 0)
+
+        if (totalMessages > 0) {
+            Column(
+                modifier = modifier,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                LinearWavyProgressIndicator(
+                    progress = { processedMessages.toFloat() / totalMessages.toFloat() },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    text = stringResource(R.string.sms_scan_indicator, processedMessages, totalMessages),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}

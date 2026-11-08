@@ -9,8 +9,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -78,43 +80,7 @@ fun SlipScanBottomSheet(
             .slipOcrEngine()
     }
     
-    val requiredPermissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-        listOf(
-            android.Manifest.permission.READ_MEDIA_IMAGES,
-            android.Manifest.permission.POST_NOTIFICATIONS
-        )
-    } else {
-        listOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
-    
-    var hasRequiredPermissions by remember {
-        mutableStateOf(
-            requiredPermissions.all {
-                androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            }
-        )
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        hasRequiredPermissions = requiredPermissions.all { 
-            permissions[it] == true || androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED 
-        }
-    }
-
-    var showDisclosureDialog by remember { mutableStateOf(false) }
-
-    if (showDisclosureDialog) {
-        PermissionDisclosureDialog(
-            onDismissRequest = { showDisclosureDialog = false },
-            onConfirm = {
-                permissionLauncher.launch(requiredPermissions.toTypedArray())
-            },
-            title = stringResource(R.string.slip_scan_disclosure_title),
-            description = stringResource(R.string.slip_scan_disclosure_body)
-        )
-    }
+    val (hasMediaAccess, requestMediaAccess) = rememberSlipScanAccess()
 
     var selectedBankFolder by remember { mutableStateOf(bankFolders[0]) }
     var isScanning by remember { mutableStateOf(false) }
@@ -148,6 +114,7 @@ fun SlipScanBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -178,7 +145,7 @@ fun SlipScanBottomSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (!hasRequiredPermissions) {
+            if (!hasMediaAccess) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
@@ -196,7 +163,7 @@ fun SlipScanBottomSheet(
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = { showDisclosureDialog = true },
+                            onClick = requestMediaAccess,
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -219,8 +186,8 @@ fun SlipScanBottomSheet(
             // Horizontal Bank Folder Chips
             var folderImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
-            LaunchedEffect(selectedBankFolder) {
-                if (selectedBankFolder.id != "all") {
+            LaunchedEffect(selectedBankFolder, hasMediaAccess) {
+                if (hasMediaAccess && selectedBankFolder.id != "all") {
                     folderImages = queryImagesForBankFolder(context, selectedBankFolder.folderName)
                 } else {
                     folderImages = emptyList()

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ══ Home subscriptions card: next due charge ══ -->
+    <!-- %1$s is the merchant, %2$s is when it is due (one of the strings below). -->
+    <string name="home_subscriptions_next_due">รายการถัดไป: %1$s · %2$s</string>
+    <string name="home_subscriptions_due_today">วันนี้</string>
+    <string name="home_subscriptions_due_tomorrow">พรุ่งนี้</string>
+    <string name="home_subscriptions_due_overdue">เลยกำหนด</string>
+    <plurals name="home_subscriptions_due_in_days">
+        <item quantity="other">อีก %1$d วัน</item>
+    </plurals>
+</resources>

@@ -1,0 +1,387 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ══ Home screen ══ -->
+    <string name="home_transaction_deleted">Transakce odstraněna</string>
+    <string name="home_undo">Zpět</string>
+    <string name="home_upgrade_pro">Upgradovat na PennyWise Pro</string>
+    <string name="home_profile_filter">Filtr profilu</string>
+    <string name="home_more_options">Další možnosti</string>
+    <string name="home_view_all">Zobrazit vše</string>
+    <string name="home_view">Zobrazit</string>
+    <string name="home_manage">Spravovat</string>
+    <string name="home_search_transactions">Hledat transakce</string>
+    <string name="home_cancel">Zrušit</string>
+    <string name="home_close">Zavřít</string>
+    <!-- Home sections (headers + edit-home sheet) -->
+    <string name="home_section_budgets">Rozpočty</string>
+    <string name="home_section_goals">Cíle</string>
+    <string name="home_section_loans">Půjčky</string>
+    <string name="home_section_groups">Skupiny</string>
+    <string name="home_section_recent_transactions">Poslední transakce</string>
+    <string name="home_section_accounts">Bankovací účty</string>
+    <string name="home_section_subscriptions">Nadcházející předplatné</string>
+    <string name="home_section_activity">Aktivita</string>
+    <!-- Empty state -->
+    <string name="home_empty_headline">Zatím žádné transakce</string>
+    <string name="home_empty_description">Naskenujte SMS a začněte - Vaše transakce najdeme automaticky</string>
+    <string name="home_empty_action">Skenovat nyní</string>
+    <!-- FABs + full resync -->
+    <string name="home_fab_add">Přidat transakci nebo předplatné</string>
+    <string name="home_fab_sync">Synchronizovat SMS (dlouhý stisk pro kompletní opětovné uložení)</string>
+    <string name="home_fab_sync_hint">Podržte pro kompletní resynchronizaci</string>
+    <string name="home_resync_title">Znovu načíst zprávy</string>
+    <string name="home_resync_scan_again">Znovu naskenovat všechny zprávy</string>
+    <string name="home_resync_scan_again_desc">Doplní vše, co chybělo. Vaše úpravy i všechny stávající transakce zůstanou beze změny.</string>
+    <string name="home_resync_rebuild">Sestavit znovu od začátku</string>
+    <string name="home_resync_rebuild_desc">Znovu načte transakce ze SMS, aby se projevily opravy parserů. Úpravy SMS transakcí se zruší. Ruční, importované, úvěrové a seskupené transakce zůstanou zachovány.</string>
+    <!-- More options sheet -->
+    <string name="home_menu_title">Další možnosti</string>
+    <string name="home_menu_monthly_recap">Měsíční repatriace</string>
+    <string name="home_menu_settings">Nastavení</string>
+    <string name="home_menu_edit_home">Upravit domácí obrazovku</string>
+    <string name="home_menu_discord">Připojte se k Discordu pro zpětnou vazbu</string>
+    <string name="home_menu_rate">Ohodnotit v Obchodě Play</string>
+    <string name="home_version">v%1$s</string>
+    <!-- Edit home screen sheet -->
+    <string name="home_edit_title">Upravit domácí obrazovku</string>
+    <string name="home_edit_description">Změnit pořadí nebo skrýt sekce na domovské obrazovce.</string>
+    <string name="home_edit_move_up">Přesunout %1$s nahoru</string>
+    <string name="home_edit_move_down">Přesunout %1$s dolů</string>
+    <!-- Calculation breakdown dialog -->
+    <string name="home_breakdown_title">Rozdělení výpočtu</string>
+    <!-- Month name, then day range, e.g. "March 1-15" -->
+    <string name="home_breakdown_period">%1$s 1 -%2$d</string>
+    <string name="home_breakdown_formula">Formulář: Příjmy - výdaje = čisté jmění\nZelená (+) = Úspory | Červená (-) = překročení výdajů</string>
+    <string name="home_breakdown_income">Výnosy</string>
+    <string name="home_breakdown_expenses">Výdaje</string>
+    <string name="home_breakdown_net_worth">Čisté jmění</string>
+    <!-- Subscriptions + loans summary cards -->
+    <plurals name="home_active_subscriptions">
+        <item quantity="one">%1$d aktivní předplatné</item>
+        <item quantity="few">%1$d aktivních odběrů</item>
+        <item quantity="many">%1$d aktivních odběrů</item>
+        <item quantity="other">%1$d aktivních odběrů</item>
+    </plurals>
+    <string name="home_subscriptions_monthly_total">Měsíční součet: %1$s</string>
+    <plurals name="home_active_loans">
+        <item quantity="one">%1$d aktivní úvěr</item>
+        <item quantity="few">%1$d aktivních úvěrů</item>
+        <item quantity="many">%1$d aktivních úvěrů</item>
+        <item quantity="other">%1$d aktivních úvěrů</item>
+    </plurals>
+    <string name="home_loans_owed_to_you">%1$s vám dluží</string>
+    <string name="home_loans_you_owe">Dlužíte %1$s</string>
+    <!-- ══ Greeting card (home header) ══ -->
+    <string name="greeting_last_day_of_month">Poslední den %1$s</string>
+    <plurals name="greeting_days_left_in_month">
+        <item quantity="one">%1$d den zbývá %2$s</item>
+        <item quantity="few">%1$d dní zbývá %2$s</item>
+        <item quantity="many">%1$d dní zbývá %2$s</item>
+        <item quantity="other">%1$d dní zbývá %2$s</item>
+    </plurals>
+    <string name="greeting_good_morning">Dobré ráno</string>
+    <string name="greeting_good_afternoon">Dobré odpoledne</string>
+    <string name="greeting_good_evening">Dobrý večer</string>
+    <string name="greeting_good_night">Dobrá noc</string>
+    <string name="greeting_default_user_name">Uživatel</string>
+    <string name="greeting_profile_filter">Filtr profilu</string>
+    <string name="greeting_more_options">Další možnosti</string>
+    <!-- ══ Bottom navigation ══ -->
+    <string name="nav_home">Domů</string>
+    <string name="nav_transactions">Časová osa</string>
+    <string name="nav_analytics">Analytici</string>
+    <string name="nav_chat">Konverzace</string>
+    <!-- ══ Shared components ══ -->
+    <string name="expandable_list_view_less">Zobrazit méně</string>
+    <string name="expandable_list_view_all_more">Zobrazit vše (%1$d další)</string>
+    <string name="error_state_retry">Opakovat</string>
+    <string name="color_swatch_selected">Vybrané</string>
+    <string name="profile_filter_all_accounts">Všechny účty</string>
+    <string name="whats_new_got_it">Rozumím</string>
+    <string name="whats_new_title">Co je nového</string>
+    <string name="whats_new_version">Verze %1$s</string>
+    <!-- Spotlight tutorial -->
+    <string name="spotlight_scan_sms">Klepnutím sem skenujete vaše SMS zprávy pro transakce</string>
+    <string name="spotlight_tap_to_dismiss">Klepněte kdekoliv pro zamítnutí</string>
+    <!-- Transaction type filter (short labels) -->
+    <string name="type_filter_all">Vše</string>
+    <string name="type_filter_income">Výnosy</string>
+    <string name="type_filter_expense">Výdaje</string>
+    <string name="type_filter_credit">Kredit</string>
+    <string name="type_filter_spending">Útrata</string>
+    <string name="type_filter_transfer">Převod</string>
+    <string name="type_filter_investment">Investovat</string>
+    <!-- ══ SMS scan progress dialog ══ -->
+    <string name="sms_scan_title">Skenování SMS zpráv</string>
+    <string name="sms_scan_cancel">Zrušit skenování</string>
+    <string name="sms_scan_done">Hotovo</string>
+    <string name="sms_scan_close">Zavřít</string>
+    <string name="sms_scan_all_processed">Všechny zprávy zpracovány!</string>
+    <plurals name="sms_scan_processed_of">
+        <item quantity="one">Zpracovaná zpráva %1$d z %2$d</item>
+        <item quantity="few">Zpracované %1$d zpráv v %2$d</item>
+        <item quantity="many">Zpracované %1$d zpráv v %2$d</item>
+        <item quantity="other">Zpracované %1$d zpráv v %2$d</item>
+    </plurals>
+    <plurals name="sms_scan_transactions_parsed">
+        <item quantity="one">%1$d transakce analyzována</item>
+        <item quantity="few">%1$d analyzovaných transakcí</item>
+        <item quantity="many">%1$d analyzovaných transakcí</item>
+        <item quantity="other">%1$d analyzovaných transakcí</item>
+    </plurals>
+    <string name="sms_scan_saved">%1$d uloženo</string>
+    <!-- %1$s is a duration such as "2m 5s" -->
+    <string name="sms_scan_time_left">~%1$s zbývá</string>
+    <string name="sms_scan_batch">Dávka %1$d z %2$d</string>
+    <string name="sms_scan_processing">Zpracovávám...</string>
+    <string name="sms_scan_completed">Skenování bylo úspěšně dokončeno!</string>
+    <string name="sms_scan_failed">Skenování se nezdařilo. Zkuste to prosím znovu.</string>
+    <string name="sms_scan_cancelled">Skenování zrušeno</string>
+    <string name="sms_scan_starting">Spouštění skenování...</string>
+    <string name="sms_scan_indicator">Skenování SMS: %1$d/%2$d</string>
+    <!-- Short elapsed/remaining durations -->
+    <string name="duration_hours_minutes">%1$dh %2$dm</string>
+    <string name="duration_minutes_seconds">%1$dm %2$ds</string>
+    <string name="duration_seconds">%1$ds</string>
+    <!-- ══ Shared cards ══ -->
+    <string name="balance_show">Zobrazit zůstatek</string>
+    <string name="balance_hide">Skrýt zůstatek</string>
+    <string name="card_collapse">Sbalit</string>
+    <string name="card_expand">Rozbalit</string>
+    <!-- Account carousel -->
+    <string name="account_card_type_credit">Kredit</string>
+    <string name="account_card_type_savings">Úspory</string>
+    <string name="account_card_low_balance">Nízký zůstatek</string>
+    <string name="account_card_outstanding">Nevyřízené</string>
+    <string name="account_card_balance">Zůstatek</string>
+    <!-- Balance / spending card -->
+    <string name="balance_card_change_more_same_point">O %1$d%% více než ve stejnou dobu minulý měsíc</string>
+    <string name="balance_card_change_less_same_point">O %1$d%% méně než ve stejnou dobu minulý měsíc</string>
+    <!-- %1$s is a formatted (or masked) amount -->
+    <string name="balance_card_balance">Zůstatek: %1$s</string>
+    <plurals name="balance_card_account_count">
+        <item quantity="one">" · %1$d účet"</item>
+        <item quantity="few">" · %1$d účtů"</item>
+        <item quantity="many">" · %1$d účtů"</item>
+        <item quantity="other">" · %1$d účtů"</item>
+    </plurals>
+    <string name="balance_card_last_month_amount">Minulý měsíc: %1$s</string>
+    <string name="balance_card_this_month">Tento měsíc</string>
+    <string name="balance_card_last_month">Minulý měsíc</string>
+    <string name="balance_card_accounts">Účty</string>
+    <string name="balance_card_credit_cards">Kreditní karty</string>
+    <string name="balance_card_total">Celkem</string>
+    <string name="balance_card_spent_this_month">Tento měsíc utraceno</string>
+    <string name="balance_card_change_currency">Změnit měnu</string>
+    <string name="balance_card_summary_income">Příjmy</string>
+    <string name="balance_card_summary_expenses">Výdaje</string>
+    <string name="balance_card_summary_lent">Půjčeno</string>
+    <string name="balance_card_summary_saved">Ušetřeno</string>
+    <!-- Budget card -->
+    <string name="budget_card_percent">%1$d%%</string>
+    <string name="budget_card_over_budget">%1$s nad rozpočtem</string>
+    <string name="budget_card_remaining">Zbývá %1$s</string>
+    <!-- Amount the user can still spend each day for the rest of the budget window, e.g. "₹450/day" -->
+    <string name="budget_card_per_day">%1$s/den</string>
+    <string name="budget_card_finished">Dokončeno</string>
+    <string name="budget_card_tracking_all">Sledování všech výdajů</string>
+    <!-- %1$s is a weekday name -->
+    <string name="budget_card_resets_today_weekday">Resetovat dnes · %1$s obnoveno</string>
+    <plurals name="budget_card_resets_in_weekday">
+        <item quantity="one">Resetuje se v %1$d dne · %2$s obnoveno</item>
+        <item quantity="few">Resetuje se v %1$d dní · %2$s obnoveno</item>
+        <item quantity="many">Resetuje se v %1$d dní · %2$s obnoveno</item>
+        <item quantity="other">Resetuje se v %1$d dní · %2$s obnoveno</item>
+    </plurals>
+    <!-- %1$d is the day of month the budget starts on -->
+    <string name="budget_card_resets_today_day">Resetuje dnes · den %1$d</string>
+    <plurals name="budget_card_resets_in_day">
+        <item quantity="one">Resetuje se v %1$d dne · den %2$d</item>
+        <item quantity="few">Resetuje se v %1$d dní · den %2$d</item>
+        <item quantity="many">Resetuje se v %1$d dní · den %2$d</item>
+        <item quantity="other">Resetuje se v %1$d dní · den %2$d</item>
+    </plurals>
+    <string name="budget_card_over_by">Přes %1$s</string>
+    <!-- %1$s is a date range -->
+    <plurals name="budget_card_runs_days_remaining">
+        <item quantity="one">Spustí %1$s · Zbývá %2$d den</item>
+        <item quantity="few">Spustí %1$s · Zbývá %2$d dnů</item>
+        <item quantity="many">Spustí %1$s · Zbývá %2$d dnů</item>
+        <item quantity="other">Spustí %1$s · Zbývá %2$d dnů</item>
+    </plurals>
+    <plurals name="budget_card_days_remaining">
+        <item quantity="one">Zbývá %1$d dne</item>
+        <item quantity="few">zbývá %1$d dní</item>
+        <item quantity="many">zbývá %1$d dní</item>
+        <item quantity="other">zbývá %1$d dní</item>
+    </plurals>
+    <string name="budget_card_spent_of">Utraceno %1$s z %2$s</string>
+    <string name="budget_cadence_weekly">Týdně</string>
+    <string name="budget_cadence_monthly">Měsíčně</string>
+    <string name="budget_cadence_one_time">Jednorázový</string>
+    <string name="budget_carousel_empty">Nastavte rozpočet, abyste mohli sledovat vaše výdaje</string>
+    <string name="budget_carousel_create">Vytvořit rozpočet</string>
+    <!-- Group cards -->
+    <plurals name="group_card_item_count">
+        <item quantity="one">%1$d položka</item>
+        <item quantity="few">%1$d položek</item>
+        <item quantity="many">%1$d položek</item>
+        <item quantity="other">%1$d položek</item>
+    </plurals>
+    <string name="group_card_no_transactions">Zatím žádné transakce</string>
+    <string name="group_card_invested">Investováno %1$s</string>
+    <plurals name="group_card_transaction_count">
+        <item quantity="one">%1$d transakce</item>
+        <item quantity="few">%1$d transakcí</item>
+        <item quantity="many">%1$d transakcí</item>
+        <item quantity="other">%1$d transakcí</item>
+    </plurals>
+    <!-- Transaction count · latest date -->
+    <string name="group_card_subtitle">%1$s · %2$s</string>
+    <!-- Cash flow card -->
+    <string name="cash_flow_title">Peníze v pohybu</string>
+    <string name="cash_flow_subtitle">Kanály mimo Váš čistý peněžní tok tento měsíc</string>
+    <string name="cash_flow_credit">Kredit</string>
+    <string name="cash_flow_invested">Investováno</string>
+    <string name="cash_flow_transferred">Převedeno</string>
+    <!-- Transaction row -->
+    <string name="txn_item_tag_credit">Kredit</string>
+    <string name="txn_item_tag_transfer">Převod</string>
+    <string name="txn_item_tag_investment">Investice</string>
+    <string name="txn_item_tag_recurring">Opakování</string>
+    <string name="txn_item_tag_business">Podniky</string>
+    <string name="txn_item_tag_excluded">Vyloučeny</string>
+    <string name="txn_item_balance_after">Zůst. %1$s</string>
+    <!-- %1$s is the last 4 digits of the other account -->
+    <string name="txn_item_transfer_to">Převod → %1$s</string>
+    <string name="txn_item_transfer_from">Převod z %1$s</string>
+    <!-- ══ Home-screen widgets ══ -->
+    <!-- Add transaction widget -->
+    <string name="widget_add_content_description">Přidat transakci</string>
+    <!-- Budget widget -->
+    <string name="widget_budget_title">Měsíční rozpočet</string>
+    <string name="widget_budget_percent_used">%1$d%% použito</string>
+    <string name="widget_budget_of_limit">z %1$s</string>
+    <string name="widget_budget_per_day">%1$s/den</string>
+    <string name="widget_budget_saved">Uloženo %1$s</string>
+    <string name="widget_budget_overspent">Přes %1$s</string>
+    <!-- Spending pie widget -->
+    <string name="widget_pie_title">Výdaje</string>
+    <string name="widget_pie_content_description">Výdaje podle kategorie</string>
+    <string name="widget_pie_percent">%1$d%%</string>
+    <string name="widget_pie_empty">Zatím tento měsíc žádné výdaje</string>
+    <!-- Slice that groups the smallest categories -->
+    <string name="widget_pie_other">Ostatní</string>
+    <!-- Recent transactions widget -->
+    <string name="widget_recent_empty">Zatím žádné transakce</string>
+    <string name="widget_recent_fallback_title">Transakce</string>
+    <!-- Spending summary widget -->
+    <string name="widget_summary_today">Dnes</string>
+    <string name="widget_summary_month">Tento měsíc</string>
+    <!-- ══ Notifications ══ -->
+    <!-- SMS scan progress (foreground worker) -->
+    <string name="notif_sms_scan_channel_name">Skenování SMS</string>
+    <string name="notif_sms_scan_title">Skenování transakcí…</string>
+    <string name="notif_sms_scan_progress">Zpracované %1$d / %2$d</string>
+    <string name="notif_sms_scan_reading">Čtení SMS…</string>
+    <!-- New transaction notification -->
+    <string name="notif_txn_channel_name">Oznámení o transakci</string>
+    <string name="notif_txn_channel_description">Oznámení o nových transakcích</string>
+    <string name="notif_txn_unknown_merchant">Neznámý</string>
+    <string name="notif_txn_unknown_bank">Bankovní</string>
+    <string name="notif_txn_action_more">Více…</string>
+    <!-- Lock-screen title of the balance alert; %1$s is the bank name. No figures. -->
+    <string name="notif_txn_public_text">%1$s • zkontrolujte zůstatek</string>
+    <!-- %1$s amount with currency, %2$s merchant -->
+    <string name="notif_txn_title_spent">Utraceno %1$s · %2$s</string>
+    <string name="notif_txn_title_received">Přijato %1$s od %2$s</string>
+    <!-- An SMS from a sender the user has added from before (#994): not saved until they tap Add. -->
+    <!-- Shown when the app couldn't tell the category; %1$s is the bank name -->
+    <string name="notif_txn_ask_category">Za co to bylo? · %1$s</string>
+    <string name="notif_txn_action_change">Změnit</string>
+    <!-- Marks the transaction as not counting toward spending/income totals (kept in history and the balance) -->
+    <string name="notif_txn_action_not_expense">Není výdaj</string>
+    <string name="notif_txn_action_not_income">Není příjem</string>
+    <string name="notif_txn_excluded_spending">Nebude se počítat do výdajů</string>
+    <string name="notif_txn_excluded_income">Nebude se počítat do příjmů</string>
+    <!-- Balance check (#734); %1$s the difference with currency; the bank name opens the text -->
+    <string name="notif_balance_higher">Zůstatek je o %1$s vyšší, než je zaznamenáno</string>
+    <string name="notif_balance_lower">Zůstatek je o %1$s nižší, než je zaznamenáno</string>
+    <string name="notif_balance_text">Možná chybí nějaká transakce. Klepnutím zkontrolujte.</string>
+    <!-- After a category is picked from the notification; %1$s is the category -->
+    <string name="notif_txn_learned_title">Uloženo jako %1$s</string>
+    <string name="notif_txn_learned_text">Platby tady se od teď budou třídit automaticky.</string>
+    <plurals name="notif_txn_learned_moved">
+        <item quantity="one">Přesunuta byla i %d dřívější.</item>
+        <item quantity="few">Přesunuty byly i %d dřívější.</item>
+        <item quantity="many">Přesunuto bylo i %d dřívějších.</item>
+        <item quantity="other">Přesunuto bylo i %d dřívějších.</item>
+    </plurals>
+    <!-- Evening recap notification -->
+    <string name="notif_daily_channel_name">Denní souhrn</string>
+    <string name="notif_daily_channel_description">Každý večer krátké shrnutí denních výdajů</string>
+    <!-- %1$s is today's spending, e.g. "JD 23.500" -->
+    <string name="notif_daily_title">Dnes jste utratili %1$s</string>
+    <plurals name="notif_daily_count">
+        <item quantity="one">%d transakce</item>
+        <item quantity="few">%d transakce</item>
+        <item quantity="many">%d transakce</item>
+        <item quantity="other">%d transakcí</item>
+    </plurals>
+    <plurals name="notif_daily_uncategorized">
+        <item quantity="one">%d potřebuje kategorii</item>
+        <item quantity="few">%d potřebují kategorii</item>
+        <item quantity="many">%d potřebuje kategorii</item>
+        <item quantity="other">%d potřebuje kategorii</item>
+    </plurals>
+    <!-- Follows notif_daily_uncategorized after " — ": why sorting matters -->
+    <plurals name="notif_daily_sort_why">
+        <item quantity="one">roztřiďte ji, ať se počítají jen skutečné výdaje</item>
+        <item quantity="few">roztřiďte je, ať se počítají jen skutečné výdaje</item>
+        <item quantity="many">roztřiďte je, ať se počítají jen skutečné výdaje</item>
+        <item quantity="other">roztřiďte je, ať se počítají jen skutečné výdaje</item>
+    </plurals>
+    <string name="notif_daily_action_sort">Roztřídit</string>
+    <string name="notif_daily_action_sort_all">Roztřídit</string>
+    <string name="notif_daily_action_cash">+ Hotovost</string>
+    <!-- Header over a stack of transaction alerts -->
+    <plurals name="notif_txn_group_title">
+        <item quantity="one">%d nová transakce</item>
+        <item quantity="few">%d nové transakce</item>
+        <item quantity="many">%d nové transakce</item>
+        <item quantity="other">%d nových transakcí</item>
+    </plurals>
+    <!-- Balance chart legend -->
+    <string name="balance_chart_label">Vývoj zůstatku</string>
+    <!-- One-time Home card for engaged free users (#945). No price, link or website. -->
+    <string name="pro_home_card_title">Líbí se vám PennyWise?</string>
+    <string name="pro_home_card_body">Pro přidává neomezená pravidla, cíle, exporty a importy výpisů.</string>
+    <string name="pro_home_card_action">Zobrazit Pro</string>
+    <string name="pro_home_card_dismiss">Zavřít</string>
+    <string name="home_payday_card_title">Začínat rozpočet ve výplatní den?</string>
+    <string name="home_payday_card_body">Zdá se, že výplata vám chodí %1$d. dne v měsíci. Začínat každý rozpočtový měsíc tímto dnem? Můžete to změnit v Nastavení.</string>
+    <string name="home_payday_card_action">Začínat %1$d. dne</string>
+    <string name="home_payday_card_dismiss">Zavřít</string>
+    <!-- Month-end forecast on the "Spent this month" card -->
+    <string name="forecast_on_track">Směřujete k %1$s do %2$s</string>
+    <string name="forecast_over_usual">%1$s nad obvyklou úrovní</string>
+    <!-- Safe to spend card + breakdown sheet -->
+    <string name="home_section_safe_to_spend">Bezpečně utratit</string>
+    <string name="safe_to_spend_title">Bezpečně utratit</string>
+    <string name="safe_to_spend_tap_to_show">Klepnutím zobrazíte</string>
+    <string name="safe_to_spend_per_day">Asi %1$s denně do %2$s, včetně dneška</string>
+    <string name="safe_to_spend_short">Platby splatné před %1$s převyšují váš zůstatek</string>
+    <string name="safe_to_spend_none_left">Po platbách splatných před %1$s nic nezbývá</string>
+    <string name="safe_to_spend_breakdown">Zůstatek na účtu %1$s − %2$s v platbách splatných před %3$s</string>
+    <string name="safe_to_spend_capped">Omezeno rozpočtem: zbývá %1$s</string>
+    <string name="safe_to_spend_other_currencies">Plus %1$s, vedeno zvlášť</string>
+    <string name="safe_to_spend_until">Bezpečně utratit do %1$s</string>
+    <string name="safe_to_spend_accounts">Zůstatek na účtu</string>
+    <string name="safe_to_spend_excluded">Nezapočítáno</string>
+    <string name="safe_to_spend_excluded_negative">Nezapočítáno (záporný zůstatek)</string>
+    <string name="safe_to_spend_bills_due">Platby splatné před %1$s</string>
+    <string name="safe_to_spend_no_bills">Žádné splatné předplatné</string>
+    <string name="safe_to_spend_choose_accounts">Vybrat účty</string>
+    <string name="safe_to_spend_done">Hotovo</string>
+    <string name="safe_to_spend_footnote">Platby vycházejí z vašich aktivních předplatných. Kreditní karty a půjčky se nepočítají jako peníze k utracení.</string>
+</resources>

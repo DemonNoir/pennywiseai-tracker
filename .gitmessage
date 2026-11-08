@@ -1,0 +1,39 @@
+# <type>(<scope>): <subject>
+#
+# <body>
+#
+# <footer>
+#
+# Type must be one of:
+# - feat:     New feature
+# - fix:      Bug fix
+# - docs:     Documentation only changes
+# - style:    Changes that don't affect code meaning (formatting, etc)
+# - refactor: Code change that neither fixes a bug nor adds a feature
+# - perf:     Performance improvement
+# - test:     Adding missing tests or correcting existing tests
+# - chore:    Changes to build process or auxiliary tools
+#
+# Scope (optional) can be:
+# - parser:   Bank parser related
+# - ui:       User interface changes
+# - sms:      SMS reading/processing
+# - download: Model download manager
+# - chat:     AI chat features
+# - db:       Database changes
+# - build:    Build configuration
+#
+# Subject: Short (50 chars or less) summary in present tense
+#
+# Body (optional): Detailed explanation of what and why (not how)
+#
+# Footer (optional): 
+# - BREAKING CHANGE: description of breaking change
+# - Closes #123, #456
+#
+# Examples:
+# feat(parser): add Karnataka Bank SMS support
+# fix(download): prevent duplicate downloads in background
+# docs: update README with supported banks list
+# perf(sms): optimize scanning for large message counts
+# chore(build): bump version to 2.2.0

@@ -1,0 +1,372 @@
+package com.pennywiseai.tracker.presentation.subscriptions
+
+import com.pennywiseai.tracker.ui.UiText
+import com.pennywiseai.tracker.R
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.pennywiseai.tracker.data.currency.CurrencyConversionService
+import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
+import com.pennywiseai.tracker.data.database.entity.SubscriptionDirection
+import com.pennywiseai.tracker.data.database.entity.SubscriptionEntity
+import com.pennywiseai.tracker.data.database.entity.SubscriptionState
+import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
+import com.pennywiseai.tracker.data.repository.AccountBalanceRepository
+import com.pennywiseai.tracker.data.repository.SubscriptionRepository
+import com.pennywiseai.tracker.domain.spending.RecurringCharge
+import com.pennywiseai.tracker.domain.spending.SubscriptionCost
+import com.pennywiseai.tracker.domain.spending.RecurringSuggestion
+import com.pennywiseai.tracker.domain.usecase.MarkSubscriptionPaidUseCase
+import com.pennywiseai.tracker.domain.usecase.RecurringSuggestionsUseCase
+import com.pennywiseai.tracker.utils.Money
+import com.pennywiseai.tracker.utils.sumByCurrency
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import javax.inject.Inject
+
+@HiltViewModel
+class SubscriptionsViewModel @Inject constructor(
+    private val subscriptionRepository: SubscriptionRepository,
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val currencyConversionService: CurrencyConversionService,
+    private val markSubscriptionPaidUseCase: MarkSubscriptionPaidUseCase,
+    private val transactionRepository: com.pennywiseai.tracker.data.repository.TransactionRepository,
+    private val recurringSuggestionsUseCase: RecurringSuggestionsUseCase,
+    accountBalanceRepository: AccountBalanceRepository,
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(SubscriptionsUiState())
+    val uiState: StateFlow<SubscriptionsUiState> = _uiState.asStateFlow()
+
+    /** Accounts offered as the funding source in the edit dialog (#570). */
+    val accounts: StateFlow<List<AccountBalanceEntity>> =
+        accountBalanceRepository.getAllLatestBalances()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        loadSubscriptions()
+        viewModelScope.launch {
+            recurringSuggestionsUseCase.suggestions.collect { suggestions ->
+                _uiState.value = _uiState.value.copy(suggestions = suggestions)
+            }
+        }
+    }
+
+    /** "Track" on a reviewed suggestion, at the amount the user confirmed. */
+    fun acceptSuggestion(suggestion: RecurringSuggestion, amount: BigDecimal) {
+        viewModelScope.launch {
+            val tracked = recurringSuggestionsUseCase.accept(suggestion, amount)
+            _uiState.value = _uiState.value.copy(
+                markPaidMessage = if (tracked != null) {
+                    UiText.Res(R.string.subscriptions_suggestion_tracked, listOf(suggestion.merchantName))
+                } else {
+                    UiText.Res(R.string.subscriptions_suggestion_already_tracked, listOf(suggestion.merchantName))
+                }
+            )
+        }
+    }
+
+    /** "Not recurring": never suggested again (undoable from the snackbar). */
+    fun dismissSuggestion(suggestion: RecurringSuggestion) {
+        viewModelScope.launch {
+            recurringSuggestionsUseCase.dismiss(suggestion)
+            _uiState.value = _uiState.value.copy(lastDismissedSuggestion = suggestion)
+        }
+    }
+
+    fun undoDismissSuggestion() {
+        val suggestion = _uiState.value.lastDismissedSuggestion ?: return
+        viewModelScope.launch {
+            recurringSuggestionsUseCase.undoDismiss(suggestion)
+            _uiState.value = _uiState.value.copy(lastDismissedSuggestion = null)
+        }
+    }
+
+    fun clearDismissedSuggestion() {
+        _uiState.value = _uiState.value.copy(lastDismissedSuggestion = null)
+    }
+
+    private fun loadSubscriptions() {
+        viewModelScope.launch {
+            combine(
+                subscriptionRepository.getActiveSubscriptions(),
+                subscriptionRepository.getEndedSubscriptions(),
+                userPreferencesRepository.unifiedCurrencyMode,
+                userPreferencesRepository.displayCurrency,
+                userPreferencesRepository.baseCurrency
+            ) { subscriptions, ended, isUnified, displayCurrency, baseCurrency ->
+                arrayOf(subscriptions, ended, isUnified, displayCurrency, baseCurrency)
+            }.collect { values ->
+                @Suppress("UNCHECKED_CAST")
+                val subscriptions = values[0] as List<SubscriptionEntity>
+                @Suppress("UNCHECKED_CAST")
+                val endedSubscriptions = values[1] as List<SubscriptionEntity>
+                val isUnified = values[2] as Boolean
+                val displayCurrency = values[3] as String
+                val baseCurrency = values[4] as String
+                // Unified mode collapses everything into displayCurrency, so a
+                // single figure is honest. Native mode keeps each currency apart —
+                // a ₹ + $ mix can't be one figure — so we expose a per-currency map
+                // the header renders as "₹399 · $30" (no sub silently dropped).
+                // The total is what you pay per month: expenses only (a salary
+                // isn't a cost), each normalized by its billing cycle.
+                val monthlyCosts = subscriptions
+                    .filter { it.direction == SubscriptionDirection.EXPENSE }
+                    .map { it to SubscriptionCost.monthlyEquivalent(it.amount, it.billingCycle) }
+                val totalMonthlyAmount = if (isUnified) {
+                    var total = BigDecimal.ZERO
+                    for ((sub, monthly) in monthlyCosts) {
+                        total += currencyConversionService.convertAmountOrNull(
+                            monthly, sub.currency, displayCurrency
+                        ) ?: continue // never-rated pair — skip, don't face-value (#670)
+                    }
+                    total
+                } else {
+                    BigDecimal.ZERO
+                }
+                val totalByCurrency: Map<String, Money> = if (isUnified) {
+                    emptyMap()
+                } else {
+                    monthlyCosts.sumByCurrency({ it.first.currency }, { it.second })
+                }
+
+                val convertedAmounts = if (isUnified) {
+                    val map = mutableMapOf<Long, BigDecimal>()
+                    for (sub in subscriptions) {
+                        if (!sub.currency.equals(displayCurrency, ignoreCase = true)) {
+                            // Omit unconvertible subs; the row shows its native
+                            // amount + currency rather than a mislabeled figure (#670).
+                            currencyConversionService.convertAmountOrNull(
+                                sub.amount, sub.currency, displayCurrency
+                            )?.let { map[sub.id] = it }
+                        }
+                    }
+                    map
+                } else {
+                    emptyMap()
+                }
+
+                // Order the active list so "needs attention" rises to the
+                // top: unpaid-this-cycle subs first (sorted by next-payment
+                // date ascending, nulls last), recently-paid subs at the
+                // bottom (sorted by last-paid descending).
+                //
+                // Today-anchored cycle check (NOT schedule-anchored — the
+                // schedule slides forward every time we advance, which used
+                // to break this guard once any sub had been marked once).
+                // Same rule as the mark-paid button (RecurringCharge.isRetap),
+                // so a bill the button would accept never reads as paid.
+                val today = java.time.LocalDate.now()
+                val isPaidThisCycle: (com.pennywiseai.tracker.data.database.entity.SubscriptionEntity) -> Boolean = { sub ->
+                    sub.lastPaidAt?.let { lastPaid ->
+                        val nextLegitMark = subscriptionRepository.advance(lastPaid, sub.billingCycle)
+                        sub.nextPaymentDate?.let { RecurringCharge.isRetap(lastPaid, nextLegitMark, it, today) }
+                            ?: today.isBefore(nextLegitMark)
+                    } ?: false
+                }
+                val (paid, unpaid) = subscriptions.partition(isPaidThisCycle)
+                val ordered = unpaid.sortedWith(
+                    compareBy(nullsLast()) { it.nextPaymentDate },
+                ) + paid.sortedByDescending { it.lastPaidAt }
+                val paidIds = paid.map { it.id }.toSet()
+
+                _uiState.value = _uiState.value.copy(
+                    activeSubscriptions = ordered,
+                    paidThisCycleIds = paidIds,
+                    paidThisCycleCount = paid.size,
+                    endedSubscriptions = endedSubscriptions,
+                    totalMonthlyAmount = totalMonthlyAmount,
+                    totalByCurrency = totalByCurrency,
+                    convertedAmounts = convertedAmounts,
+                    displayCurrency = if (isUnified) displayCurrency else baseCurrency,
+                    isUnifiedMode = isUnified,
+                    isLoading = false
+                )
+            }
+        }
+    }
+    
+    fun hideSubscription(subscriptionId: Long) {
+        viewModelScope.launch {
+            subscriptionRepository.hideSubscription(subscriptionId)
+            _uiState.value = _uiState.value.copy(
+                lastHiddenSubscription = _uiState.value.activeSubscriptions.find { it.id == subscriptionId }
+            )
+        }
+    }
+
+    fun undoHide() {
+        _uiState.value.lastHiddenSubscription?.let { subscription ->
+            viewModelScope.launch {
+                subscriptionRepository.unhideSubscription(subscription.id)
+                _uiState.value = _uiState.value.copy(lastHiddenSubscription = null)
+            }
+        }
+    }
+
+    fun markAsEnded(subscriptionId: Long) {
+        viewModelScope.launch {
+            val snapshot = _uiState.value.activeSubscriptions.find { it.id == subscriptionId }
+            subscriptionRepository.markAsEnded(subscriptionId)
+            _uiState.value = _uiState.value.copy(lastEndedSubscription = snapshot)
+        }
+    }
+
+    fun undoEnd() {
+        _uiState.value.lastEndedSubscription?.let { subscription ->
+            viewModelScope.launch {
+                subscriptionRepository.reactivateSubscription(subscription.id)
+                _uiState.value = _uiState.value.copy(lastEndedSubscription = null)
+            }
+        }
+    }
+
+    fun reactivateSubscription(subscriptionId: Long) {
+        viewModelScope.launch {
+            subscriptionRepository.reactivateSubscription(subscriptionId)
+        }
+    }
+
+    fun updateSubscription(
+        id: Long,
+        merchantName: String,
+        amount: BigDecimal,
+        nextPaymentDate: java.time.LocalDate?,
+        category: String?,
+        account: AccountBalanceEntity?,
+        accountChanged: Boolean,
+    ) {
+        viewModelScope.launch {
+            val existing = subscriptionRepository.getSubscriptionById(id) ?: return@launch
+            subscriptionRepository.updateSubscription(
+                existing.copy(
+                    merchantName = merchantName.trim(),
+                    amount = amount,
+                    nextPaymentDate = nextPaymentDate,
+                    category = category?.trim()?.takeIf { it.isNotEmpty() },
+                    // Only re-key the funding account when the user actually touched
+                    // the picker. Otherwise keep what's stored — the dialog can't
+                    // pre-select an account that isn't in the balance list yet (e.g.
+                    // one auto-captured from an SMS mandate), so blindly writing the
+                    // picker's null would wipe that assignment. Picking clears via
+                    // "No account" still work because that flips accountChanged. (#570)
+                    bankName = if (accountChanged) account?.bankName ?: "Manual Entry" else existing.bankName,
+                    accountLast4 = if (accountChanged) account?.accountLast4 else existing.accountLast4,
+                    updatedAt = java.time.LocalDateTime.now()
+                )
+            )
+        }
+    }
+
+    fun deleteSubscription(subscriptionId: Long) {
+        viewModelScope.launch {
+            subscriptionRepository.deleteSubscription(subscriptionId)
+        }
+    }
+
+    /**
+     * #412 — user-initiated "mark as paid" (or "mark as received" for
+     * income-direction subscriptions). Creates the transaction + advances
+     * the schedule, then publishes a snackbar message the UI consumes.
+     */
+    fun markAsPaid(subscriptionId: Long, paymentDate: java.time.LocalDate) {
+        viewModelScope.launch {
+            val result = markSubscriptionPaidUseCase.execute(subscriptionId, paymentDate)
+            val merchant = _uiState.value.activeSubscriptions.find { it.id == subscriptionId }?.merchantName
+                ?: "Subscription"
+            val message = when (result) {
+                is MarkSubscriptionPaidUseCase.Result.Created ->
+                    UiText.Res(R.string.subscriptions_msg_marked_paid, listOf(merchant, "${result.nextPaymentDate}"))
+                is MarkSubscriptionPaidUseCase.Result.Linked ->
+                    UiText.Res(R.string.subscriptions_msg_linked, listOf(merchant, "${result.nextPaymentDate}"))
+                is MarkSubscriptionPaidUseCase.Result.AlreadyMarked ->
+                    UiText.Res(R.string.subscriptions_msg_already_marked, listOf(merchant, "${result.nextPaymentDate}"))
+                MarkSubscriptionPaidUseCase.Result.NoScheduledDate ->
+                    UiText.Res(R.string.subscriptions_msg_no_scheduled_date, listOf(merchant))
+                MarkSubscriptionPaidUseCase.Result.SubscriptionNotFound ->
+                    UiText.Res(R.string.subscriptions_msg_not_found)
+            }
+            _uiState.value = _uiState.value.copy(markPaidMessage = message)
+        }
+    }
+
+    /** UI calls this after consuming the snackbar message. */
+    fun clearMarkPaidMessage() {
+        _uiState.value = _uiState.value.copy(markPaidMessage = null)
+    }
+
+    /**
+     * Suggested-payment candidates for the mark-as-paid sheet (#412
+     * follow-up). When an EXPENSE subscription is on auto-pay, the bank
+     * SMS already created a transaction — we surface those here so the
+     * user can link instead of creating a duplicate phantom.
+     *
+     * Matching: case-insensitive merchant exact + amount exact (±₹0.01)
+     * over the last 30 days, EXPENSE only, excluding phantoms we've
+     * created ourselves. Amount match is required — a one-off ₹789
+     * Netflix purchase shouldn't surface as a candidate for a ₹499 sub.
+     */
+    suspend fun candidatesFor(
+        sub: SubscriptionEntity,
+    ): List<com.pennywiseai.tracker.data.database.entity.TransactionEntity> {
+        val cutoff = java.time.LocalDate.now().minusDays(30).atStartOfDay()
+        return transactionRepository.findRecentExpensesByMerchantAndAmount(
+            merchant = sub.merchantName,
+            amount = sub.amount,
+            since = cutoff,
+            limit = 5,
+        )
+    }
+
+    /**
+     * Link an existing bank-derived transaction as this subscription's
+     * current-cycle payment. Advances the schedule; doesn't duplicate.
+     */
+    fun linkExistingTransaction(subscriptionId: Long, transactionId: Long) {
+        viewModelScope.launch {
+            val result = markSubscriptionPaidUseCase.linkExisting(subscriptionId, transactionId)
+            val merchant = _uiState.value.activeSubscriptions.find { it.id == subscriptionId }?.merchantName
+                ?: "Subscription"
+            val message = when (result) {
+                is MarkSubscriptionPaidUseCase.Result.Linked ->
+                    UiText.Res(R.string.subscriptions_msg_linked_existing, listOf(merchant, "${result.nextPaymentDate}"))
+                MarkSubscriptionPaidUseCase.Result.NoScheduledDate ->
+                    UiText.Res(R.string.subscriptions_msg_no_scheduled_date, listOf(merchant))
+                MarkSubscriptionPaidUseCase.Result.SubscriptionNotFound ->
+                    UiText.Res(R.string.subscriptions_msg_not_found)
+                else -> UiText.Res(R.string.subscriptions_msg_linked_generic)
+            }
+            _uiState.value = _uiState.value.copy(markPaidMessage = message)
+        }
+    }
+}
+
+data class SubscriptionsUiState(
+    val activeSubscriptions: List<SubscriptionEntity> = emptyList(),
+    /** IDs of subs in [activeSubscriptions] whose current cycle is paid — used to drive the row badge. */
+    val paidThisCycleIds: Set<Long> = emptySet(),
+    /** Count of subs in [activeSubscriptions] whose current cycle is paid. */
+    val paidThisCycleCount: Int = 0,
+    val endedSubscriptions: List<SubscriptionEntity> = emptyList(),
+    /** Unified-mode header total, already converted to [displayCurrency]. */
+    val totalMonthlyAmount: BigDecimal = BigDecimal.ZERO,
+    /** Native-mode header totals, kept per-currency so no sub is dropped. */
+    val totalByCurrency: Map<String, Money> = emptyMap(),
+    val convertedAmounts: Map<Long, BigDecimal> = emptyMap(),
+    val displayCurrency: String? = null,
+    val isUnifiedMode: Boolean = false,
+    val isLoading: Boolean = true,
+    val lastHiddenSubscription: SubscriptionEntity? = null,
+    val lastEndedSubscription: SubscriptionEntity? = null,
+    /** Snackbar text after a mark-as-paid action; cleared by [SubscriptionsViewModel.clearMarkPaidMessage]. */
+    val markPaidMessage: UiText? = null,
+    /** Repeating payments found in history that aren't tracked yet. Never counted in the totals. */
+    val suggestions: List<RecurringSuggestion> = emptyList(),
+    val lastDismissedSuggestion: RecurringSuggestion? = null,
+)
