@@ -64,8 +64,7 @@ solely because a scheduled run happens later.
    approve pull requests**. The bot creates PRs; it does not approve them.
    Repository or organization policy must permit the declared `contents: write`
    and `pull-requests: write` permissions for the publishing job. Build jobs use
-   read-only access. No personal access token or release signing secret is
-   required for this workflow.
+   read-only access. No personal access token is required for upstream sync.
 4. Run **Tests** manually on the intended source baseline first. Then run
    **Upstream Sync** manually with `dry-run` enabled and inspect the summary
    and report. When ready to publish a candidate, rerun with `dry-run` disabled;
@@ -139,6 +138,31 @@ rejected. `SYNC_UPSTREAM_URL` and `SYNC_UPSTREAM_BRANCH` can point to local
 fixture repositories for conflict/no-update tests.
 
 Local checks cannot establish GitHub permissions, hosted-runner availability,
-schedule activation, or successful artifact upload. At documentation handoff,
-the first hosted workflow result is pending; record its run URL and outcome
-separately rather than treating local verification as a hosted pass.
+schedule activation, or successful artifact upload. The first hosted baseline
+passed in [run 42495200828](https://github.com/DemonNoir/pennywiseai-tracker/actions/runs/42495200828).
+
+## Standard debug and release APKs
+
+CI also builds `standardRelease` separately with R8 and resource shrinking.
+`standard-debug-build` and `standard-release-build` are intermediate artifacts
+with temporary CI signatures. The release intermediate contains the universal
+APK; the variants are built in separate Gradle invocations so F-Droid task
+selection does not affect standard release signing or ABI splits.
+
+After all checks pass, an isolated job signs both standard variants using the
+optional `PERSONAL_APK_KEYSTORE_BASE64` repository secret. This is the existing
+personal Android debug keystore (alias/password `androiddebugkey`/`android`),
+whose public certificate fingerprint is checked in the workflow. It is suitable
+for this personal build, and is not a production Play Store signing identity.
+The signing job runs no repository code and receives APK artifacts only. PR
+runs never receive the key. The reusable upstream workflow passes only this
+secret to the signing job; Gradle build/test jobs do not reference it.
+
+Final download names are `standard-debug-apk` and `standard-release-apk`.
+Without the secret, CI reports that stable signing is unavailable and leaves
+only intermediate builds. Do not treat those as updates for the installed app.
+Release uses `com.pennywiseai.tracker`; debug uses
+`com.pennywiseai.tracker.debug`, so they can be installed alongside each other.
+Updating an existing installation also requires a compatible version code;
+Android will reject a downgrade. Creating an artifact does not publish a
+GitHub release or change the application's version.
