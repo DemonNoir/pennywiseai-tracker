@@ -2,8 +2,12 @@ name: Upstream Sync
 
 on:
   schedule:
-    # 08:17 Asia/Bangkok. GitHub schedules can be delayed.
-    - cron: '17 1 * * *'
+    # Sundays at 08:17 Asia/Bangkok. GitHub schedules can be delayed.
+    - cron: '17 1 * * 0'
+  # An authenticated sender can notify us when upstream changes. No sender is
+  # installed on upstream; the weekly schedule remains the active fallback.
+  repository_dispatch:
+    types: [upstream_updated]
   workflow_dispatch:
     inputs:
       base-ref:

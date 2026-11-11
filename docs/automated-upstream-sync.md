@@ -1,7 +1,7 @@
 # Automated upstream updates
 
-`Upstream Sync` prepares an upstream update for this custom fork. It runs daily
-at 01:17 UTC (08:17 Asia/Bangkok), and can be started from **Actions → Upstream
+`Upstream Sync` prepares an upstream update for this custom fork. It runs weekly
+on Sunday at 01:17 UTC (08:17 Asia/Bangkok), and can be started from **Actions → Upstream
 Sync → Run workflow**. The workflow is restricted to
 `DemonNoir/pennywiseai-tracker` and uses
 `sarim2000/pennywiseai-tracker`'s `main` as upstream. Scheduled runs use the
@@ -10,6 +10,26 @@ fork's `master` as their base and publish candidates. Manual runs accept
 enabled to prepare a merge and report without publishing a branch or PR.
 Candidate build/tests run only after publishing, so a successful dry run does
 not establish that the candidate builds.
+
+## Immediate upstream notifications
+
+The workflow also accepts the authenticated `repository_dispatch` event
+`upstream_updated`. This receiver is ready, but an upstream sender is not
+installed. A push to the upstream repository does not automatically dispatch
+an event to this repository. Configuring a webhook on upstream requires its
+owner/admin's cooperation; the connected account currently has read access
+there. See [GitHub webhook permissions](https://docs.github.com/en/webhooks/types-of-webhooks).
+
+If the upstream owner connects a webhook relay or an upstream workflow, its
+authenticated sender can call `POST /repos/DemonNoir/pennywiseai-tracker/dispatches`
+with `{"event_type":"upstream_updated"}`. The sender needs credentials that
+permit repository dispatches to this custom repo. The receiver always uses our
+configured `master` and upstream `main`; it does not take refs, repository URLs,
+or shell commands from the event payload. See [GitHub repository dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#repository_dispatch).
+
+Until that sender exists, the weekly schedule performs the checks. A run with
+no new upstream commits exits before building APKs. Manual runs remain
+available at any time.
 
 ## What happens
 
